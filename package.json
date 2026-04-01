@@ -1,0 +1,31 @@
+{
+  "name": "vehicle-categories",
+  "version": "1.0.0",
+  "description": "A React Native app showcasing vehicle categories using Expo",
+  "main": "node_modules/expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "eject": "expo eject",
+    "build:android-apk": "eas build --platform android --local",
+    "build:android-aab": "eas build --platform android --local",
+    "preview": "eas build --platform android --profile preview --local"
+  },
+  "dependencies": {
+    "@expo/metro-runtime": "~3.1.3",
+    "expo": "~50.0.0",
+    "expo-status-bar": "~1.11.0",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-native": "0.73.0",
+    "react-native-web": "~0.19.6"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.20.0",
+    "@types/react": "~18.2.0",
+    "@types/react-native": "~0.73.0"
+  },
+  "private": true
+}
