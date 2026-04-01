@@ -9,7 +9,6 @@ pluginManagement {
 
 plugins {
   id("com.facebook.react.settings")
-  id("expo-autolinking-settings")
 }
 
 extensions.configure(com.facebook.react.ReactSettingsExtension) { ex ->
