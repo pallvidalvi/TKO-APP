@@ -1,4 +1,5 @@
-// Root build.gradle
+// Top-level build.gradle
+
 buildscript {
     ext {
         buildToolsVersion = "34.0.0"
@@ -11,17 +12,16 @@ buildscript {
     repositories {
         google()
         mavenCentral()
-        maven { url 'https://www.jitpack.io' } // for any external dependencies
+        maven { url 'https://www.jitpack.io' }
     }
 
     dependencies {
-        classpath("com.android.tools.build:gradle:8.2.1")               // Android Gradle Plugin
+        classpath("com.android.tools.build:gradle:8.2.1")         // Android Gradle Plugin
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion") // Kotlin
-        classpath("com.facebook.react:react-native-gradle-plugin")       // RN Plugin
+        // ⚠️ DO NOT add react-native-gradle-plugin here
     }
 }
 
-// All projects repository config
 allprojects {
     repositories {
         google()
@@ -29,32 +29,3 @@ allprojects {
         maven { url 'https://www.jitpack.io' }
     }
 }
-
-// Apply the React Native root project plugin
-apply plugin: "com.facebook.react.rootproject"
-
-// Optional: set root project name (quote if folder has spaces)
-rootProject.name = "TKO APP"
-
-// ✅ Plugin Module Configuration
-// If you have a plugin module like :gradle-plugin:settings-plugin
-// Make sure its build.gradle contains:
-
-// Example plugin module build.gradle (gradle-plugin/settings-plugin/build.gradle)
-plugins {
-    id 'kotlin' version '1.9.22'
-    id 'java-gradle-plugin'
-}
-
-repositories {
-    google()
-    mavenCentral()
-}
-
-dependencies {
-    implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.22"
-}
-
-// If using Android code inside plugin module, also apply AGP
-// apply plugin: 'com.android.library'
-// And set android { compileSdkVersion, etc. } if needed

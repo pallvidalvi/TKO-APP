@@ -1,28 +1,14 @@
 pluginManagement {
     repositories {
+        gradlePluginPortal()
         google()
         mavenCentral()
-        gradlePluginPortal()
+        maven {
+            url = uri('../node_modules/react-native/gradle-plugin')
+        }
     }
-    includeBuild("../node_modules/@react-native/gradle-plugin")
 }
 
-plugins {
-  id("com.facebook.react.settings")
-}
-
-extensions.configure(com.facebook.react.ReactSettingsExtension) { ex ->
-  if (System.getenv('EXPO_USE_COMMUNITY_AUTOLINKING') == '1') {
-    ex.autolinkLibrariesFromCommand()
-  } else {
-    ex.autolinkLibrariesFromCommand(expoAutolinking.rnConfigCommand)
-  }
-}
-expoAutolinking.useExpoModules()
-
-rootProject.name = 'VehicleCategories'
-
-expoAutolinking.useExpoVersionCatalog()
+rootProject.name = "TKO_APP"
 
 include ':app'
-includeBuild(expoAutolinking.reactNativeGradlePlugin)
