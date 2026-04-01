@@ -31,8 +31,9 @@
     "plugins": [],
     "extra": {
       "eas": {
-        "projectId": "your-project-id-here"
+        "projectId": "aae93d20-1e10-46f1-b02b-3948be623f75"
       }
-    }
+    },
+    "owner": "pallvi.dalvi"
   }
 }
