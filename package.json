@@ -1,33 +1,36 @@
 {
-  "name": "vehicle-categories",
+  "name": "tko-ground-zero",
   "version": "1.0.0",
-  "description": "A React Native app showcasing vehicle categories using Expo",
+  "description": "TKO Ground Zero - A React Native Expo app for vehicle rally tracking with penalties and performance analytics",
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "eject": "expo eject",
-    "build:android-apk": "eas build --platform android --local",
-    "build:android-aab": "eas build --platform android --local",
-    "preview": "eas build --platform android --profile preview --local"
+    "build": "eas build --platform android",
+    "build-local": "eas build --platform android --local",
+    "build-preview": "eas build --platform android --profile preview"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.0",
     "expo": "~54.0.0",
-    "expo-file-system": "^55.0.12",
-    "expo-sharing": "^55.0.14",
+    "expo-file-system": "~19.0.0",
+    "expo-sharing": "~14.0.0",
     "expo-status-bar": "~3.0.0",
-    "react": "18.2.0",
-    "react-dom": "19.1.0",
-    "react-native": "^0.72.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-native": "0.84.1",
     "react-native-web": "~0.21.0"
+  },
+  "expo": {
+    "install": {
+      "exclude": []
+    }
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
-    "@types/react": "~19.1.0",
-    "@types/react-native": "~0.73.0"
+    "@types/react": "~19.1.0"
   },
   "private": true
 }

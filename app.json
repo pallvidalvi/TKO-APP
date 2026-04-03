@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "Vehicle Categories",
+    "name": "TKO-Ground Zero",
     "slug": "vehicle-categories",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -24,11 +24,16 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.vehiclecategories.app",
-      "versionCode": 1,
-      "permissions": []
+      "versionCode": 2,
+      "permissions": [],
+      "targetSdkVersion": 34,
+      "minSdkVersion": 21
     },
     "web": {},
     "plugins": [],
+    "cli": {
+      "appVersionSource": "local"
+    },
     "extra": {
       "eas": {
         "projectId": "aae93d20-1e10-46f1-b02b-3948be623f75"

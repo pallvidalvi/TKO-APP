@@ -182,32 +182,88 @@ const CustomDropdown = ({ label, value, options, onValueChange }) => {
 };
 
 /**
+ * PenaltyCounter Component
+ * Provides increment/decrement buttons with manual input for penalty counts
+ */
+const PenaltyCounter = ({ label, count, onCountChange, penaltyTime }) => {
+  const handleIncrement = () => {
+    onCountChange(String((parseInt(count) || 0) + 1));
+  };
+
+  const handleDecrement = () => {
+    const newValue = Math.max(0, (parseInt(count) || 0) - 1);
+    onCountChange(String(newValue));
+  };
+
+  return (
+    <View style={styles.penaltyRow}>
+      <View style={styles.penaltyInputContainer}>
+        <Text style={styles.penaltyLabel}>{label}</Text>
+        <View style={styles.counterContainer}>
+          <TouchableOpacity
+            style={styles.counterButton}
+            onPress={handleDecrement}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.counterButtonText}>−</Text>
+          </TouchableOpacity>
+          <TextInput
+            style={styles.counterInput}
+            value={count}
+            editable={false}
+            keyboardType="number-pad"
+            maxLength={3}
+            placeholder="0"
+            placeholderTextColor="#ccc"
+          />
+          <TouchableOpacity
+            style={styles.counterButton}
+            onPress={handleIncrement}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.counterButtonText}>+</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+      <View style={styles.penaltyValueContainer}>
+        <Text style={styles.penaltyValue}>{penaltyTime}s</Text>
+      </View>
+    </View>
+  );
+};
+
+/**
  * Registration Form Modal Component
  * Displays form for player details and penalties
  */
 const RegistrationForm = ({ visible, category, onClose, onSubmit }) => {
   // Driver Details
+  const [trackName, setTrackName] = useState('');
   const [srNo, setSrNo] = useState('');
   const [stickerNumber, setStickerNumber] = useState('');
   const [driverName, setDriverName] = useState('');
   const [coDriverName, setCoDriverName] = useState('');
+  const [isDetailsConfirmed, setIsDetailsConfirmed] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [isVehicleDetailsExpanded, setIsVehicleDetailsExpanded] = useState(true);
 
   // Penalties Section (with count inputs)
   const [bustingCount, setBustingCount] = useState('0');
   const [seatbeltCount, setSeatbeltCount] = useState('0');
   const [groundTouchCount, setGroundTouchCount] = useState('0');
   const [lateStartCount, setLateStartCount] = useState('0');
-  const [behaviourCount, setBehaviourCount] = useState('0');
+
+  // Task Skipped Section (with count inputs)
+  const [attemptCount, setAttemptCount] = useState('0');
+  const [taskSkippedCount, setTaskSkippedCount] = useState('0');
 
   // DNF Section (with count inputs)
-  const [taskSkippedCount, setTaskSkippedCount] = useState('0');
   const [wrongCourseCount, setWrongCourseCount] = useState('0');
   const [fourthAttemptCount, setFourthAttemptCount] = useState('0');
 
-  // Stopwatch
+  // Stopwatch (in milliseconds)
   const [stopwatchTime, setStopwatchTime] = useState(0);
   const [isStopwatchRunning, setIsStopwatchRunning] = useState(false);
-  const [performanceTime, setPerformanceTime] = useState('');
 
   // Penalty multipliers
   const PENALTY_VALUES = {
@@ -215,7 +271,7 @@ const RegistrationForm = ({ visible, category, onClose, onSubmit }) => {
     seatbelt: 30,
     groundTouch: 30,
     lateStart: 30,
-    behaviour: 30,
+    attempt: 30,
     taskSkipped: 60,
     wrongCourse: 60,
     fourthAttempt: 60,
@@ -232,38 +288,45 @@ const RegistrationForm = ({ visible, category, onClose, onSubmit }) => {
   const seatbeltPenaltyTime = calculatePenaltyTime(seatbeltCount, PENALTY_VALUES.seatbelt);
   const groundTouchPenaltyTime = calculatePenaltyTime(groundTouchCount, PENALTY_VALUES.groundTouch);
   const lateStartPenaltyTime = calculatePenaltyTime(lateStartCount, PENALTY_VALUES.lateStart);
-  const behaviourPenaltyTime = calculatePenaltyTime(behaviourCount, PENALTY_VALUES.behaviour);
 
+  const attemptPenaltyTime = calculatePenaltyTime(attemptCount, PENALTY_VALUES.attempt);
   const taskSkippedPenaltyTime = calculatePenaltyTime(taskSkippedCount, PENALTY_VALUES.taskSkipped);
+  
+  // DNF penalties (not included in total penalties time)
   const wrongCoursePenaltyTime = calculatePenaltyTime(wrongCourseCount, PENALTY_VALUES.wrongCourse);
   const fourthAttemptPenaltyTime = calculatePenaltyTime(fourthAttemptCount, PENALTY_VALUES.fourthAttempt);
 
-  // Total calculations
+  // Total calculations - excluding DNF section
   const totalPenaltiesTime = 
     bustingPenaltyTime + 
     seatbeltPenaltyTime + 
     groundTouchPenaltyTime + 
-    lateStartPenaltyTime + 
-    behaviourPenaltyTime +
-    taskSkippedPenaltyTime +
-    wrongCoursePenaltyTime +
-    fourthAttemptPenaltyTime;
+    lateStartPenaltyTime +
+    attemptPenaltyTime +
+    taskSkippedPenaltyTime;
 
-  const completionTimeInSeconds = stopwatchTime;
+  const completionTimeInSeconds = Math.floor(stopwatchTime / 1000);
   const totalTime = totalPenaltiesTime + completionTimeInSeconds;
 
-  // Stopwatch effect
+  // Stopwatch effect - tracks milliseconds
   useEffect(() => {
     let interval;
     if (isStopwatchRunning) {
       interval = setInterval(() => {
-        setStopwatchTime((prevTime) => prevTime + 1);
-      }, 1000);
+        setStopwatchTime((prevTime) => prevTime + 10); // increment by 10ms
+      }, 10);
     }
     return () => {
       if (interval) clearInterval(interval);
     };
   }, [isStopwatchRunning]);
+
+  // Reset form when modal becomes visible
+  useEffect(() => {
+    if (visible && category) {
+      resetForm();
+    }
+  }, [visible, category]);
 
   const toggleStopwatch = () => {
     setIsStopwatchRunning(!isStopwatchRunning);
@@ -276,14 +339,22 @@ const RegistrationForm = ({ visible, category, onClose, onSubmit }) => {
   const resetStopwatch = () => {
     setStopwatchTime(0);
     setIsStopwatchRunning(false);
-    setCompletionTime('');
   };
 
-  const formatTime = (seconds) => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
+  // Format time for stopwatch display: MM:SS:MS
+  const formatTime = (milliseconds) => {
+    const totalSeconds = Math.floor(milliseconds / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    const ms = Math.floor((milliseconds % 1000) / 10); // convert to centiseconds (2 digits)
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}:${ms.toString().padStart(2, '0')}`;
+  };
+
+  // Format time with full milliseconds for summary: MM:SS:MS
+  const formatTimeWithMs = (seconds) => {
+    const minutes = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}:00`;
   };
 
   const handleSubmit = () => {
@@ -299,23 +370,26 @@ const RegistrationForm = ({ visible, category, onClose, onSubmit }) => {
     const formattedCompletionTime = formatTime(stopwatchTime);
 
     const formData = {
+      trackName,
       category: category?.name || '',
       srNo,
       stickerNumber,
       driverName,
       coDriverName,
       completionTime: formattedCompletionTime,
-      completionTimeSeconds: stopwatchTime,
+      completionTimeSeconds: completionTimeInSeconds,
       
       // Penalties counts
       bustingCount,
       seatbeltCount,
       groundTouchCount,
       lateStartCount,
-      behaviourCount,
+      
+      // Task Skipped counts
+      attemptCount,
+      taskSkippedCount,
       
       // DNF counts
-      taskSkippedCount,
       wrongCourseCount,
       fourthAttemptCount,
       
@@ -324,7 +398,7 @@ const RegistrationForm = ({ visible, category, onClose, onSubmit }) => {
       seatbeltPenaltyTime,
       groundTouchPenaltyTime,
       lateStartPenaltyTime,
-      behaviourPenaltyTime,
+      attemptPenaltyTime,
       taskSkippedPenaltyTime,
       wrongCoursePenaltyTime,
       fourthAttemptPenaltyTime,
@@ -343,15 +417,19 @@ const RegistrationForm = ({ visible, category, onClose, onSubmit }) => {
   };
 
   const resetForm = () => {
+    setTrackName('');
     setSrNo('');
     setStickerNumber('');
     setDriverName('');
     setCoDriverName('');
+    setIsDetailsConfirmed(false);
+    setIsEditMode(false);
+    setIsVehicleDetailsExpanded(true);
     setBustingCount('0');
     setSeatbeltCount('0');
     setGroundTouchCount('0');
     setLateStartCount('0');
-    setBehaviourCount('0');
+    setAttemptCount('0');
     setTaskSkippedCount('0');
     setWrongCourseCount('0');
     setFourthAttemptCount('0');
@@ -363,10 +441,43 @@ const RegistrationForm = ({ visible, category, onClose, onSubmit }) => {
     onClose();
   };
 
+  const handleConfirmDetails = () => {
+    if (!trackName.trim()) {
+      Alert.alert('Error', 'Please select Track Name');
+      return;
+    }
+    if (!stickerNumber.trim()) {
+      Alert.alert('Error', 'Please enter Sticker Number');
+      return;
+    }
+    if (!driverName.trim()) {
+      Alert.alert('Error', 'Please enter Driver Name');
+      return;
+    }
+    if (!coDriverName.trim()) {
+      Alert.alert('Error', 'Please enter Co-Driver Name');
+      return;
+    }
+    setIsDetailsConfirmed(true);
+    setIsEditMode(false);
+    setIsVehicleDetailsExpanded(false);
+  };
+
+  const handleEditDetails = () => {
+    setIsEditMode(true);
+    setIsVehicleDetailsExpanded(true);
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditMode(false);
+    setIsVehicleDetailsExpanded(false);
+  };
+
   const generateAndDownloadExcel = async (data) => {
     try {
       // Prepare CSV headers - matching the TKO form structure
       const headers = [
+        'Track Name',
         'Sr.No.',
         'Sticker No.',
         'Driver Name',
@@ -379,8 +490,8 @@ const RegistrationForm = ({ visible, category, onClose, onSubmit }) => {
         'Ground Touch (Time)',
         'Late Start (Count)',
         'Late Start (Time)',
-        'Behaviour (Count)',
-        'Behaviour (Time)',
+        'Attempt (Count)',
+        'Attempt (Time)',
         'Task Skipped (Count)',
         'Task Skipped (Time)',
         'Wrong Course (Count)',
@@ -388,15 +499,15 @@ const RegistrationForm = ({ visible, category, onClose, onSubmit }) => {
         '4th Attempt (Count)',
         '4th Attempt (Time)',
         'Total Penalties Time (sec)',
-        'Completion Time (sec)',
-        'Total Time (sec)',
-        'Completion Time (HH:MM:SS)',
+        'Performance Time (MM:SS:MS)',
+        'Total Time (MM:SS:MS)',
         'Submission Date',
       ];
 
       // Prepare data row
       const rows = [
         [
+          data.trackName,
           data.srNo || '',
           data.stickerNumber,
           data.driverName,
@@ -409,8 +520,8 @@ const RegistrationForm = ({ visible, category, onClose, onSubmit }) => {
           data.groundTouchPenaltyTime,
           data.lateStartCount,
           data.lateStartPenaltyTime,
-          data.behaviourCount,
-          data.behaviourPenaltyTime,
+          data.attemptCount,
+          data.attemptPenaltyTime,
           data.taskSkippedCount,
           data.taskSkippedPenaltyTime,
           data.wrongCourseCount,
@@ -418,15 +529,14 @@ const RegistrationForm = ({ visible, category, onClose, onSubmit }) => {
           data.fourthAttemptCount,
           data.fourthAttemptPenaltyTime,
           data.totalPenaltiesTime,
-          data.completionTimeSeconds,
-          data.totalTime,
-          data.completionTime,
+          formatTimeWithMs(data.completionTimeSeconds),
+          formatTimeWithMs(data.totalTime),
           new Date().toLocaleString(),
         ],
       ];
 
-      // Generate file name: categoryName_driverName.csv
-      const fileName = `${data.category}_${data.driverName}.csv`;
+      // Generate file name: categoryName - trackName.csv
+      const fileName = `${data.category} - ${data.trackName}.csv`;
 
       // Download file (works on both web and mobile)
       await CSVExporter.downloadFile(fileName, headers, rows);
@@ -449,12 +559,13 @@ const RegistrationForm = ({ visible, category, onClose, onSubmit }) => {
       animationType="fade"
       onRequestClose={handleClose}
     >
+      {category ? (
       <View style={styles.fullPageContainer}>
         <View style={styles.fullPageContent}>
           {/* Header */}
           <View style={styles.formHeader}>
             <Text style={styles.formTitle}>
-              Track Information - {category?.name}
+              Category {category.name}{trackName ? ` - ${trackName}` : ''}
             </Text>
             <TouchableOpacity onPress={handleClose}>
               <Text style={styles.closeButton}>✕</Text>
@@ -462,273 +573,291 @@ const RegistrationForm = ({ visible, category, onClose, onSubmit }) => {
           </View>
 
           <ScrollView style={styles.formScroll}>
-            {/* Stopwatch Section */}
-            <View style={styles.stopwatchSection}>
-              <Text style={styles.stopwatchTitle}>⏱️ Stopwatch</Text>
-              <View style={styles.stopwatchContainer}>
-                <Text style={styles.stopwatchDisplay}>{formatTime(stopwatchTime)}</Text>
-              </View>
-              <View style={styles.stopwatchButtonsContainer}>
-                <TouchableOpacity
-                  style={[styles.stopwatchButton, isStopwatchRunning && styles.stopwatchButtonActive]}
-                  onPress={toggleStopwatch}
-                >
-                  <Text style={styles.stopwatchButtonText}>
-                    {isStopwatchRunning ? 'Stop' : 'Start'}
+            {/* Section 1: Vehicle Details Accordion */}
+            <View style={styles.section}>
+              {/* Accordion Header */}
+              <TouchableOpacity
+                style={styles.accordionHeader}
+                onPress={() => setIsVehicleDetailsExpanded(!isVehicleDetailsExpanded)}
+              >
+                <View style={styles.accordionTitleContainer}>
+                  <Text style={styles.accordionTitle}>
+                    {isDetailsConfirmed && !isEditMode
+                      ? `Vehicle details: ${stickerNumber} - ${driverName}`
+                      : 'Vehicle Details'}
                   </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.stopwatchButton}
-                  onPress={resetStopwatch}
-                >
-                  <Text style={styles.stopwatchButtonText}>Reset</Text>
-                </TouchableOpacity>
-              </View>
+                </View>
+                <Text style={styles.accordionArrow}>
+                  {isVehicleDetailsExpanded ? '▼' : '▶'}
+                </Text>
+                {isDetailsConfirmed && !isEditMode && (
+                  <TouchableOpacity onPress={handleEditDetails}>
+                    <Text style={styles.editIcon}>✏️</Text>
+                  </TouchableOpacity>
+                )}
+              </TouchableOpacity>
+
+              {/* Accordion Content - Only show if expanded */}
+              {isVehicleDetailsExpanded && (
+                <View style={styles.accordionContent}>
+                  {/* Track Name Dropdown List */}
+                  <View style={styles.formGroup}>
+                    <Text style={styles.label}>Track Name *</Text>
+                    <View style={styles.dropdownListContainer}>
+                      {['Rajgad', 'Pratapgad', 'Sinhgad'].map((track) => (
+                        <TouchableOpacity
+                          key={track}
+                          style={[
+                            styles.dropdownListItem,
+                            trackName === track && styles.dropdownListItemSelected,
+                            isDetailsConfirmed &&
+                              !isEditMode &&
+                              styles.disabledDropdownListItem,
+                          ]}
+                          onPress={() => {
+                            if (!isDetailsConfirmed || isEditMode) {
+                              setTrackName(track);
+                            }
+                          }}
+                          disabled={isDetailsConfirmed && !isEditMode}
+                        >
+                          <Text
+                            style={[
+                              styles.dropdownListItemText,
+                              trackName === track &&
+                                styles.dropdownListItemTextSelected,
+                            ]}
+                          >
+                            {track}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+
+                  {/* Sticker Number */}
+                  <View style={styles.formGroup}>
+                    <Text style={styles.label}>Sticker Number *</Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        isDetailsConfirmed && !isEditMode && styles.disabledInput,
+                      ]}
+                      placeholder="Enter sticker number"
+                      placeholderTextColor="#999"
+                      value={stickerNumber}
+                      onChangeText={setStickerNumber}
+                      keyboardType="number-pad"
+                      editable={!isDetailsConfirmed || isEditMode}
+                    />
+                  </View>
+
+                  {/* Driver Name */}
+                  <View style={styles.formGroup}>
+                    <Text style={styles.label}>Driver Name *</Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        isDetailsConfirmed && !isEditMode && styles.disabledInput,
+                      ]}
+                      placeholder="Enter driver name"
+                      placeholderTextColor="#999"
+                      value={driverName}
+                      onChangeText={setDriverName}
+                      editable={!isDetailsConfirmed || isEditMode}
+                    />
+                  </View>
+
+                  {/* Co-Driver Name */}
+                  <View style={styles.formGroup}>
+                    <Text style={styles.label}>Co-Driver Name *</Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        isDetailsConfirmed && !isEditMode && styles.disabledInput,
+                      ]}
+                      placeholder="Enter co-driver name"
+                      placeholderTextColor="#999"
+                      value={coDriverName}
+                      onChangeText={setCoDriverName}
+                      editable={!isDetailsConfirmed || isEditMode}
+                    />
+                  </View>
+
+                  {/* Confirm/Update Button */}
+                  {!isDetailsConfirmed || isEditMode ? (
+                    <View style={styles.buttonRow}>
+                      <TouchableOpacity
+                        style={styles.confirmButton}
+                        onPress={handleConfirmDetails}
+                      >
+                        <Text style={styles.confirmButtonText}>
+                          {isDetailsConfirmed ? 'Update Details' : 'Confirm'}
+                        </Text>
+                      </TouchableOpacity>
+                      {isEditMode && (
+                        <TouchableOpacity
+                          style={styles.cancelButton}
+                          onPress={handleCancelEdit}
+                        >
+                          <Text style={styles.cancelButtonText}>Cancel</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  ) : null}
+                </View>
+              )}
             </View>
 
-            {/* Completion Time Field
-            <View style={styles.section}>
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>Completion Time</Text>
-                <TextInput
-                  style={[styles.input, styles.disabledInput]}
-                  value={formatTime(stopwatchTime)}
-                  editable={false}
-                  placeholderTextColor="#999"
-                />
-              </View>
-            </View> */}
+            {/* Stopwatch Section - Only visible after confirmation */}
+            {isDetailsConfirmed && (
+              <>
+                <View style={styles.stopwatchSection}>
+                  <Text style={styles.stopwatchTitle}>⏱️ Stopwatch</Text>
+                  <View style={styles.stopwatchContainer}>
+                    <Text style={styles.stopwatchDisplay}>
+                      {formatTime(stopwatchTime)}
+                    </Text>
+                  </View>
+                  <View style={styles.stopwatchButtonsContainer}>
+                    <TouchableOpacity
+                      style={[
+                        styles.stopwatchButton,
+                        isStopwatchRunning && styles.stopwatchButtonActive,
+                      ]}
+                      onPress={toggleStopwatch}
+                    >
+                      <Text style={styles.stopwatchButtonText}>
+                        {isStopwatchRunning ? 'Stop' : 'Start'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.stopwatchButton}
+                      onPress={resetStopwatch}
+                    >
+                      <Text style={styles.stopwatchButtonText}>Reset</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
 
-            {/* Section 1: Driver Details */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Driver Details</Text>
+                {/* Section 2: Penalties (Counts & Calculations) */}
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Penalties</Text>
 
-              {/* Sticker Number */}
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>Sticker Number *</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter sticker number"
-                  placeholderTextColor="#999"
-                  value={stickerNumber}
-                  onChangeText={setStickerNumber}
-                  keyboardType="number-pad"
-                />
-              </View>
+                  {/* Bunting & Pole */}
+                  <PenaltyCounter
+                    label="Bunting & Pole (20 sec)"
+                    count={bustingCount}
+                    onCountChange={setBustingCount}
+                    penaltyTime={bustingPenaltyTime}
+                  />
 
-              {/* Driver Name */}
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>Driver Name *</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter driver name"
-                  placeholderTextColor="#999"
-                  value={driverName}
-                  onChangeText={setDriverName}
-                />
-              </View>
+                  {/* Seatbelt */}
+                  <PenaltyCounter
+                    label="Seatbelt (30 sec)"
+                    count={seatbeltCount}
+                    onCountChange={setSeatbeltCount}
+                    penaltyTime={seatbeltPenaltyTime}
+                  />
 
-              {/* Co-Driver Name */}
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>Co-Driver Name</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter co-driver name (optional)"
-                  placeholderTextColor="#999"
-                  value={coDriverName}
-                  onChangeText={setCoDriverName}
-                />
-              </View>
-            </View>
+                  {/* Ground Touch */}
+                  <PenaltyCounter
+                    label="Ground Touch (30 sec)"
+                    count={groundTouchCount}
+                    onCountChange={setGroundTouchCount}
+                    penaltyTime={groundTouchPenaltyTime}
+                  />
 
-            {/* Section 2: Penalties (Counts & Calculations) */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Penalties</Text>
-
-              {/* Bunting & Pole */}
-              <View style={styles.penaltyRow}>
-                <View style={styles.penaltyInputContainer}>
-                  <Text style={styles.penaltyLabel}>Bunting & Pole (20 sec)</Text>
-                  <TextInput
-                    style={styles.penaltyInput}
-                    placeholder="0"
-                    placeholderTextColor="#999"
-                    value={bustingCount}
-                    onChangeText={setBustingCount}
-                    keyboardType="number-pad"
+                  {/* Late Start */}
+                  <PenaltyCounter
+                    label="Late Start (30 sec)"
+                    count={lateStartCount}
+                    onCountChange={setLateStartCount}
+                    penaltyTime={lateStartPenaltyTime}
                   />
                 </View>
-                <View style={styles.penaltyValueContainer}>
-                  <Text style={styles.penaltyValue}>{bustingPenaltyTime}s</Text>
-                </View>
-              </View>
 
-              {/* Seatbelt */}
-              <View style={styles.penaltyRow}>
-                <View style={styles.penaltyInputContainer}>
-                  <Text style={styles.penaltyLabel}>Seatbelt (30 sec)</Text>
-                  <TextInput
-                    style={styles.penaltyInput}
-                    placeholder="0"
-                    placeholderTextColor="#999"
-                    value={seatbeltCount}
-                    onChangeText={setSeatbeltCount}
-                    keyboardType="number-pad"
+                {/* Section 3: Task Skipped */}
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Task Skipped</Text>
+
+                  {/* Attempt */}
+                  <PenaltyCounter
+                    label="Attempt (30 sec)"
+                    count={attemptCount}
+                    onCountChange={setAttemptCount}
+                    penaltyTime={attemptPenaltyTime}
+                  />
+
+                  {/* Task skip */}
+                  <PenaltyCounter
+                    label="Task skip (60 sec)"
+                    count={taskSkippedCount}
+                    onCountChange={setTaskSkippedCount}
+                    penaltyTime={taskSkippedPenaltyTime}
                   />
                 </View>
-                <View style={styles.penaltyValueContainer}>
-                  <Text style={styles.penaltyValue}>{seatbeltPenaltyTime}s</Text>
-                </View>
-              </View>
 
-              {/* Ground Touch */}
-              <View style={styles.penaltyRow}>
-                <View style={styles.penaltyInputContainer}>
-                  <Text style={styles.penaltyLabel}>Ground Touch (30 sec)</Text>
-                  <TextInput
-                    style={styles.penaltyInput}
-                    placeholder="0"
-                    placeholderTextColor="#999"
-                    value={groundTouchCount}
-                    onChangeText={setGroundTouchCount}
-                    keyboardType="number-pad"
+                {/* Section 4: DNF (Did Not Finish) */}
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>DNF (Did Not Finish)</Text>
+
+                  {/* Wrong Course */}
+                  <PenaltyCounter
+                    label="Wrong Course (60 sec)"
+                    count={wrongCourseCount}
+                    onCountChange={setWrongCourseCount}
+                    penaltyTime={wrongCoursePenaltyTime}
+                  />
+
+                  {/* 4th Attempt */}
+                  <PenaltyCounter
+                    label="4th Attempt (60 sec)"
+                    count={fourthAttemptCount}
+                    onCountChange={setFourthAttemptCount}
+                    penaltyTime={fourthAttemptPenaltyTime}
                   />
                 </View>
-                <View style={styles.penaltyValueContainer}>
-                  <Text style={styles.penaltyValue}>{groundTouchPenaltyTime}s</Text>
-                </View>
-              </View>
 
-              {/* Late Start */}
-              <View style={styles.penaltyRow}>
-                <View style={styles.penaltyInputContainer}>
-                  <Text style={styles.penaltyLabel}>Late Start (30 sec)</Text>
-                  <TextInput
-                    style={styles.penaltyInput}
-                    placeholder="0"
-                    placeholderTextColor="#999"
-                    value={lateStartCount}
-                    onChangeText={setLateStartCount}
-                    keyboardType="number-pad"
-                  />
-                </View>
-                <View style={styles.penaltyValueContainer}>
-                  <Text style={styles.penaltyValue}>{lateStartPenaltyTime}s</Text>
-                </View>
-              </View>
+                {/* Section 5: Time Summary (Highlighted) */}
+                <View style={styles.summarySection}>
+                  <Text style={styles.summaryTitle}>Time Summary</Text>
+                  
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryLabel}>Total Penalties Time:</Text>
+                    <Text style={styles.summaryValue}>{totalPenaltiesTime} sec</Text>
+                  </View>
 
-              {/* Behaviour */}
-              <View style={styles.penaltyRow}>
-                <View style={styles.penaltyInputContainer}>
-                  <Text style={styles.penaltyLabel}>Behaviour (30 sec)</Text>
-                  <TextInput
-                    style={styles.penaltyInput}
-                    placeholder="0"
-                    placeholderTextColor="#999"
-                    value={behaviourCount}
-                    onChangeText={setBehaviourCount}
-                    keyboardType="number-pad"
-                  />
-                </View>
-                <View style={styles.penaltyValueContainer}>
-                  <Text style={styles.penaltyValue}>{behaviourPenaltyTime}s</Text>
-                </View>
-              </View>
-            </View>
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryLabel}>Performance Time:</Text>
+                    <Text style={styles.summaryValue}>{formatTimeWithMs(completionTimeInSeconds)}</Text>
+                  </View>
 
-            {/* Section 3: DNF (Did Not Finish) */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>DNF (Did Not Finish)</Text>
+                  <View style={styles.summaryDivider} />
 
-              {/* Task Skipped */}
-              <View style={styles.penaltyRow}>
-                <View style={styles.penaltyInputContainer}>
-                  <Text style={styles.penaltyLabel}>Task Skipped (60 sec)</Text>
-                  <TextInput
-                    style={styles.penaltyInput}
-                    placeholder="0"
-                    placeholderTextColor="#999"
-                    value={taskSkippedCount}
-                    onChangeText={setTaskSkippedCount}
-                    keyboardType="number-pad"
-                  />
+                  <View style={styles.summaryRowTotal}>
+                    <Text style={styles.summaryLabelTotal}>TOTAL TIME:</Text>
+                    <Text style={styles.summaryValueTotal}>{formatTimeWithMs(totalTime)}</Text>
+                  </View>
                 </View>
-                <View style={styles.penaltyValueContainer}>
-                  <Text style={styles.penaltyValue}>{taskSkippedPenaltyTime}s</Text>
-                </View>
-              </View>
-
-              {/* Wrong Course */}
-              <View style={styles.penaltyRow}>
-                <View style={styles.penaltyInputContainer}>
-                  <Text style={styles.penaltyLabel}>Wrong Course (60 sec)</Text>
-                  <TextInput
-                    style={styles.penaltyInput}
-                    placeholder="0"
-                    placeholderTextColor="#999"
-                    value={wrongCourseCount}
-                    onChangeText={setWrongCourseCount}
-                    keyboardType="number-pad"
-                  />
-                </View>
-                <View style={styles.penaltyValueContainer}>
-                  <Text style={styles.penaltyValue}>{wrongCoursePenaltyTime}s</Text>
-                </View>
-              </View>
-
-              {/* 4th Attempt */}
-              <View style={styles.penaltyRow}>
-                <View style={styles.penaltyInputContainer}>
-                  <Text style={styles.penaltyLabel}>4th Attempt (60 sec)</Text>
-                  <TextInput
-                    style={styles.penaltyInput}
-                    placeholder="0"
-                    placeholderTextColor="#999"
-                    value={fourthAttemptCount}
-                    onChangeText={setFourthAttemptCount}
-                    keyboardType="number-pad"
-                  />
-                </View>
-                <View style={styles.penaltyValueContainer}>
-                  <Text style={styles.penaltyValue}>{fourthAttemptPenaltyTime}s</Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Section 4: Time Summary (Highlighted) */}
-            <View style={styles.summarySection}>
-              <Text style={styles.summaryTitle}>Time Summary</Text>
-              
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Total Penalties Time:</Text>
-                <Text style={styles.summaryValue}>{totalPenaltiesTime} seconds</Text>
-              </View>
-
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Performance Time (Completion):</Text>
-                <Text style={styles.summaryValue}>{completionTimeInSeconds} seconds</Text>
-              </View>
-
-              <View style={styles.summaryDivider} />
-
-              <View style={styles.summaryRowTotal}>
-                <Text style={styles.summaryLabelTotal}>TOTAL TIME:</Text>
-                <Text style={styles.summaryValueTotal}>{totalTime} seconds</Text>
-              </View>
-            </View>
+              </>
+            )}
           </ScrollView>
 
-          {/* Submit Button */}
-          <View style={styles.buttonContainer}>
-            <TouchableOpacity
-              style={styles.submitButton}
-              onPress={handleSubmit}
-            >
-              <Text style={styles.submitButtonText}>Submit & Download CSV</Text>
-            </TouchableOpacity>
-          </View>
+          {/* Submit Button - Only visible after confirmation */}
+          {isDetailsConfirmed && (
+            <View style={styles.buttonContainer}>
+              <TouchableOpacity
+                style={styles.submitButton}
+                onPress={handleSubmit}
+              >
+                <Text style={styles.submitButtonText}>Submit & Download CSV</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       </View>
+      ) : null}
     </Modal>
   );
 };
@@ -752,7 +881,7 @@ export default function App() {
       id: '2',
       name: 'Diesel Modified',
       description: 'Enhanced diesel power',
-      icon: '⛽',
+      icon: '🚨',
     },
     {
       id: '3',
@@ -845,7 +974,7 @@ export default function App() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Vehicle Categories</Text>
+        <Text style={styles.headerTitle}>TKO-Ground Zero</Text>
         <Text style={styles.headerSubtitle}>Choose your preferred vehicle type</Text>
       </View>
 
@@ -1066,6 +1195,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#212529',
     flex: 1,
+    backgroundColor: '#ffe8c8',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
   },
 
   closeButton: {
@@ -1085,14 +1218,25 @@ const styles = StyleSheet.create({
     marginBottom: 28,
   },
 
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#212529',
+  sectionTitleContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: 16,
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#e9ecef',
+  },
+
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#212529',
+    flex: 1,
+  },
+
+  editIcon: {
+    fontSize: 18,
   },
 
   // Form group
@@ -1182,6 +1326,50 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
 
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+  },
+
+  confirmButton: {
+    flex: 1,
+    backgroundColor: '#28a745',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+
+  confirmButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#ffffff',
+  },
+
+  cancelButton: {
+    flex: 1,
+    backgroundColor: '#6c757d',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+
+  cancelButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#ffffff',
+  },
+
   submitButton: {
     backgroundColor: '#007bff',
     borderRadius: 8,
@@ -1221,6 +1409,45 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#495057',
     marginBottom: 6,
+  },
+
+  // Counter styles
+  counterContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#dee2e6',
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+
+  counterButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 6,
+    backgroundColor: '#007bff',
+  },
+
+  counterButtonText: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+
+  counterInput: {
+    flex: 1,
+    height: 40,
+    textAlign: 'center',
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#212529',
+    marginHorizontal: 8,
+    backgroundColor: '#f8f9fa',
   },
 
   penaltyInput: {
@@ -1329,6 +1556,88 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#ffffff',
     marginLeft: 10,
+  },
+
+  // Dropdown List Styles
+  dropdownListContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
+  },
+
+  dropdownListItem: {
+    flex: 1,
+    minWidth: '45%',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: '#dee2e6',
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  dropdownListItemSelected: {
+    backgroundColor: '#007bff',
+    borderColor: '#007bff',
+  },
+
+  disabledDropdownListItem: {
+    backgroundColor: '#f8f9fa',
+    opacity: 0.7,
+  },
+
+  dropdownListItemText: {
+    fontSize: 14,
+    color: '#495057',
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+
+  dropdownListItemTextSelected: {
+    color: '#ffffff',
+    fontWeight: '600',
+  },
+
+  // Accordion Styles
+  accordionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    backgroundColor: '#f0f7ff',
+    borderWidth: 1,
+    borderColor: '#007bff',
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+
+  accordionTitleContainer: {
+    flex: 1,
+    marginRight: 10,
+  },
+
+  accordionTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#007bff',
+  },
+
+  accordionArrow: {
+    fontSize: 14,
+    color: '#007bff',
+    fontWeight: '600',
+    marginRight: 10,
+  },
+
+  accordionContent: {
+    paddingBottom: 12,
+    backgroundColor: '#ffffff',
+    borderBottomLeftRadius: 8,
+    borderBottomRightRadius: 8,
   },
 });
 
