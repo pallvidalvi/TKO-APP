@@ -10,16 +10,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v3
 
-      - uses: actions/setup-node@v3
+      - name: Setup Node
+        uses: actions/setup-node@v3
         with:
           node-version: 18
 
-      - run: npm install
+      - name: Install dependencies
+        run: npm install
 
-      - run: npm install -g eas-cli
+      - name: Install EAS CLI
+        run: npm install -g eas-cli
 
-      - run: eas login --token ${{ secrets.EXPO_TOKEN }}
-
-      - run: eas build -p android --profile preview --non-interactive
+      - name: Build APK
+        run: eas build -p android --profile preview --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
