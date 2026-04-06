@@ -12,6 +12,7 @@ import {
   ScrollView,
   Alert,
   Platform,
+  Image,
 } from 'react-native';
 import { initializeDatabase, seedDatabase, getAllTeams } from './src/db/database';
 import { TeamsService, CategoriesService } from './src/services/dataService';
@@ -104,20 +105,205 @@ const CSVExporter = {
 // Get device dimensions for responsive design
 const { width, height } = Dimensions.get('window');
 const IS_TABLET = width >= 768;
-const IS_PORTRAIT = height >= width;
-const CARD_WIDTH = IS_TABLET ? (width - 76) / 2 : (width - 44) / 2;
+const IS_SMALL_PHONE = width < 390;
+const USE_SPLIT_LAYOUT = width >= 900;
+const USE_TWO_COLUMN_PENALTIES = width >= 360;
+const CARD_WIDTH = width >= 600 ? (width - 76) / 2 : (width - 44) / 2;
 
-const AVAILABLE_TRACKS = ['Pratapgad', 'Rajgad', 'Purandar'];
+const CATEGORY_TRACKS = {
+  EXTREME: ['CHANDOLI', 'TADOBA', 'SUNDARBAN', 'RANTHAMBORE', 'KANHA'],
+  DIESEL_MODIFIED: ['SHIVNERI', 'RAIGAD', 'PARATAPGAD', 'HARIHAR', 'VASOTA', 'LOHGAD', 'SARASGAD'],
+  PETROL_MODIFIED: ['SHIVNERI', 'RAIGAD', 'PARATAPGAD', 'HARIHAR', 'VASOTA', 'LOHGAD', 'SARASGAD'],
+  DIESEL_EXPERT: ['KRISHNA', 'KOYANA', 'GODAVARI', 'GANGA', 'YAMUNA', 'SARASWATI', 'CHANDRABHAGA'],
+  PETROL_EXPERT: ['KRISHNA', 'KOYANA', 'GODAVARI', 'GANGA', 'YAMUNA', 'SARASWATI', 'CHANDRABHAGA'],
+  THAR_SUV: ['K2', 'EVEREST', 'SAHYADRI', 'HIMALAYA', 'KALASUBAI', 'VALMIKI', 'SATPUDA'],
+  JIMNY_SUV: ['K2', 'EVEREST', 'SAHYADRI', 'HIMALAYA', 'KALASUBAI', 'VALMIKI', 'SATPUDA'],
+  SUV_MODIFIED: ['K2', 'EVEREST', 'SAHYADRI', 'HIMALAYA', 'KALASUBAI', 'VALMIKI', 'SATPUDA'],
+  STOCK_NDMS: ['K2', 'EVEREST', 'SAHYADRI', 'HIMALAYA', 'KALASUBAI', 'VALMIKI', 'SATPUDA'],
+  LADIES: ['K2', 'EVEREST', 'SAHYADRI', 'HIMALAYA', 'KALASUBAI', 'VALMIKI', 'SATPUDA'],
+  LADIES_CATEGORY: ['K2', 'EVEREST', 'SAHYADRI', 'HIMALAYA', 'KALASUBAI', 'VALMIKI', 'SATPUDA'],
+};
 
-const normalizeCategoryKey = (value = '') =>
-  value
+const CATEGORY_IMAGE_SOURCES = {
+  EXTREME: require('./assets/Extreme.png'),
+  DIESEL_MODIFIED: require('./assets/DieselModified.png'),
+  PETROL_MODIFIED: require('./assets/PetrolModified.png'),
+  DIESEL_EXPERT: require('./assets/DieselExpert.png'),
+  PETROL_EXPERT: require('./assets/PetrolExpert.png'),
+  THAR_SUV: require('./assets/TharSUV.png'),
+  JIMNY_SUV: require('./assets/JimnySUV.png'),
+  SUV_MODIFIED: require('./assets/SUVModified.png'),
+  STOCK_NDMS: require('./assets/StockNDMS.png'),
+  LADIES: require('./assets/Ladies.png'),
+  LADIES_CATEGORY: require('./assets/Ladies.png'),
+};
+
+const CATEGORY_MOCK_TEAMS = {
+  EXTREME: {
+    team_name: 'Wild Torque',
+    driver_name: 'Rudra Patil',
+    driver_blood_group: 'B+ve',
+    codriver_name: 'Sakshi Patil',
+    codriver_blood_group: 'O+ve',
+    car_number: '301',
+    category: 'EXTREME',
+    vehicle_name: 'Mahindra',
+    vehicle_model: 'Proto Extreme',
+    socials: '@wildtorque',
+    status: 'MOCK',
+  },
+  DIESEL_MODIFIED: {
+    team_name: 'Diesel Drift Co.',
+    driver_name: 'Akash More',
+    driver_blood_group: 'A+ve',
+    codriver_name: 'Nilesh More',
+    codriver_blood_group: 'B+ve',
+    car_number: '302',
+    category: 'DIESEL_MODIFIED',
+    vehicle_name: 'Toyota',
+    vehicle_model: 'Fortuner Modified',
+    socials: '@dieseldriftco',
+    status: 'MOCK',
+  },
+  PETROL_MODIFIED: {
+    team_name: 'Octane Rebels',
+    driver_name: 'Karan Shinde',
+    driver_blood_group: 'O+ve',
+    codriver_name: 'Vedant Shinde',
+    codriver_blood_group: 'A+ve',
+    car_number: '303',
+    category: 'PETROL_MODIFIED',
+    vehicle_name: 'Maruti',
+    vehicle_model: 'Gypsy Modified',
+    socials: '@octanerebels',
+    status: 'MOCK',
+  },
+  DIESEL_EXPERT: {
+    team_name: 'Torque Masters',
+    driver_name: 'Mahesh Jagtap',
+    driver_blood_group: 'AB+ve',
+    codriver_name: 'Pooja Jagtap',
+    codriver_blood_group: 'B+ve',
+    car_number: '304',
+    category: 'DIESEL_EXPERT',
+    vehicle_name: 'Mahindra',
+    vehicle_model: 'Bolero Expert',
+    socials: '@torquemasters',
+    status: 'MOCK',
+  },
+  PETROL_EXPERT: {
+    team_name: 'Rev Limit Crew',
+    driver_name: 'Swapnil Bhosale',
+    driver_blood_group: 'A+ve',
+    codriver_name: 'Tejaswini Bhosale',
+    codriver_blood_group: 'O+ve',
+    car_number: '305',
+    category: 'PETROL_EXPERT',
+    vehicle_name: 'Suzuki',
+    vehicle_model: 'Jimny Rally',
+    socials: '@revlimitcrew',
+    status: 'MOCK',
+  },
+  THAR_SUV: {
+    team_name: 'Thar Trail Squad',
+    driver_name: 'Sagar Kale',
+    driver_blood_group: 'O+ve',
+    codriver_name: 'Rutuja Kale',
+    codriver_blood_group: 'B+ve',
+    car_number: '306',
+    category: 'THAR_SUV',
+    vehicle_name: 'Mahindra',
+    vehicle_model: 'Thar 4x4',
+    socials: '@thartrailsquad',
+    status: 'MOCK',
+  },
+  JIMNY_SUV: {
+    team_name: 'Jimny Junction',
+    driver_name: 'Adwait Kulkarni',
+    driver_blood_group: 'B+ve',
+    codriver_name: 'Nupur Kulkarni',
+    codriver_blood_group: 'AB+ve',
+    car_number: '307',
+    category: 'JIMNY_SUV',
+    vehicle_name: 'Maruti',
+    vehicle_model: 'Jimny Alpha',
+    socials: '@jimnyjunction',
+    status: 'MOCK',
+  },
+  SUV_MODIFIED: {
+    team_name: 'Summit Customs',
+    driver_name: 'Vishal Chavan',
+    driver_blood_group: 'O-ve',
+    codriver_name: 'Komal Chavan',
+    codriver_blood_group: 'A+ve',
+    car_number: '308',
+    category: 'SUV_MODIFIED',
+    vehicle_name: 'Ford',
+    vehicle_model: 'Endeavour Modified',
+    socials: '@summitcustoms',
+    status: 'MOCK',
+  },
+  STOCK_NDMS: {
+    team_name: 'Factory Trail',
+    driver_name: 'Prasad Mane',
+    driver_blood_group: 'A+ve',
+    codriver_name: 'Neha Mane',
+    codriver_blood_group: 'B+ve',
+    car_number: '309',
+    category: 'STOCK_NDMS',
+    vehicle_name: 'Mahindra',
+    vehicle_model: 'Scorpio N',
+    socials: '@factorytrail',
+    status: 'MOCK',
+  },
+  LADIES: {
+    team_name: 'Trail Queens',
+    driver_name: 'Snehal Pawar',
+    driver_blood_group: 'B+ve',
+    codriver_name: 'Mugdha Pawar',
+    codriver_blood_group: 'O+ve',
+    car_number: '310',
+    category: 'LADIES',
+    vehicle_name: 'Mahindra',
+    vehicle_model: 'Thar Roxx',
+    socials: '@trailqueens',
+    status: 'MOCK',
+  },
+  LADIES_CATEGORY: {
+    team_name: 'Trail Queens',
+    driver_name: 'Snehal Pawar',
+    driver_blood_group: 'B+ve',
+    codriver_name: 'Mugdha Pawar',
+    codriver_blood_group: 'O+ve',
+    car_number: '310',
+    category: 'LADIES_CATEGORY',
+    vehicle_name: 'Mahindra',
+    vehicle_model: 'Thar Roxx',
+    socials: '@trailqueens',
+    status: 'MOCK',
+  },
+};
+
+const normalizeCategoryKey = (value = '') => {
+  const normalizedValue = value
     .trim()
     .toUpperCase()
     .replace(/\s+/g, '_');
 
+  if (normalizedValue === 'LADIES') {
+    return 'LADIES_CATEGORY';
+  }
+
+  return normalizedValue;
+};
+
 const attachTeamCountsToCategories = (categories = [], teams = []) =>
   categories.map(category => ({
     ...category,
+    imageSource:
+      category.imageSource ||
+      CATEGORY_IMAGE_SOURCES[normalizeCategoryKey(category.name)] ||
+      null,
     teamCount: teams.filter(
       team => normalizeCategoryKey(team.category) === normalizeCategoryKey(category.name)
     ).length,
@@ -125,6 +311,33 @@ const attachTeamCountsToCategories = (categories = [], teams = []) =>
 
 const getTeamsForCategory = (teams = [], categoryName = '') =>
   teams.filter(team => normalizeCategoryKey(team.category) === normalizeCategoryKey(categoryName));
+
+const ensureMockTeamsForEmptyCategories = (teams = [], categories = []) => {
+  const normalizedExistingCategories = new Set(
+    teams.map(team => normalizeCategoryKey(team.category)).filter(Boolean)
+  );
+
+  const mockTeams = categories.reduce((acc, category) => {
+    const categoryKey = normalizeCategoryKey(category.name);
+
+    if (normalizedExistingCategories.has(categoryKey)) {
+      return acc;
+    }
+
+    const mockTeam = CATEGORY_MOCK_TEAMS[categoryKey];
+    if (!mockTeam) {
+      return acc;
+    }
+
+    acc.push({
+      id: `mock-${categoryKey}`,
+      ...mockTeam,
+    });
+    return acc;
+  }, []);
+
+  return [...teams, ...mockTeams];
+};
 
 const getRecordKey = (record = {}) =>
   String(
@@ -136,7 +349,7 @@ const getRecordKey = (record = {}) =>
 const getTeamStickerNumber = (team = {}) =>
   team.stickerNumber || team.sticker_number || team.car_number || '';
 
-const getTeamTracks = (team = {}) => {
+const getTeamTracks = (team = {}, categoryName = '') => {
   const rawTracks =
     team.tracks ||
     team.track_name ||
@@ -156,7 +369,8 @@ const getTeamTracks = (team = {}) => {
       .filter(Boolean);
   }
 
-  return AVAILABLE_TRACKS;
+  const categoryKey = normalizeCategoryKey(team.category || categoryName || team.name || '');
+  return CATEGORY_TRACKS[categoryKey] || CATEGORY_TRACKS.LADIES_CATEGORY;
 };
 
 /**
@@ -196,7 +410,11 @@ const CategoryCard = ({ category, onPress, teamCount = 0 }) => {
               { backgroundColor: category.color || '#ff4757' },
             ]}
           >
-            <Text style={styles.categoryIcon}>{category.icon}</Text>
+            {category.imageSource ? (
+              <Image source={category.imageSource} style={styles.categoryImageIcon} resizeMode="contain" />
+            ) : (
+              <Text style={styles.categoryIcon}>{category.icon}</Text>
+            )}
           </View>
 
           <View style={styles.textContent}>
@@ -391,12 +609,13 @@ const RegistrationForm = ({
 
   useEffect(() => {
     if (visible && initialRecord) {
-      const recordTracks = getTeamTracks(initialRecord);
+      const recordTracks = getTeamTracks(initialRecord, category?.name);
+      const defaultTrack = initialRecord.selectedTrack || recordTracks[0] || '';
       setSrNo(String(initialRecord.srNo || ''));
       setStickerNumber(String(getTeamStickerNumber(initialRecord) || ''));
       setDriverName(initialRecord.driver_name || initialRecord.driverName || '');
       setCoDriverName(initialRecord.codriver_name || initialRecord.coDriverName || '');
-      setTrackName(initialRecord.selectedTrack || recordTracks[0] || AVAILABLE_TRACKS[0]);
+      setTrackName(defaultTrack);
     }
   }, [visible, initialRecord]);
 
@@ -587,7 +806,7 @@ const RegistrationForm = ({
                     >
                       <View style={styles.detailsTrackPill}>
                         <Text style={styles.detailsTrackPillText}>
-                          {trackName || AVAILABLE_TRACKS[0]}
+                          {trackName || 'Track'}
                         </Text>
                       </View>
                       <View style={styles.detailsAccordionTrigger}>
@@ -640,7 +859,11 @@ const RegistrationForm = ({
                   </View>
                 </View>
 
-                <View style={styles.dashboardRightPanel}>
+                <ScrollView
+                  style={styles.dashboardRightPanel}
+                  contentContainerStyle={styles.dashboardRightPanelContent}
+                  showsVerticalScrollIndicator={false}
+                >
                   <View style={styles.section}>
                     <Text style={styles.sectionTitle}>Penalties</Text>
                     <View style={styles.penaltyGrid}>
@@ -707,7 +930,7 @@ const RegistrationForm = ({
                     </View>
                   </View>
 
-                  {IS_PORTRAIT ? (
+                  {!USE_SPLIT_LAYOUT ? (
                     <View style={styles.summarySection}>
                       <Text style={styles.summaryTitle}>Time Summary</Text>
                       <View style={styles.summaryRow}>
@@ -728,10 +951,10 @@ const RegistrationForm = ({
                     </View>
                   ) : null}
 
-                </View>
+                </ScrollView>
               </View>
 
-              {!IS_PORTRAIT ? (
+              {USE_SPLIT_LAYOUT ? (
                 <View style={styles.tabletFooterPanel}>
                   <View style={styles.summarySection}>
                     <Text style={styles.summaryTitle}>Time Summary</Text>
@@ -811,7 +1034,7 @@ const CategoryRecordsModal = ({
           </View>
         }
         renderItem={({ item, index }) => {
-          const tracks = getTeamTracks(item);
+          const tracks = getTeamTracks(item, category?.name);
           const recordKey = getRecordKey(item);
           const selectedTrack = selectedTracksByRecord[recordKey];
           const completedTracks = completedTracksByRecord[recordKey] || [];
@@ -856,33 +1079,31 @@ const CategoryRecordsModal = ({
 
               <View style={styles.recordTracksRow}>
                 <Text style={styles.recordTracksLabel}>Tracks:</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View style={styles.trackChipContainer}>
-                    {tracks.map(track => (
-                      <TouchableOpacity
-                        key={`${item.id || item.car_number}-${track}`}
+                <View style={styles.trackChipContainer}>
+                  {tracks.map(track => (
+                    <TouchableOpacity
+                      key={`${item.id || item.car_number}-${track}`}
+                      style={[
+                        styles.trackChip,
+                        selectedTrack === track && styles.trackChipSelected,
+                        completedTracks.includes(track) && styles.trackChipCompleted,
+                      ]}
+                      onPress={() => onTrackSelect(item, track)}
+                      disabled={completedTracks.includes(track)}
+                      activeOpacity={0.85}
+                    >
+                      <Text
                         style={[
-                          styles.trackChip,
-                          selectedTrack === track && styles.trackChipSelected,
-                          completedTracks.includes(track) && styles.trackChipCompleted,
+                          styles.trackChipText,
+                          selectedTrack === track && styles.trackChipTextSelected,
+                          completedTracks.includes(track) && styles.trackChipTextCompleted,
                         ]}
-                        onPress={() => onTrackSelect(item, track)}
-                        disabled={completedTracks.includes(track)}
-                        activeOpacity={0.85}
                       >
-                        <Text
-                          style={[
-                            styles.trackChipText,
-                            selectedTrack === track && styles.trackChipTextSelected,
-                            completedTracks.includes(track) && styles.trackChipTextCompleted,
-                          ]}
-                        >
-                          {track}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </ScrollView>
+                        {track}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
               </View>
             </View>
           );
@@ -933,12 +1154,13 @@ export default function App() {
           'Teams API Check',
           `Response received.\nTotal teams: ${teamsData.length}`
         );
-        setTeams(teamsData);
-        
         // Load categories and add team counts
         const categoriesData = await CategoriesService.getAllCategories();
         const baseCategories = categoriesData.length > 0 ? categoriesData : categories;
-        const categoriesWithTeamCounts = attachTeamCountsToCategories(baseCategories, teamsData);
+        const teamsWithMocks = ensureMockTeamsForEmptyCategories(teamsData, baseCategories);
+        const categoriesWithTeamCounts = attachTeamCountsToCategories(baseCategories, teamsWithMocks);
+
+        setTeams(teamsWithMocks);
         
         console.log('🏆 Categories with counts:', categoriesWithTeamCounts);
         setCategoriesWithCounts(categoriesWithTeamCounts);
@@ -961,6 +1183,7 @@ export default function App() {
       description: 'Ultimate performance',
       icon: '⚡',
       color: '#ff4757',
+      imageSource: CATEGORY_IMAGE_SOURCES.EXTREME,
     },
     {
       id: '2',
@@ -968,6 +1191,7 @@ export default function App() {
       description: 'Enhanced diesel power',
       icon: '🚨',
       color: '#2f3542',
+      imageSource: CATEGORY_IMAGE_SOURCES.DIESEL_MODIFIED,
     },
     {
       id: '3',
@@ -975,6 +1199,7 @@ export default function App() {
       description: 'Upgraded petrol engine',
       icon: '🔥',
       color: '#ff9f43',
+      imageSource: CATEGORY_IMAGE_SOURCES.PETROL_MODIFIED,
     },
     {
       id: '4',
@@ -982,6 +1207,7 @@ export default function App() {
       description: 'Professional diesel builds',
       icon: '🛠️',
       color: '#0984e3',
+      imageSource: CATEGORY_IMAGE_SOURCES.DIESEL_EXPERT,
     },
     {
       id: '5',
@@ -989,6 +1215,7 @@ export default function App() {
       description: 'Expert petrol tuning',
       icon: '⚙️',
       color: '#6c5ce7',
+      imageSource: CATEGORY_IMAGE_SOURCES.PETROL_EXPERT,
     },
     {
       id: '6',
@@ -996,6 +1223,7 @@ export default function App() {
       description: 'Mahindra Thar specialist',
       icon: '🏔️',
       color: '#00b894',
+      imageSource: CATEGORY_IMAGE_SOURCES.THAR_SUV,
     },
     {
       id: '7',
@@ -1003,6 +1231,7 @@ export default function App() {
       description: 'Maruti Jimny expert',
       icon: '🚗',
       color: '#1e90ff',
+      imageSource: CATEGORY_IMAGE_SOURCES.JIMNY_SUV,
     },
     {
       id: '8',
@@ -1010,6 +1239,7 @@ export default function App() {
       description: 'Custom SUV builds',
       icon: '🚙',
       color: '#fdcb6e',
+      imageSource: CATEGORY_IMAGE_SOURCES.SUV_MODIFIED,
     },
     {
       id: '9',
@@ -1017,6 +1247,7 @@ export default function App() {
       description: 'Stock vehicle category',
       icon: '📋',
       color: '#74b9ff',
+      imageSource: CATEGORY_IMAGE_SOURCES.STOCK_NDMS,
     },
     {
       id: '10',
@@ -1024,6 +1255,7 @@ export default function App() {
       description: 'Women drivers welcome',
       icon: '👩',
       color: '#a29bfe',
+      imageSource: CATEGORY_IMAGE_SOURCES.LADIES_CATEGORY,
     },
   ];
 
@@ -1349,6 +1581,11 @@ const styles = StyleSheet.create({
     fontSize: IS_TABLET ? 34 : 30,
   },
 
+  categoryImageIcon: {
+    width: '92%',
+    height: '92%',
+  },
+
   // Text content container
   textContent: {
     alignItems: 'center',
@@ -1525,7 +1762,7 @@ const styles = StyleSheet.create({
 
   recordTracksRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     flexWrap: 'wrap',
     paddingHorizontal: 18,
     paddingVertical: 14,
@@ -1538,12 +1775,14 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     marginRight: 12,
     marginBottom: 8,
+    marginTop: 8,
   },
 
   trackChipContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
+    flex: 1,
   },
 
   trackChip: {
@@ -1571,6 +1810,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#2c7dbf',
     fontWeight: '600',
+    flexShrink: 1,
   },
 
   trackChipTextSelected: {
@@ -1606,19 +1846,19 @@ const styles = StyleSheet.create({
   timerHeroCard: {
     backgroundColor: '#161f36',
     borderRadius: 24,
-    paddingHorizontal: IS_TABLET ? 28 : 18,
-    paddingVertical: IS_TABLET ? 30 : 22,
-    marginBottom: 24,
+    paddingHorizontal: IS_TABLET ? 28 : IS_SMALL_PHONE ? 12 : 18,
+    paddingVertical: IS_TABLET ? 30 : IS_SMALL_PHONE ? 16 : 22,
+    marginBottom: IS_SMALL_PHONE ? 14 : 24,
     alignItems: 'center',
   },
 
   stopwatchDisplay: {
-    fontSize: IS_TABLET ? 70 : 48,
+    fontSize: IS_TABLET ? 70 : IS_SMALL_PHONE ? 38 : 48,
     fontWeight: '300',
     color: '#66a5ff',
-    letterSpacing: IS_TABLET ? 6 : 2,
+    letterSpacing: IS_TABLET ? 6 : IS_SMALL_PHONE ? 1 : 2,
     fontVariant: ['tabular-nums'],
-    marginBottom: 20,
+    marginBottom: IS_SMALL_PHONE ? 12 : 20,
   },
 
   stopwatchButtonsContainer: {
@@ -1626,16 +1866,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: '100%',
     marginBottom: 0,
-    gap: 12,
+    gap: IS_SMALL_PHONE ? 8 : 12,
     flexWrap: 'wrap',
   },
 
   stopwatchButton: {
     backgroundColor: '#25c05a',
-    paddingVertical: 16,
-    paddingHorizontal: 24,
+    paddingVertical: IS_SMALL_PHONE ? 12 : 16,
+    paddingHorizontal: IS_SMALL_PHONE ? 14 : 24,
     borderRadius: 14,
-    minWidth: IS_TABLET ? 220 : 180,
+    minWidth: IS_TABLET ? 220 : IS_SMALL_PHONE ? 136 : 180,
+    flexGrow: 1,
     alignItems: 'center',
   },
 
@@ -1648,12 +1889,13 @@ const styles = StyleSheet.create({
   },
 
   stopwatchResetCompact: {
-    minWidth: IS_TABLET ? 110 : 96,
+    minWidth: IS_TABLET ? 110 : IS_SMALL_PHONE ? 82 : 96,
+    flexGrow: 0,
   },
 
   stopwatchButtonText: {
     color: '#ffffff',
-    fontSize: 14,
+    fontSize: IS_SMALL_PHONE ? 12 : 14,
     fontWeight: '800',
     textTransform: 'uppercase',
   },
@@ -1710,27 +1952,37 @@ const styles = StyleSheet.create({
 
   formBody: {
     flex: 1,
-    paddingHorizontal: IS_TABLET ? 20 : 12,
+    paddingHorizontal: IS_TABLET ? 20 : IS_SMALL_PHONE ? 8 : 12,
     paddingBottom: 12,
+    minHeight: 0,
   },
 
   dashboardLayout: {
-    flexDirection: IS_PORTRAIT ? 'column' : 'row',
-    gap: 12,
+    flex: 1,
+    flexDirection: USE_SPLIT_LAYOUT ? 'row' : 'column',
+    gap: IS_SMALL_PHONE ? 8 : 12,
     alignItems: 'stretch',
+    minHeight: 0,
   },
 
   dashboardLeftPanel: {
-    width: IS_PORTRAIT ? '100%' : '37%',
+    width: USE_SPLIT_LAYOUT ? '37%' : '100%',
+    flexShrink: 0,
   },
 
   dashboardRightPanel: {
-    width: IS_PORTRAIT ? '100%' : '61%',
+    flex: 1,
+    width: USE_SPLIT_LAYOUT ? '61%' : '100%',
     backgroundColor: '#ffffff',
     borderRadius: 24,
-    padding: IS_TABLET ? 18 : 12,
+    padding: IS_TABLET ? 18 : IS_SMALL_PHONE ? 8 : 12,
     borderWidth: 1,
     borderColor: '#e5edf8',
+    minHeight: 0,
+  },
+
+  dashboardRightPanelContent: {
+    paddingBottom: 8,
   },
 
   detailsAccordion: {
@@ -1746,20 +1998,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: IS_SMALL_PHONE ? 10 : 14,
+    paddingVertical: IS_SMALL_PHONE ? 8 : 10,
     backgroundColor: '#ffffff',
   },
 
   detailsTrackPill: {
     backgroundColor: '#3565df',
     borderRadius: 999,
-    paddingHorizontal: 18,
-    paddingVertical: 8,
+    paddingHorizontal: IS_SMALL_PHONE ? 14 : 18,
+    paddingVertical: IS_SMALL_PHONE ? 6 : 8,
   },
 
   detailsTrackPillText: {
-    fontSize: 13,
+    fontSize: IS_SMALL_PHONE ? 12 : 13,
     fontWeight: '800',
     color: '#ffffff',
   },
@@ -1770,7 +2022,7 @@ const styles = StyleSheet.create({
   },
 
   detailsAccordionTriggerText: {
-    fontSize: 14,
+    fontSize: IS_SMALL_PHONE ? 13 : 14,
     fontWeight: '700',
     color: '#111827',
     marginRight: 6,
@@ -1783,20 +2035,20 @@ const styles = StyleSheet.create({
 
   heroInfoCard: {
     backgroundColor: '#ffffff',
-    paddingHorizontal: IS_TABLET ? 18 : 14,
-    paddingVertical: IS_TABLET ? 12 : 10,
+    paddingHorizontal: IS_TABLET ? 18 : IS_SMALL_PHONE ? 10 : 14,
+    paddingVertical: IS_TABLET ? 12 : IS_SMALL_PHONE ? 8 : 10,
     borderTopWidth: 1,
     borderTopColor: '#edf2fb',
   },
 
   heroMetaText: {
-    fontSize: IS_TABLET ? 16 : 14,
+    fontSize: IS_TABLET ? 16 : IS_SMALL_PHONE ? 12 : 14,
     color: '#5c6f8f',
     marginBottom: 4,
   },
 
   heroSecondaryMetaText: {
-    fontSize: IS_TABLET ? 14 : 13,
+    fontSize: IS_TABLET ? 14 : IS_SMALL_PHONE ? 12 : 13,
     color: '#5c6f8f',
   },
 
@@ -1807,7 +2059,7 @@ const styles = StyleSheet.create({
 
   // Form section
   section: {
-    marginBottom: 14,
+    marginBottom: IS_SMALL_PHONE ? 10 : 14,
   },
 
   sectionTitleContainer: {
@@ -1821,7 +2073,7 @@ const styles = StyleSheet.create({
   },
 
   sectionTitle: {
-    fontSize: IS_TABLET ? 18 : 15,
+    fontSize: IS_TABLET ? 18 : IS_SMALL_PHONE ? 14 : 15,
     fontWeight: '800',
     color: '#63799a',
     flex: 1,
@@ -1829,7 +2081,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e5edf8',
     paddingBottom: 8,
-    marginBottom: 10,
+    marginBottom: IS_SMALL_PHONE ? 8 : 10,
   },
 
   editIcon: {
@@ -1922,9 +2174,9 @@ const styles = StyleSheet.create({
   },
 
   submitActionBar: {
-    paddingHorizontal: IS_TABLET ? 20 : 12,
-    paddingTop: 8,
-    paddingBottom: 12,
+    paddingHorizontal: IS_TABLET ? 20 : IS_SMALL_PHONE ? 8 : 12,
+    paddingTop: 6,
+    paddingBottom: 10,
     backgroundColor: '#eef4ff',
   },
 
@@ -1980,7 +2232,7 @@ const styles = StyleSheet.create({
   submitButton: {
     backgroundColor: '#3565df',
     borderRadius: 16,
-    paddingVertical: 14,
+    paddingVertical: IS_SMALL_PHONE ? 12 : 14,
     alignItems: 'center',
     width: '100%',
     elevation: 2,
@@ -1991,7 +2243,7 @@ const styles = StyleSheet.create({
   },
 
   submitButtonText: {
-    fontSize: 15,
+    fontSize: IS_SMALL_PHONE ? 14 : 15,
     fontWeight: '700',
     color: '#ffffff',
   },
@@ -2001,25 +2253,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    gap: 10,
+    gap: IS_SMALL_PHONE ? 8 : 10,
   },
 
   penaltyCard: {
-    width: '48.5%',
+    width: USE_TWO_COLUMN_PENALTIES ? '48.5%' : '100%',
     backgroundColor: '#fbfcff',
     borderWidth: 1,
     borderColor: '#dce6f4',
     borderRadius: 16,
-    paddingHorizontal: IS_TABLET ? 12 : 10,
-    paddingVertical: IS_TABLET ? 10 : 8,
-    minHeight: IS_TABLET ? 88 : 82,
+    paddingHorizontal: IS_TABLET ? 12 : IS_SMALL_PHONE ? 8 : 10,
+    paddingVertical: IS_TABLET ? 10 : IS_SMALL_PHONE ? 7 : 8,
+    minHeight: IS_TABLET ? 88 : IS_SMALL_PHONE ? 74 : 82,
   },
 
   penaltyCardLabel: {
-    fontSize: IS_TABLET ? 14 : 12,
+    fontSize: IS_TABLET ? 14 : IS_SMALL_PHONE ? 11 : 12,
     fontWeight: '700',
     color: '#4c5c77',
-    marginBottom: 8,
+    marginBottom: IS_SMALL_PHONE ? 6 : 8,
   },
 
   penaltyCardControls: {
@@ -2029,8 +2281,8 @@ const styles = StyleSheet.create({
   },
 
   counterButton: {
-    width: IS_TABLET ? 40 : 36,
-    height: IS_TABLET ? 40 : 36,
+    width: IS_TABLET ? 40 : IS_SMALL_PHONE ? 32 : 36,
+    height: IS_TABLET ? 40 : IS_SMALL_PHONE ? 32 : 36,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 10,
@@ -2038,16 +2290,16 @@ const styles = StyleSheet.create({
   },
 
   counterButtonText: {
-    fontSize: IS_TABLET ? 20 : 18,
+    fontSize: IS_TABLET ? 20 : IS_SMALL_PHONE ? 16 : 18,
     fontWeight: '700',
     color: '#ffffff',
   },
 
   counterInput: {
-    width: IS_TABLET ? 56 : 42,
-    height: IS_TABLET ? 40 : 36,
+    width: IS_TABLET ? 56 : IS_SMALL_PHONE ? 36 : 42,
+    height: IS_TABLET ? 40 : IS_SMALL_PHONE ? 32 : 36,
     textAlign: 'center',
-    fontSize: IS_TABLET ? 22 : 16,
+    fontSize: IS_TABLET ? 22 : IS_SMALL_PHONE ? 15 : 16,
     fontWeight: '700',
     color: '#111827',
     marginHorizontal: 4,
@@ -2057,23 +2309,23 @@ const styles = StyleSheet.create({
   penaltyValuePill: {
     justifyContent: 'center',
     alignItems: 'center',
-    minWidth: IS_TABLET ? 48 : 40,
-    paddingHorizontal: 6,
+    minWidth: IS_TABLET ? 48 : IS_SMALL_PHONE ? 34 : 40,
+    paddingHorizontal: IS_SMALL_PHONE ? 4 : 6,
     paddingVertical: 4,
     backgroundColor: '#dfeafd',
     borderRadius: 8,
   },
 
   penaltyValue: {
-    fontSize: 12,
+    fontSize: IS_SMALL_PHONE ? 11 : 12,
     fontWeight: '700',
     color: '#3565df',
   },
 
   // Summary Section Styles
   summarySection: {
-    marginBottom: 12,
-    padding: 12,
+    marginBottom: IS_SMALL_PHONE ? 10 : 12,
+    padding: IS_SMALL_PHONE ? 10 : 12,
     backgroundColor: '#fffdf2',
     borderRadius: 20,
     borderWidth: 2,
@@ -2086,10 +2338,10 @@ const styles = StyleSheet.create({
   },
 
   summaryTitle: {
-    fontSize: IS_TABLET ? 16 : 15,
+    fontSize: IS_TABLET ? 16 : IS_SMALL_PHONE ? 14 : 15,
     fontWeight: '700',
     color: '#9c4900',
-    marginBottom: 10,
+    marginBottom: IS_SMALL_PHONE ? 8 : 10,
     textAlign: 'center',
   },
 
@@ -2097,21 +2349,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
-    paddingBottom: 8,
+    marginBottom: IS_SMALL_PHONE ? 6 : 8,
+    paddingBottom: IS_SMALL_PHONE ? 6 : 8,
     borderBottomWidth: 1,
     borderBottomColor: '#ffeaa7',
   },
 
   summaryLabel: {
-    fontSize: 14,
+    fontSize: IS_SMALL_PHONE ? 13 : 14,
     fontWeight: '500',
     color: '#1f1f1f',
     flex: 1,
   },
 
   summaryValue: {
-    fontSize: 14,
+    fontSize: IS_SMALL_PHONE ? 13 : 14,
     fontWeight: '500',
     color: '#1f1f1f',
     marginLeft: 10,
@@ -2120,29 +2372,29 @@ const styles = StyleSheet.create({
   summaryDivider: {
     height: 2,
     backgroundColor: '#ffc107',
-    marginVertical: 8,
+    marginVertical: IS_SMALL_PHONE ? 6 : 8,
   },
 
   summaryRowTotal: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingVertical: IS_SMALL_PHONE ? 8 : 10,
+    paddingHorizontal: IS_SMALL_PHONE ? 10 : 12,
     backgroundColor: '#ff5a1f',
     borderRadius: 16,
     elevation: 3,
   },
 
   summaryLabelTotal: {
-    fontSize: IS_TABLET ? 18 : 16,
+    fontSize: IS_TABLET ? 18 : IS_SMALL_PHONE ? 15 : 16,
     fontWeight: '800',
     color: '#ffffff',
     flex: 1,
   },
 
   summaryValueTotal: {
-    fontSize: IS_TABLET ? 26 : 22,
+    fontSize: IS_TABLET ? 26 : IS_SMALL_PHONE ? 20 : 22,
     fontWeight: '800',
     color: '#ffffff',
     marginLeft: 10,
