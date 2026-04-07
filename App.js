@@ -13,8 +13,9 @@ import {
   Alert,
   Platform,
   Image,
+  useWindowDimensions,
 } from 'react-native';
-import { initializeDatabase, seedDatabase, getAllTeams } from './src/db/database';
+import { initializeDatabase, seedDatabase } from './src/db/database';
 import { TeamsService, CategoriesService } from './src/services/dataService';
 
 // Platform-specific imports
@@ -109,6 +110,39 @@ const IS_SMALL_PHONE = width < 390;
 const USE_SPLIT_LAYOUT = width >= 900;
 const USE_TWO_COLUMN_PENALTIES = width >= 360;
 const CARD_WIDTH = width >= 600 ? (width - 76) / 2 : (width - 44) / 2;
+
+const getResponsiveLayout = (screenWidth, screenHeight) => {
+  const shortestSide = Math.min(screenWidth, screenHeight);
+  const isTablet = shortestSide >= 600;
+  const isSmallPhone = screenWidth < 390;
+  const isLandscape = screenWidth > screenHeight;
+  const categoryColumns = screenWidth >= 1220 ? 4 : screenWidth >= 820 ? 3 : 2;
+  const penaltyColumns = screenWidth >= 1180 ? 3 : screenWidth >= 520 ? 2 : 1;
+  const useSplitLayout = screenWidth >= 960;
+  const shellMaxWidth = isTablet ? Math.min(screenWidth - 32, 1180) : screenWidth;
+  const shellPadding = isTablet ? 24 : isSmallPhone ? 12 : 16;
+  const gridGap = isTablet ? 16 : 12;
+  const usableWidth = Math.max(shellMaxWidth - shellPadding * 2, 0);
+  const categoryCardWidth =
+    usableWidth > 0
+      ? (usableWidth - gridGap * (categoryColumns - 1)) / categoryColumns
+      : screenWidth;
+
+  return {
+    screenWidth,
+    screenHeight,
+    isTablet,
+    isSmallPhone,
+    isLandscape,
+    categoryColumns,
+    penaltyColumns,
+    useSplitLayout,
+    shellMaxWidth,
+    shellPadding,
+    gridGap,
+    categoryCardWidth,
+  };
+};
 
 const CATEGORY_TRACKS = {
   EXTREME: ['CHANDOLI', 'TADOBA', 'SUNDARBAN', 'RANTHAMBORE', 'KANHA'],
@@ -312,33 +346,6 @@ const attachTeamCountsToCategories = (categories = [], teams = []) =>
 const getTeamsForCategory = (teams = [], categoryName = '') =>
   teams.filter(team => normalizeCategoryKey(team.category) === normalizeCategoryKey(categoryName));
 
-const ensureMockTeamsForEmptyCategories = (teams = [], categories = []) => {
-  const normalizedExistingCategories = new Set(
-    teams.map(team => normalizeCategoryKey(team.category)).filter(Boolean)
-  );
-
-  const mockTeams = categories.reduce((acc, category) => {
-    const categoryKey = normalizeCategoryKey(category.name);
-
-    if (normalizedExistingCategories.has(categoryKey)) {
-      return acc;
-    }
-
-    const mockTeam = CATEGORY_MOCK_TEAMS[categoryKey];
-    if (!mockTeam) {
-      return acc;
-    }
-
-    acc.push({
-      id: `mock-${categoryKey}`,
-      ...mockTeam,
-    });
-    return acc;
-  }, []);
-
-  return [...teams, ...mockTeams];
-};
-
 const getRecordKey = (record = {}) =>
   String(
     record.id ||
@@ -377,8 +384,10 @@ const getTeamTracks = (team = {}, categoryName = '') => {
  * CategoryCard Component
  * Displays individual category with animation on press and team count
  */
-const CategoryCard = ({ category, onPress, teamCount = 0 }) => {
+const CategoryCard = ({ category, onPress, teamCount = 0, cardStyle, layout }) => {
   const [scaleAnim] = useState(new Animated.Value(1));
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const responsiveLayout = layout || getResponsiveLayout(screenWidth, screenHeight);
 
   const handlePressIn = () => {
     Animated.spring(scaleAnim, {
@@ -401,28 +410,60 @@ const CategoryCard = ({ category, onPress, teamCount = 0 }) => {
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         onPress={onPress}
-        style={styles.card}
+        style={[
+          styles.card,
+          {
+            width: '100%',
+            minHeight: responsiveLayout.isTablet ? 210 : 180,
+            paddingHorizontal: responsiveLayout.isTablet ? 16 : 12,
+            paddingVertical: responsiveLayout.isTablet ? 18 : 14,
+          },
+          cardStyle,
+        ]}
       >
         <View style={styles.cardContent}>
           <View
             style={[
               styles.iconBox,
+              {
+                width: responsiveLayout.isTablet ? 64 : 56,
+                height: responsiveLayout.isTablet ? 64 : 56,
+              },
               { backgroundColor: category.color || '#ff4757' },
             ]}
           >
             {category.imageSource ? (
               <Image source={category.imageSource} style={styles.categoryImageIcon} resizeMode="contain" />
             ) : (
-              <Text style={styles.categoryIcon}>{category.icon}</Text>
+              <Text style={[styles.categoryIcon, { fontSize: responsiveLayout.isTablet ? 34 : 30 }]}>
+                {category.icon}
+              </Text>
             )}
           </View>
 
           <View style={styles.textContent}>
-            <Text style={styles.categoryName}>{category.name}</Text>
-            <Text style={styles.categoryDescription}>{category.description}</Text>
+            <Text style={[styles.categoryName, { fontSize: responsiveLayout.isTablet ? 16 : 14 }]}>
+              {category.name}
+            </Text>
+            <Text
+              style={[
+                styles.categoryDescription,
+                {
+                  fontSize: responsiveLayout.isTablet ? 12 : 11,
+                  lineHeight: responsiveLayout.isTablet ? 18 : 16,
+                },
+              ]}
+            >
+              {category.description}
+            </Text>
           </View>
 
-          <View style={styles.countBadge}>
+          <View
+            style={[
+              styles.countBadge,
+              { minWidth: responsiveLayout.isTablet ? 68 : 60 },
+            ]}
+          >
             <Text style={styles.countText}>{teamCount}</Text>
             <Text style={styles.countLabel}>teams</Text>
           </View>
@@ -480,7 +521,16 @@ const CustomDropdown = ({ label, value, options, onValueChange }) => {
  * PenaltyCounter Component
  * Provides increment/decrement buttons with manual input for penalty counts
  */
-const PenaltyCounter = ({ label, count, onCountChange, penaltyTime }) => {
+const PenaltyCounter = ({ label, count, onCountChange, penaltyTime, layout }) => {
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const responsiveLayout = layout || getResponsiveLayout(screenWidth, screenHeight);
+  const penaltyCardWidth =
+    responsiveLayout.penaltyColumns === 1
+      ? '100%'
+      : responsiveLayout.penaltyColumns === 2
+        ? '48.5%'
+        : '31.5%';
+
   const handleIncrement = () => {
     onCountChange(String((parseInt(count) || 0) + 1));
   };
@@ -491,18 +541,58 @@ const PenaltyCounter = ({ label, count, onCountChange, penaltyTime }) => {
   };
 
   return (
-    <View style={styles.penaltyCard}>
-      <Text style={styles.penaltyCardLabel}>{label}</Text>
+    <View
+      style={[
+        styles.penaltyCard,
+        {
+          width: penaltyCardWidth,
+          paddingHorizontal: responsiveLayout.isTablet ? 12 : responsiveLayout.isSmallPhone ? 8 : 10,
+          paddingVertical: responsiveLayout.isTablet ? 10 : responsiveLayout.isSmallPhone ? 7 : 8,
+          minHeight: responsiveLayout.isTablet ? 88 : responsiveLayout.isSmallPhone ? 74 : 82,
+        },
+      ]}
+    >
+      <Text
+        style={[
+          styles.penaltyCardLabel,
+          {
+            fontSize: responsiveLayout.isTablet ? 14 : responsiveLayout.isSmallPhone ? 11 : 12,
+            marginBottom: responsiveLayout.isSmallPhone ? 6 : 8,
+          },
+        ]}
+      >
+        {label}
+      </Text>
       <View style={styles.penaltyCardControls}>
         <TouchableOpacity
-          style={styles.counterButton}
+          style={[
+            styles.counterButton,
+            {
+              width: responsiveLayout.isTablet ? 40 : responsiveLayout.isSmallPhone ? 32 : 36,
+              height: responsiveLayout.isTablet ? 40 : responsiveLayout.isSmallPhone ? 32 : 36,
+            },
+          ]}
           onPress={handleDecrement}
           activeOpacity={0.8}
         >
-          <Text style={styles.counterButtonText}>-</Text>
+          <Text
+            style={[
+              styles.counterButtonText,
+              { fontSize: responsiveLayout.isTablet ? 20 : responsiveLayout.isSmallPhone ? 16 : 18 },
+            ]}
+          >
+            -
+          </Text>
         </TouchableOpacity>
         <TextInput
-          style={styles.counterInput}
+          style={[
+            styles.counterInput,
+            {
+              width: responsiveLayout.isTablet ? 56 : responsiveLayout.isSmallPhone ? 36 : 42,
+              height: responsiveLayout.isTablet ? 40 : responsiveLayout.isSmallPhone ? 32 : 36,
+              fontSize: responsiveLayout.isTablet ? 22 : responsiveLayout.isSmallPhone ? 15 : 16,
+            },
+          ]}
           value={count}
           editable={false}
           keyboardType="number-pad"
@@ -511,14 +601,37 @@ const PenaltyCounter = ({ label, count, onCountChange, penaltyTime }) => {
           placeholderTextColor="#ccc"
         />
         <TouchableOpacity
-          style={styles.counterButton}
+          style={[
+            styles.counterButton,
+            {
+              width: responsiveLayout.isTablet ? 40 : responsiveLayout.isSmallPhone ? 32 : 36,
+              height: responsiveLayout.isTablet ? 40 : responsiveLayout.isSmallPhone ? 32 : 36,
+            },
+          ]}
           onPress={handleIncrement}
           activeOpacity={0.8}
         >
-          <Text style={styles.counterButtonText}>+</Text>
+          <Text
+            style={[
+              styles.counterButtonText,
+              { fontSize: responsiveLayout.isTablet ? 20 : responsiveLayout.isSmallPhone ? 16 : 18 },
+            ]}
+          >
+            +
+          </Text>
         </TouchableOpacity>
-        <View style={styles.penaltyValuePill}>
-          <Text style={styles.penaltyValue}>{penaltyTime}s</Text>
+        <View
+          style={[
+            styles.penaltyValuePill,
+            {
+              minWidth: responsiveLayout.isTablet ? 48 : responsiveLayout.isSmallPhone ? 34 : 40,
+              paddingHorizontal: responsiveLayout.isSmallPhone ? 4 : 6,
+            },
+          ]}
+        >
+          <Text style={[styles.penaltyValue, { fontSize: responsiveLayout.isSmallPhone ? 11 : 12 }]}>
+            {penaltyTime}s
+          </Text>
         </View>
       </View>
     </View>
@@ -536,6 +649,8 @@ const RegistrationForm = ({
   onClose,
   onSubmit,
 }) => {
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const responsiveLayout = getResponsiveLayout(screenWidth, screenHeight);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [trackName, setTrackName] = useState('');
   const [srNo, setSrNo] = useState('');
@@ -787,17 +902,61 @@ const RegistrationForm = ({
     >
       {category ? (
         <View style={styles.fullPageContainer}>
-          <View style={styles.fullPageContent}>
-            <View style={styles.formHeader}>
-              <Text style={styles.formTitle}>{category.name}</Text>
+          <View
+            style={[
+              styles.fullPageContent,
+              {
+                width: '100%',
+                maxWidth: responsiveLayout.shellMaxWidth,
+                alignSelf: 'center',
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.formHeader,
+                {
+                  paddingHorizontal: responsiveLayout.isTablet ? 28 : responsiveLayout.shellPadding,
+                  paddingTop: responsiveLayout.isTablet ? 24 : 16,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.formTitle,
+                  { fontSize: responsiveLayout.isTablet ? 24 : responsiveLayout.isSmallPhone ? 18 : 20 },
+                ]}
+              >
+                {category.name}
+              </Text>
               <TouchableOpacity onPress={handleClose}>
                 <Text style={styles.closeButton}>✕</Text>
               </TouchableOpacity>
             </View>
 
-            <View style={styles.formBody}>
-              <View style={styles.dashboardLayout}>
-                <View style={styles.dashboardLeftPanel}>
+            <View
+              style={[
+                styles.formBody,
+                {
+                  paddingHorizontal: responsiveLayout.isTablet ? 20 : responsiveLayout.isSmallPhone ? 8 : 12,
+                },
+              ]}
+            >
+              <View
+                style={[
+                  styles.dashboardLayout,
+                  {
+                    flexDirection: responsiveLayout.useSplitLayout ? 'row' : 'column',
+                    gap: responsiveLayout.isSmallPhone ? 8 : 12,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.dashboardLeftPanel,
+                    { width: responsiveLayout.useSplitLayout ? '37%' : '100%' },
+                  ]}
+                >
                   <View style={styles.detailsAccordion}>
                     <TouchableOpacity
                       style={styles.detailsAccordionHeader}
@@ -835,118 +994,249 @@ const RegistrationForm = ({
                     ) : null}
                   </View>
 
-                  <View style={styles.timerHeroCard}>
-                    <Text style={styles.stopwatchDisplay}>{formatTime(stopwatchTime)}</Text>
-                    <View style={styles.stopwatchButtonsContainer}>
+                  <View
+                    style={[
+                      styles.timerHeroCard,
+                      {
+                        paddingHorizontal: responsiveLayout.isTablet ? 28 : responsiveLayout.isSmallPhone ? 12 : 18,
+                        paddingVertical: responsiveLayout.isTablet ? 30 : responsiveLayout.isSmallPhone ? 16 : 22,
+                        marginBottom: responsiveLayout.isSmallPhone ? 14 : 24,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.stopwatchDisplay,
+                        {
+                          fontSize: responsiveLayout.isTablet ? 70 : responsiveLayout.isSmallPhone ? 38 : 48,
+                          letterSpacing: responsiveLayout.isTablet ? 6 : responsiveLayout.isSmallPhone ? 1 : 2,
+                          marginBottom: responsiveLayout.isSmallPhone ? 12 : 20,
+                        },
+                      ]}
+                    >
+                      {formatTime(stopwatchTime)}
+                    </Text>
+                    <View
+                      style={[
+                        styles.stopwatchButtonsContainer,
+                        { gap: responsiveLayout.isSmallPhone ? 8 : 12 },
+                      ]}
+                    >
                       <TouchableOpacity
                         style={[
                           styles.stopwatchButton,
                           isStopwatchRunning && styles.stopwatchButtonActive,
+                          {
+                            paddingVertical: responsiveLayout.isSmallPhone ? 12 : 16,
+                            paddingHorizontal: responsiveLayout.isSmallPhone ? 14 : 24,
+                            minWidth: responsiveLayout.isTablet ? 220 : responsiveLayout.isSmallPhone ? 136 : 180,
+                          },
                         ]}
                         onPress={toggleStopwatch}
                       >
-                        <Text style={styles.stopwatchButtonText}>
+                        <Text
+                          style={[
+                            styles.stopwatchButtonText,
+                            { fontSize: responsiveLayout.isSmallPhone ? 12 : 14 },
+                          ]}
+                        >
                           {isStopwatchRunning ? 'Stop Timer' : 'Start Timer'}
                         </Text>
                       </TouchableOpacity>
                       <TouchableOpacity
-                        style={[styles.stopwatchButton, styles.stopwatchResetButton, styles.stopwatchResetCompact]}
+                        style={[
+                          styles.stopwatchButton,
+                          styles.stopwatchResetButton,
+                          styles.stopwatchResetCompact,
+                          { minWidth: responsiveLayout.isTablet ? 110 : responsiveLayout.isSmallPhone ? 82 : 96 },
+                        ]}
                         onPress={resetStopwatch}
                       >
-                        <Text style={styles.stopwatchButtonText}>RST</Text>
+                        <Text
+                          style={[
+                            styles.stopwatchButtonText,
+                            { fontSize: responsiveLayout.isSmallPhone ? 12 : 14 },
+                          ]}
+                        >
+                          RST
+                        </Text>
                       </TouchableOpacity>
                     </View>
                   </View>
                 </View>
 
                 <ScrollView
-                  style={styles.dashboardRightPanel}
+                  style={[
+                    styles.dashboardRightPanel,
+                    {
+                      width: responsiveLayout.useSplitLayout ? '61%' : '100%',
+                      padding: responsiveLayout.isTablet ? 18 : responsiveLayout.isSmallPhone ? 8 : 12,
+                    },
+                  ]}
                   contentContainerStyle={styles.dashboardRightPanelContent}
                   showsVerticalScrollIndicator={false}
                 >
-                  <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Penalties</Text>
-                    <View style={styles.penaltyGrid}>
+                  <View style={[styles.section, { marginBottom: responsiveLayout.isSmallPhone ? 10 : 14 }]}>
+                    <Text
+                      style={[
+                        styles.sectionTitle,
+                        {
+                          fontSize: responsiveLayout.isTablet ? 18 : responsiveLayout.isSmallPhone ? 14 : 15,
+                          marginBottom: responsiveLayout.isSmallPhone ? 8 : 10,
+                        },
+                      ]}
+                    >
+                      Penalties
+                    </Text>
+                    <View style={[styles.penaltyGrid, { gap: responsiveLayout.isSmallPhone ? 8 : 10 }]}>
                       <PenaltyCounter
                         label="Bunting & Pole (20s)"
                         count={bustingCount}
                         onCountChange={setBustingCount}
                         penaltyTime={bustingPenaltyTime}
+                        layout={responsiveLayout}
                       />
                       <PenaltyCounter
                         label="Seatbelt (30s)"
                         count={seatbeltCount}
                         onCountChange={setSeatbeltCount}
                         penaltyTime={seatbeltPenaltyTime}
+                        layout={responsiveLayout}
                       />
                       <PenaltyCounter
                         label="Ground Touch (30s)"
                         count={groundTouchCount}
                         onCountChange={setGroundTouchCount}
                         penaltyTime={groundTouchPenaltyTime}
+                        layout={responsiveLayout}
                       />
                       <PenaltyCounter
                         label="Late Start (30s)"
                         count={lateStartCount}
                         onCountChange={setLateStartCount}
                         penaltyTime={lateStartPenaltyTime}
+                        layout={responsiveLayout}
                       />
                     </View>
                   </View>
 
-                  <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Tasks</Text>
-                    <View style={styles.penaltyGrid}>
+                  <View style={[styles.section, { marginBottom: responsiveLayout.isSmallPhone ? 10 : 14 }]}>
+                    <Text
+                      style={[
+                        styles.sectionTitle,
+                        {
+                          fontSize: responsiveLayout.isTablet ? 18 : responsiveLayout.isSmallPhone ? 14 : 15,
+                          marginBottom: responsiveLayout.isSmallPhone ? 8 : 10,
+                        },
+                      ]}
+                    >
+                      Tasks
+                    </Text>
+                    <View style={[styles.penaltyGrid, { gap: responsiveLayout.isSmallPhone ? 8 : 10 }]}>
                       <PenaltyCounter
                         label="Task Attempt (30s)"
                         count={attemptCount}
                         onCountChange={setAttemptCount}
                         penaltyTime={attemptPenaltyTime}
+                        layout={responsiveLayout}
                       />
                       <PenaltyCounter
                         label="Task Skip (60s)"
                         count={taskSkippedCount}
                         onCountChange={setTaskSkippedCount}
                         penaltyTime={taskSkippedPenaltyTime}
+                        layout={responsiveLayout}
                       />
                     </View>
                   </View>
 
-                  <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>DNF (Did Not Finish)</Text>
-                    <View style={styles.penaltyGrid}>
+                  <View style={[styles.section, { marginBottom: responsiveLayout.isSmallPhone ? 10 : 14 }]}>
+                    <Text
+                      style={[
+                        styles.sectionTitle,
+                        {
+                          fontSize: responsiveLayout.isTablet ? 18 : responsiveLayout.isSmallPhone ? 14 : 15,
+                          marginBottom: responsiveLayout.isSmallPhone ? 8 : 10,
+                        },
+                      ]}
+                    >
+                      DNF (Did Not Finish)
+                    </Text>
+                    <View style={[styles.penaltyGrid, { gap: responsiveLayout.isSmallPhone ? 8 : 10 }]}>
                       <PenaltyCounter
                         label="Wrong Course (60s)"
                         count={wrongCourseCount}
                         onCountChange={setWrongCourseCount}
                         penaltyTime={wrongCoursePenaltyTime}
+                        layout={responsiveLayout}
                       />
                       <PenaltyCounter
                         label="4th Attempt (60s)"
                         count={fourthAttemptCount}
                         onCountChange={setFourthAttemptCount}
                         penaltyTime={fourthAttemptPenaltyTime}
+                        layout={responsiveLayout}
                       />
                     </View>
                   </View>
 
-                  {!USE_SPLIT_LAYOUT ? (
-                    <View style={styles.summarySection}>
-                      <Text style={styles.summaryTitle}>Time Summary</Text>
+                  {!responsiveLayout.useSplitLayout ? (
+                    <View
+                      style={[
+                        styles.summarySection,
+                        {
+                          marginBottom: responsiveLayout.isSmallPhone ? 10 : 12,
+                          padding: responsiveLayout.isSmallPhone ? 10 : 12,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.summaryTitle,
+                          {
+                            fontSize: responsiveLayout.isTablet ? 16 : responsiveLayout.isSmallPhone ? 14 : 15,
+                            marginBottom: responsiveLayout.isSmallPhone ? 8 : 10,
+                          },
+                        ]}
+                      >
+                        Time Summary
+                      </Text>
                       <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Total Penalties Time:</Text>
-                        <Text style={styles.summaryValue}>{totalPenaltiesTime} sec</Text>
+                        <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>Total Penalties Time:</Text>
+                        <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>{totalPenaltiesTime} sec</Text>
                       </View>
                       <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Performance Time:</Text>
-                        <Text style={styles.summaryValue}>
+                        <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>Performance Time:</Text>
+                        <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>
                           {formatTimeWithMs(completionTimeInSeconds)}
                         </Text>
                       </View>
                       <View style={styles.summaryDivider} />
-                      <View style={styles.summaryRowTotal}>
-                        <Text style={styles.summaryLabelTotal}>TOTAL TIME:</Text>
-                        <Text style={styles.summaryValueTotal}>{formatTimeWithMs(totalTime)}</Text>
+                      <View
+                        style={[
+                          styles.summaryRowTotal,
+                          {
+                            paddingVertical: responsiveLayout.isSmallPhone ? 8 : 10,
+                            paddingHorizontal: responsiveLayout.isSmallPhone ? 10 : 12,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.summaryLabelTotal,
+                            { fontSize: responsiveLayout.isTablet ? 18 : responsiveLayout.isSmallPhone ? 15 : 16 },
+                          ]}
+                        >
+                          TOTAL TIME:
+                        </Text>
+                        <Text
+                          style={[
+                            styles.summaryValueTotal,
+                            { fontSize: responsiveLayout.isTablet ? 26 : responsiveLayout.isSmallPhone ? 20 : 22 },
+                          ]}
+                        >
+                          {formatTimeWithMs(totalTime)}
+                        </Text>
                       </View>
                     </View>
                   ) : null}
@@ -954,24 +1244,64 @@ const RegistrationForm = ({
                 </ScrollView>
               </View>
 
-              {USE_SPLIT_LAYOUT ? (
-                <View style={styles.tabletFooterPanel}>
-                  <View style={styles.summarySection}>
-                    <Text style={styles.summaryTitle}>Time Summary</Text>
+              {responsiveLayout.useSplitLayout ? (
+                <View style={[styles.tabletFooterPanel, { width: '37%' }]}>
+                  <View
+                    style={[
+                      styles.summarySection,
+                      {
+                        marginBottom: responsiveLayout.isSmallPhone ? 10 : 12,
+                        padding: responsiveLayout.isSmallPhone ? 10 : 12,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.summaryTitle,
+                        {
+                          fontSize: responsiveLayout.isTablet ? 16 : responsiveLayout.isSmallPhone ? 14 : 15,
+                          marginBottom: responsiveLayout.isSmallPhone ? 8 : 10,
+                        },
+                      ]}
+                    >
+                      Time Summary
+                    </Text>
                     <View style={styles.summaryRow}>
-                      <Text style={styles.summaryLabel}>Total Penalties Time:</Text>
-                      <Text style={styles.summaryValue}>{totalPenaltiesTime} sec</Text>
+                      <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>Total Penalties Time:</Text>
+                      <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>{totalPenaltiesTime} sec</Text>
                     </View>
                     <View style={styles.summaryRow}>
-                      <Text style={styles.summaryLabel}>Performance Time:</Text>
-                      <Text style={styles.summaryValue}>
+                      <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>Performance Time:</Text>
+                      <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>
                         {formatTimeWithMs(completionTimeInSeconds)}
                       </Text>
                     </View>
                     <View style={styles.summaryDivider} />
-                    <View style={styles.summaryRowTotal}>
-                      <Text style={styles.summaryLabelTotal}>TOTAL TIME:</Text>
-                      <Text style={styles.summaryValueTotal}>{formatTimeWithMs(totalTime)}</Text>
+                    <View
+                      style={[
+                        styles.summaryRowTotal,
+                        {
+                          paddingVertical: responsiveLayout.isSmallPhone ? 8 : 10,
+                          paddingHorizontal: responsiveLayout.isSmallPhone ? 10 : 12,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.summaryLabelTotal,
+                          { fontSize: responsiveLayout.isTablet ? 18 : responsiveLayout.isSmallPhone ? 15 : 16 },
+                        ]}
+                      >
+                        TOTAL TIME:
+                      </Text>
+                      <Text
+                        style={[
+                          styles.summaryValueTotal,
+                          { fontSize: responsiveLayout.isTablet ? 26 : responsiveLayout.isSmallPhone ? 20 : 22 },
+                        ]}
+                      >
+                        {formatTimeWithMs(totalTime)}
+                      </Text>
                     </View>
                   </View>
 
@@ -979,9 +1309,21 @@ const RegistrationForm = ({
               ) : null}
             </View>
 
-            <View style={styles.submitActionBar}>
-              <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
-                <Text style={styles.submitButtonText}>Submit & Download CSV</Text>
+            <View
+              style={[
+                styles.submitActionBar,
+                {
+                  paddingHorizontal: responsiveLayout.isTablet ? 20 : responsiveLayout.isSmallPhone ? 8 : 12,
+                },
+              ]}
+            >
+              <TouchableOpacity
+                style={[styles.submitButton, { paddingVertical: responsiveLayout.isSmallPhone ? 12 : 14 }]}
+                onPress={handleSubmit}
+              >
+                <Text style={[styles.submitButtonText, { fontSize: responsiveLayout.isSmallPhone ? 14 : 15 }]}>
+                  Submit & Download CSV
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1000,14 +1342,34 @@ const CategoryRecordsModal = ({
   onTrackSelect,
   selectedTracksByRecord,
   completedTracksByRecord,
-}) => (
-  <Modal
-    visible={visible}
-    transparent={false}
-    animationType="slide"
-    onRequestClose={onClose}
-  >
-    <View style={styles.recordsPageContainer}>
+}) => {
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const responsiveLayout = getResponsiveLayout(screenWidth, screenHeight);
+
+  return (
+    <Modal
+      visible={visible}
+      transparent={false}
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <View
+        style={[
+          styles.recordsPageContainer,
+          {
+            paddingHorizontal: responsiveLayout.isTablet ? 24 : responsiveLayout.shellPadding,
+            paddingTop: responsiveLayout.isTablet ? 28 : 20,
+          },
+        ]}
+      >
+        <View
+          style={{
+            width: '100%',
+            maxWidth: responsiveLayout.shellMaxWidth,
+            alignSelf: 'center',
+            flex: 1,
+          }}
+        >
       <View style={styles.recordsHeader}>
         <View>
           <Text style={styles.recordsTitle}>{category?.name || 'Category Records'}</Text>
@@ -1023,7 +1385,10 @@ const CategoryRecordsModal = ({
       <FlatList
         data={records}
         keyExtractor={(item, index) => String(item.id || item.car_number || index)}
-        contentContainerStyle={styles.recordsListContent}
+        contentContainerStyle={[
+          styles.recordsListContent,
+          { paddingBottom: responsiveLayout.isTablet ? 36 : 24 },
+        ]}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <View style={styles.emptyStateCard}>
@@ -1042,7 +1407,15 @@ const CategoryRecordsModal = ({
 
           return (
             <View style={styles.recordCard}>
-              <View style={styles.recordTopRow}>
+              <View
+                style={[
+                  styles.recordTopRow,
+                  {
+                    paddingHorizontal: responsiveLayout.isTablet ? 22 : 18,
+                    paddingVertical: responsiveLayout.isTablet ? 24 : 20,
+                  },
+                ]}
+              >
                 <View style={styles.recordMetaBlock}>
                   <Text style={styles.recordMetaLabel}>SR.</Text>
                   <Text style={styles.recordMetaValue}>
@@ -1050,14 +1423,27 @@ const CategoryRecordsModal = ({
                   </Text>
                 </View>
 
-                <View style={styles.recordMetaBlockWide}>
+                <View
+                  style={[
+                    styles.recordMetaBlockWide,
+                    { width: responsiveLayout.isTablet ? 160 : responsiveLayout.isSmallPhone ? 120 : 140 },
+                  ]}
+                >
                   <Text style={styles.recordMetaLabel}>Sticker No.</Text>
                   <Text style={styles.recordStickerValue}>
                     #{getTeamStickerNumber(item) || '--'}
                   </Text>
                 </View>
 
-                <View style={styles.recordDriverBlock}>
+                <View
+                  style={[
+                    styles.recordDriverBlock,
+                    {
+                      minWidth: responsiveLayout.isTablet ? 240 : responsiveLayout.isSmallPhone ? 120 : 160,
+                      marginRight: responsiveLayout.isSmallPhone ? 0 : 12,
+                    },
+                  ]}
+                >
                   <Text style={styles.recordMetaLabel}>Driver Name</Text>
                   <Text style={styles.recordDriverName}>
                     {item.driver_name || item.driverName || 'Unknown Driver'}
@@ -1065,7 +1451,15 @@ const CategoryRecordsModal = ({
                 </View>
 
                 <TouchableOpacity
-                  style={[styles.startButton, !canStart && styles.startButtonDisabled]}
+                  style={[
+                    styles.startButton,
+                    !canStart && styles.startButtonDisabled,
+                    {
+                      minWidth: responsiveLayout.isTablet ? 128 : responsiveLayout.isSmallPhone ? 96 : 110,
+                      width: responsiveLayout.isSmallPhone ? '100%' : undefined,
+                      marginLeft: responsiveLayout.isSmallPhone ? 0 : 'auto',
+                    },
+                  ]}
                   onPress={() =>
                     canStart ? onStart({ ...item, srNo: index + 1, selectedTrack, recordKey }) : null
                   }
@@ -1109,15 +1503,19 @@ const CategoryRecordsModal = ({
           );
         }}
       />
-    </View>
-  </Modal>
-);
+        </View>
+      </View>
+    </Modal>
+  );
+};
 
 /**
  * Main App Component
  * Displays the home screen with vehicle categories
  */
 export default function App() {
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const responsiveLayout = getResponsiveLayout(screenWidth, screenHeight);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [formVisible, setFormVisible] = useState(false);
@@ -1139,28 +1537,19 @@ export default function App() {
           // Initialize the database
           await initializeDatabase();
           
-          // Seed with dummy data
+          // Seed bundled local data on first launch
           await seedDatabase();
         }
         
-        // Load teams from API (with local DB fallback handled by TeamsService)
+        // Load teams with native local DB preferred and API fallback
         const teamsData = await TeamsService.getAllTeams();
-        console.log('📊 Teams received on homepage load:', teamsData.length);
-        console.log(
-          '📦 Teams response preview:',
-          JSON.stringify(teamsData.slice(0, 8), null, 2)
-        );
-        Alert.alert(
-          'Teams API Check',
-          `Response received.\nTotal teams: ${teamsData.length}`
-        );
+        console.log('Teams received on homepage load:', teamsData.length);
         // Load categories and add team counts
         const categoriesData = await CategoriesService.getAllCategories();
         const baseCategories = categoriesData.length > 0 ? categoriesData : categories;
-        const teamsWithMocks = ensureMockTeamsForEmptyCategories(teamsData, baseCategories);
-        const categoriesWithTeamCounts = attachTeamCountsToCategories(baseCategories, teamsWithMocks);
+        const categoriesWithTeamCounts = attachTeamCountsToCategories(baseCategories, teamsData);
 
-        setTeams(teamsWithMocks);
+        setTeams(teamsData);
         
         console.log('🏆 Categories with counts:', categoriesWithTeamCounts);
         setCategoriesWithCounts(categoriesWithTeamCounts);
@@ -1335,11 +1724,14 @@ export default function App() {
    * Render individual category item
    */
   const renderCategoryItem = ({ item }) => (
-    <CategoryCard
-      category={item}
-      teamCount={item.teamCount || 0}
-      onPress={() => handleCategoryPress(item)}
-    />
+    <View style={{ width: responsiveLayout.categoryCardWidth, marginBottom: responsiveLayout.gridGap }}>
+      <CategoryCard
+        category={item}
+        teamCount={item.teamCount || 0}
+        onPress={() => handleCategoryPress(item)}
+        layout={responsiveLayout}
+      />
+    </View>
   );
 
   const selectedCategoryRecords = selectedCategory
@@ -1349,24 +1741,62 @@ export default function App() {
   return (
     <View style={styles.container}>
       {/* Top Header */}
-      <View style={styles.topHeader}>
-        <Text style={styles.exploreTitle}>Explore</Text>
+      <View
+        style={[
+          styles.topHeader,
+          {
+            paddingHorizontal: responsiveLayout.shellPadding,
+            paddingTop: responsiveLayout.isTablet ? 24 : 16,
+            paddingBottom: responsiveLayout.isTablet ? 18 : 16,
+          },
+        ]}
+      >
+        <Text
+          style={[
+            styles.exploreTitle,
+            { fontSize: responsiveLayout.isTablet ? 32 : responsiveLayout.isSmallPhone ? 24 : 28 },
+          ]}
+        >
+          Explore
+        </Text>
         <View style={styles.headerIcons}>
-          <TouchableOpacity style={styles.iconButton}>
+          <TouchableOpacity
+            style={[
+              styles.iconButton,
+              {
+                width: responsiveLayout.isTablet ? 46 : 40,
+                height: responsiveLayout.isTablet ? 46 : 40,
+                borderRadius: responsiveLayout.isTablet ? 23 : 20,
+              },
+            ]}
+          >
             <Text style={styles.iconText}>☰</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.iconButton}>
-            <Text style={styles.iconBadge}>🔔</Text>
-            <View style={styles.notificationDot} />
           </TouchableOpacity>
         </View>
       </View>
 
       {/* Search Bar */}
-      <View style={styles.searchContainer}>
+      <View
+        style={[
+          styles.searchContainer,
+          {
+            alignSelf: 'center',
+            width: Math.min(
+              responsiveLayout.shellMaxWidth,
+              responsiveLayout.screenWidth - responsiveLayout.shellPadding * 2
+            ),
+            marginVertical: responsiveLayout.isTablet ? 20 : 16,
+            paddingHorizontal: responsiveLayout.isTablet ? 18 : 14,
+            paddingVertical: responsiveLayout.isTablet ? 12 : 10,
+          },
+        ]}
+      >
         <Text style={styles.searchIcon}>🔍</Text>
         <TextInput
-          style={styles.searchInput}
+          style={[
+            styles.searchInput,
+            { fontSize: responsiveLayout.isTablet ? 16 : 14 },
+          ]}
           placeholder="Search categories..."
           placeholderTextColor="#bbb"
           value={searchText}
@@ -1375,22 +1805,44 @@ export default function App() {
       </View>
 
       {/* Categories Section */}
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Categories</Text>
-        <TouchableOpacity>
-          <Text style={styles.viewAll}>View All</Text>
-        </TouchableOpacity>
+      <View
+        style={[
+          styles.sectionHeader,
+          {
+            alignSelf: 'center',
+            width: Math.min(
+              responsiveLayout.shellMaxWidth,
+              responsiveLayout.screenWidth - responsiveLayout.shellPadding * 2
+            ),
+            marginBottom: responsiveLayout.isTablet ? 20 : 16,
+          },
+        ]}
+      >
+        <Text style={[styles.sectionTitle, { fontSize: responsiveLayout.isTablet ? 20 : 18 }]}>
+          Categories
+        </Text>
       </View>
 
       {/* Categories Grid */}
       <FlatList
+        key={`categories-${responsiveLayout.categoryColumns}`}
         data={filteredCategories}
         renderItem={renderCategoryItem}
         keyExtractor={(item) => item.id}
-        numColumns={2}
+        numColumns={responsiveLayout.categoryColumns}
         scrollEnabled={true}
-        contentContainerStyle={styles.listContent}
-        columnWrapperStyle={styles.columnWrapper}
+        style={{ alignSelf: 'center', width: '100%', maxWidth: responsiveLayout.shellMaxWidth }}
+        contentContainerStyle={[
+          styles.listContent,
+          {
+            paddingHorizontal: responsiveLayout.shellPadding,
+            paddingBottom: responsiveLayout.isTablet ? 28 : 20,
+          },
+        ]}
+        columnWrapperStyle={{
+          justifyContent: 'space-between',
+          marginBottom: responsiveLayout.gridGap,
+        }}
         showsVerticalScrollIndicator={false}
       />
 
@@ -1470,21 +1922,6 @@ const styles = StyleSheet.create({
   iconText: {
     fontSize: 18,
     color: '#212529',
-  },
-
-  iconBadge: {
-    fontSize: 18,
-    color: '#212529',
-  },
-
-  notificationDot: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#ff4757',
   },
 
   // Search Bar styles

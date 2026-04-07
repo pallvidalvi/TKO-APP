@@ -24,10 +24,10 @@ const API_BASE_URL = 'https://www.teamkaradoffroaders.online/api';
 const isWeb = Platform.OS === 'web';
 const WEB_FALLBACK_TEAMS = [
   {
-    team_name: 'Team offroaders Pune',
-    driver_name: 'Ritesh Bire',
+    team_name: 'Team offroaders Pune ',
+    driver_name: 'Ritesh Bire ',
     driver_blood_group: 'O +ve',
-    codriver_name: 'Shaurya Bire',
+    codriver_name: 'Shaurya Bire ',
     codriver_blood_group: 'O +ve',
     car_number: '1',
     category: 'PETROL_EXPERT',
@@ -37,8 +37,8 @@ const WEB_FALLBACK_TEAMS = [
     status: 'CONFIRMED',
   },
   {
-    team_name: 'Team satara offroad',
-    driver_name: 'Raj Santosh deshmukh',
+    team_name: 'Team satara offroad ',
+    driver_name: 'Raj Santosh deshmukh ',
     driver_blood_group: 'B +ve',
     codriver_name: 'Ajay misal',
     codriver_blood_group: 'B +ve',
@@ -50,7 +50,7 @@ const WEB_FALLBACK_TEAMS = [
     status: 'CONFIRMED',
   },
   {
-    team_name: 'Team motoRnation',
+    team_name: 'Team motoRnation ',
     driver_name: 'Aniket shete',
     driver_blood_group: 'A +ve',
     codriver_name: 'Anvita shete',
@@ -73,6 +73,58 @@ const WEB_FALLBACK_TEAMS = [
     vehicle_name: '',
     vehicle_model: '',
     socials: '7999',
+    status: 'CONFIRMED',
+  },
+  {
+    team_name: 'Uzma',
+    driver_name: 'Asif faras',
+    driver_blood_group: 'B +ve',
+    codriver_name: 'Saeed shaikh',
+    codriver_blood_group: 'O +ve',
+    car_number: '7',
+    category: 'DIESEL_EXPERT',
+    vehicle_name: '',
+    vehicle_model: '',
+    socials: '7999',
+    status: 'CONFIRMED',
+  },
+  {
+    team_name: 'Minal ',
+    driver_name: 'Minal shete',
+    driver_blood_group: 'A +ve',
+    codriver_name: 'Amit shete',
+    codriver_blood_group: 'A +ve',
+    car_number: '8',
+    category: 'LADIES',
+    vehicle_name: '',
+    vehicle_model: '',
+    socials: '0',
+    status: 'CONFIRMED',
+  },
+  {
+    team_name: 'Team motoRnation ',
+    driver_name: 'Anvita aniket shete',
+    driver_blood_group: 'AB -ve',
+    codriver_name: 'Aniket shete',
+    codriver_blood_group: 'A +ve',
+    car_number: '12',
+    category: 'LADIES',
+    vehicle_name: '',
+    vehicle_model: '',
+    socials: '',
+    status: 'CONFIRMED',
+  },
+  {
+    team_name: 'BAAZ',
+    driver_name: 'Malkit Singh Saini',
+    driver_blood_group: '',
+    codriver_name: 'Gurdeep Singh Saini',
+    codriver_blood_group: 'B +ve',
+    car_number: '27',
+    category: 'DIESEL_MODIFIED',
+    vehicle_name: '',
+    vehicle_model: '',
+    socials: '9999',
     status: 'CONFIRMED',
   },
 ];
@@ -118,6 +170,14 @@ export const TeamsService = {
    */
   getAllTeams: async () => {
     try {
+      if (!isWeb) {
+        const localTeams = await getTeamsDB();
+        if (localTeams.length > 0) {
+          console.log('Using local database teams:', localTeams.length);
+          return localTeams;
+        }
+      }
+
       const apiAvailable = await isApiAvailable();
       
       if (apiAvailable) {
@@ -340,6 +400,14 @@ export const CategoriesService = {
    */
   getAllCategories: async () => {
     try {
+      if (!isWeb) {
+        const localCategories = await getCategoriesDB();
+        if (localCategories.length > 0) {
+          console.log('Using local database categories:', localCategories.length);
+          return localCategories;
+        }
+      }
+
       const apiAvailable = await isApiAvailable();
       
       if (apiAvailable) {
