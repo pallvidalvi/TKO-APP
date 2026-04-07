@@ -172,6 +172,97 @@ const CATEGORY_IMAGE_SOURCES = {
   LADIES_CATEGORY: require('./assets/Ladies.png'),
 };
 
+const CATEGORY_CARD_PALETTES = {
+  EXTREME: {
+    background: '#ffffff',
+    border: '#ff9e91',
+    iconBackground: '#ff6b57',
+    badgeBackground: '#c83f2d',
+    title: '#7a1f14',
+    description: '#9b4b3f',
+  },
+  DIESEL_MODIFIED: {
+    background: '#ffffff',
+    border: '#8a99ab',
+    iconBackground: '#3e4c61',
+    badgeBackground: '#2d3848',
+    title: '#1f2833',
+    description: '#586779',
+  },
+  PETROL_MODIFIED: {
+    background: '#ffffff',
+    border: '#ffbf78',
+    iconBackground: '#ff9f43',
+    badgeBackground: '#d87b24',
+    title: '#7f4800',
+    description: '#9d6a2f',
+  },
+  DIESEL_EXPERT: {
+    background: '#ffffff',
+    border: '#8ec4ff',
+    iconBackground: '#0984e3',
+    badgeBackground: '#0a65af',
+    title: '#0f4677',
+    description: '#4a79a3',
+  },
+  PETROL_EXPERT: {
+    background: '#ffffff',
+    border: '#b59cff',
+    iconBackground: '#7a5af8',
+    badgeBackground: '#5c42c5',
+    title: '#3b297b',
+    description: '#6e5bab',
+  },
+  THAR_SUV: {
+    background: '#ffffff',
+    border: '#77d9bb',
+    iconBackground: '#00b894',
+    badgeBackground: '#098a71',
+    title: '#0f5d4d',
+    description: '#4b8478',
+  },
+  JIMNY_SUV: {
+    background: '#ffffff',
+    border: '#90bef2',
+    iconBackground: '#2d98ff',
+    badgeBackground: '#216fc0',
+    title: '#174974',
+    description: '#4f78a1',
+  },
+  SUV_MODIFIED: {
+    background: '#ffffff',
+    border: '#f0d278',
+    iconBackground: '#e1a800',
+    badgeBackground: '#b17c00',
+    title: '#705100',
+    description: '#94723b',
+  },
+  STOCK_NDMS: {
+    background: '#ffffff',
+    border: '#9bc5ef',
+    iconBackground: '#74b9ff',
+    badgeBackground: '#4d8fcc',
+    title: '#24537f',
+    description: '#5b7fa3',
+  },
+  LADIES: {
+    background: '#ffffff',
+    border: '#ef9dc4',
+    iconBackground: '#e86aa6',
+    badgeBackground: '#bf4f83',
+    title: '#8a2854',
+    description: '#aa5f83',
+  },
+  LADIES_CATEGORY: {
+    background: '#ffffff',
+    border: '#ef9dc4',
+    iconBackground: '#e86aa6',
+    badgeBackground: '#bf4f83',
+    title: '#8a2854',
+    description: '#aa5f83',
+  },
+};
+
 const CATEGORY_MOCK_TEAMS = {
   EXTREME: {
     team_name: 'Wild Torque',
@@ -388,6 +479,15 @@ const CategoryCard = ({ category, onPress, teamCount = 0, cardStyle, layout }) =
   const [scaleAnim] = useState(new Animated.Value(1));
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const responsiveLayout = layout || getResponsiveLayout(screenWidth, screenHeight);
+  const categoryKey = normalizeCategoryKey(category.name || category.category || '');
+  const palette = CATEGORY_CARD_PALETTES[categoryKey] || {
+    background: '#ffffff',
+    border: '#c7d5f5',
+    iconBackground: category.color || '#5b7cfa',
+    badgeBackground: '#4263cf',
+    title: '#1f2d5a',
+    description: '#5f6f97',
+  };
 
   const handlePressIn = () => {
     Animated.spring(scaleAnim, {
@@ -417,6 +517,8 @@ const CategoryCard = ({ category, onPress, teamCount = 0, cardStyle, layout }) =
             minHeight: responsiveLayout.isTablet ? 210 : 180,
             paddingHorizontal: responsiveLayout.isTablet ? 16 : 12,
             paddingVertical: responsiveLayout.isTablet ? 18 : 14,
+            backgroundColor: palette.background,
+            borderColor: palette.border,
           },
           cardStyle,
         ]}
@@ -429,7 +531,7 @@ const CategoryCard = ({ category, onPress, teamCount = 0, cardStyle, layout }) =
                 width: responsiveLayout.isTablet ? 64 : 56,
                 height: responsiveLayout.isTablet ? 64 : 56,
               },
-              { backgroundColor: category.color || '#ff4757' },
+              { backgroundColor: palette.iconBackground },
             ]}
           >
             {category.imageSource ? (
@@ -442,7 +544,12 @@ const CategoryCard = ({ category, onPress, teamCount = 0, cardStyle, layout }) =
           </View>
 
           <View style={styles.textContent}>
-            <Text style={[styles.categoryName, { fontSize: responsiveLayout.isTablet ? 16 : 14 }]}>
+            <Text
+              style={[
+                styles.categoryName,
+                { fontSize: responsiveLayout.isTablet ? 16 : 14, color: palette.title },
+              ]}
+            >
               {category.name}
             </Text>
             <Text
@@ -451,6 +558,7 @@ const CategoryCard = ({ category, onPress, teamCount = 0, cardStyle, layout }) =
                 {
                   fontSize: responsiveLayout.isTablet ? 12 : 11,
                   lineHeight: responsiveLayout.isTablet ? 18 : 16,
+                  color: palette.description,
                 },
               ]}
             >
@@ -461,7 +569,10 @@ const CategoryCard = ({ category, onPress, teamCount = 0, cardStyle, layout }) =
           <View
             style={[
               styles.countBadge,
-              { minWidth: responsiveLayout.isTablet ? 68 : 60 },
+              {
+                minWidth: responsiveLayout.isTablet ? 68 : 60,
+                backgroundColor: palette.badgeBackground,
+              },
             ]}
           >
             <Text style={styles.countText}>{teamCount}</Text>
@@ -521,7 +632,15 @@ const CustomDropdown = ({ label, value, options, onValueChange }) => {
  * PenaltyCounter Component
  * Provides increment/decrement buttons with manual input for penalty counts
  */
-const PenaltyCounter = ({ label, count, onCountChange, penaltyTime, layout }) => {
+const PenaltyCounter = ({
+  label,
+  count,
+  onCountChange,
+  penaltyTime,
+  layout,
+  disabled = false,
+  showPenaltyTime = true,
+}) => {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const responsiveLayout = layout || getResponsiveLayout(screenWidth, screenHeight);
   const penaltyCardWidth =
@@ -567,12 +686,14 @@ const PenaltyCounter = ({ label, count, onCountChange, penaltyTime, layout }) =>
         <TouchableOpacity
           style={[
             styles.counterButton,
+            disabled && styles.counterButtonDisabled,
             {
               width: responsiveLayout.isTablet ? 40 : responsiveLayout.isSmallPhone ? 32 : 36,
               height: responsiveLayout.isTablet ? 40 : responsiveLayout.isSmallPhone ? 32 : 36,
             },
           ]}
           onPress={handleDecrement}
+          disabled={disabled}
           activeOpacity={0.8}
         >
           <Text
@@ -603,12 +724,14 @@ const PenaltyCounter = ({ label, count, onCountChange, penaltyTime, layout }) =>
         <TouchableOpacity
           style={[
             styles.counterButton,
+            disabled && styles.counterButtonDisabled,
             {
               width: responsiveLayout.isTablet ? 40 : responsiveLayout.isSmallPhone ? 32 : 36,
               height: responsiveLayout.isTablet ? 40 : responsiveLayout.isSmallPhone ? 32 : 36,
             },
           ]}
           onPress={handleIncrement}
+          disabled={disabled}
           activeOpacity={0.8}
         >
           <Text
@@ -620,19 +743,21 @@ const PenaltyCounter = ({ label, count, onCountChange, penaltyTime, layout }) =>
             +
           </Text>
         </TouchableOpacity>
-        <View
-          style={[
-            styles.penaltyValuePill,
-            {
-              minWidth: responsiveLayout.isTablet ? 48 : responsiveLayout.isSmallPhone ? 34 : 40,
-              paddingHorizontal: responsiveLayout.isSmallPhone ? 4 : 6,
-            },
-          ]}
-        >
-          <Text style={[styles.penaltyValue, { fontSize: responsiveLayout.isSmallPhone ? 11 : 12 }]}>
-            {penaltyTime}s
-          </Text>
-        </View>
+        {showPenaltyTime ? (
+          <View
+            style={[
+              styles.penaltyValuePill,
+              {
+                minWidth: responsiveLayout.isTablet ? 48 : responsiveLayout.isSmallPhone ? 34 : 40,
+                paddingHorizontal: responsiveLayout.isSmallPhone ? 4 : 6,
+              },
+            ]}
+          >
+            <Text style={[styles.penaltyValue, { fontSize: responsiveLayout.isSmallPhone ? 11 : 12 }]}>
+              {penaltyTime}s
+            </Text>
+          </View>
+        ) : null}
       </View>
     </View>
   );
@@ -667,6 +792,8 @@ const RegistrationForm = ({
   const [fourthAttemptCount, setFourthAttemptCount] = useState('0');
   const [stopwatchTime, setStopwatchTime] = useState(0);
   const [isStopwatchRunning, setIsStopwatchRunning] = useState(false);
+  const [hasTimerStarted, setHasTimerStarted] = useState(false);
+  const [hasTimerStopped, setHasTimerStopped] = useState(false);
 
   const PENALTY_VALUES = {
     busting: 20,
@@ -735,12 +862,23 @@ const RegistrationForm = ({
   }, [visible, initialRecord]);
 
   const toggleStopwatch = () => {
-    setIsStopwatchRunning(prev => !prev);
+    if (isStopwatchRunning) {
+      setIsStopwatchRunning(false);
+      setHasTimerStopped(true);
+      return;
+    }
+
+    if (!hasTimerStarted && !hasTimerStopped) {
+      setIsStopwatchRunning(true);
+      setHasTimerStarted(true);
+    }
   };
 
   const resetStopwatch = () => {
     setStopwatchTime(0);
     setIsStopwatchRunning(false);
+    setHasTimerStarted(false);
+    setHasTimerStopped(false);
   };
 
   const formatTime = (milliseconds) => {
@@ -772,6 +910,8 @@ const RegistrationForm = ({
     setTaskSkippedCount('0');
     setWrongCourseCount('0');
     setFourthAttemptCount('0');
+    setHasTimerStarted(false);
+    setHasTimerStopped(false);
   };
 
   const handleClose = () => {
@@ -857,6 +997,10 @@ const RegistrationForm = ({
       Alert.alert('Error', 'Selected record details are incomplete');
       return;
     }
+    if (!hasTimerStopped) {
+      Alert.alert('Error', 'Stop the timer before submitting');
+      return;
+    }
 
     const formData = {
       trackName,
@@ -892,6 +1036,11 @@ const RegistrationForm = ({
     resetStopwatch();
     resetForm();
   };
+
+  const penaltyControlsDisabled = !hasTimerStarted;
+  const submitDisabled = !hasTimerStopped;
+  const startButtonDisabled = hasTimerStopped;
+  const resetButtonDisabled = isStopwatchRunning || stopwatchTime === 0;
 
   return (
     <Modal
@@ -1025,7 +1174,10 @@ const RegistrationForm = ({
                       <TouchableOpacity
                         style={[
                           styles.stopwatchButton,
-                          isStopwatchRunning && styles.stopwatchButtonActive,
+                          isStopwatchRunning
+                            ? styles.stopwatchButtonStop
+                            : styles.stopwatchButtonStart,
+                          startButtonDisabled && styles.stopwatchButtonDisabled,
                           {
                             paddingVertical: responsiveLayout.isSmallPhone ? 12 : 16,
                             paddingHorizontal: responsiveLayout.isSmallPhone ? 14 : 24,
@@ -1033,6 +1185,7 @@ const RegistrationForm = ({
                           },
                         ]}
                         onPress={toggleStopwatch}
+                        disabled={startButtonDisabled}
                       >
                         <Text
                           style={[
@@ -1048,9 +1201,11 @@ const RegistrationForm = ({
                           styles.stopwatchButton,
                           styles.stopwatchResetButton,
                           styles.stopwatchResetCompact,
+                          resetButtonDisabled && styles.stopwatchButtonDisabled,
                           { minWidth: responsiveLayout.isTablet ? 110 : responsiveLayout.isSmallPhone ? 82 : 96 },
                         ]}
                         onPress={resetStopwatch}
+                        disabled={resetButtonDisabled}
                       >
                         <Text
                           style={[
@@ -1058,7 +1213,7 @@ const RegistrationForm = ({
                             { fontSize: responsiveLayout.isSmallPhone ? 12 : 14 },
                           ]}
                         >
-                          RST
+                          Reset
                         </Text>
                       </TouchableOpacity>
                     </View>
@@ -1095,6 +1250,7 @@ const RegistrationForm = ({
                         onCountChange={setBustingCount}
                         penaltyTime={bustingPenaltyTime}
                         layout={responsiveLayout}
+                        disabled={penaltyControlsDisabled}
                       />
                       <PenaltyCounter
                         label="Seatbelt (30s)"
@@ -1102,6 +1258,7 @@ const RegistrationForm = ({
                         onCountChange={setSeatbeltCount}
                         penaltyTime={seatbeltPenaltyTime}
                         layout={responsiveLayout}
+                        disabled={penaltyControlsDisabled}
                       />
                       <PenaltyCounter
                         label="Ground Touch (30s)"
@@ -1109,6 +1266,7 @@ const RegistrationForm = ({
                         onCountChange={setGroundTouchCount}
                         penaltyTime={groundTouchPenaltyTime}
                         layout={responsiveLayout}
+                        disabled={penaltyControlsDisabled}
                       />
                       <PenaltyCounter
                         label="Late Start (30s)"
@@ -1116,6 +1274,7 @@ const RegistrationForm = ({
                         onCountChange={setLateStartCount}
                         penaltyTime={lateStartPenaltyTime}
                         layout={responsiveLayout}
+                        disabled={penaltyControlsDisabled}
                       />
                     </View>
                   </View>
@@ -1130,7 +1289,7 @@ const RegistrationForm = ({
                         },
                       ]}
                     >
-                      Tasks
+                      Task Skipped
                     </Text>
                     <View style={[styles.penaltyGrid, { gap: responsiveLayout.isSmallPhone ? 8 : 10 }]}>
                       <PenaltyCounter
@@ -1139,6 +1298,7 @@ const RegistrationForm = ({
                         onCountChange={setAttemptCount}
                         penaltyTime={attemptPenaltyTime}
                         layout={responsiveLayout}
+                        disabled={penaltyControlsDisabled}
                       />
                       <PenaltyCounter
                         label="Task Skip (60s)"
@@ -1146,6 +1306,7 @@ const RegistrationForm = ({
                         onCountChange={setTaskSkippedCount}
                         penaltyTime={taskSkippedPenaltyTime}
                         layout={responsiveLayout}
+                        disabled={penaltyControlsDisabled}
                       />
                     </View>
                   </View>
@@ -1164,18 +1325,22 @@ const RegistrationForm = ({
                     </Text>
                     <View style={[styles.penaltyGrid, { gap: responsiveLayout.isSmallPhone ? 8 : 10 }]}>
                       <PenaltyCounter
-                        label="Wrong Course (60s)"
+                        label="Wrong Course"
                         count={wrongCourseCount}
                         onCountChange={setWrongCourseCount}
                         penaltyTime={wrongCoursePenaltyTime}
                         layout={responsiveLayout}
+                        disabled={penaltyControlsDisabled}
+                        showPenaltyTime={false}
                       />
                       <PenaltyCounter
-                        label="4th Attempt (60s)"
+                        label="4th Attempt"
                         count={fourthAttemptCount}
                         onCountChange={setFourthAttemptCount}
                         penaltyTime={fourthAttemptPenaltyTime}
                         layout={responsiveLayout}
+                        disabled={penaltyControlsDisabled}
+                        showPenaltyTime={false}
                       />
                     </View>
                   </View>
@@ -1318,8 +1483,13 @@ const RegistrationForm = ({
               ]}
             >
               <TouchableOpacity
-                style={[styles.submitButton, { paddingVertical: responsiveLayout.isSmallPhone ? 12 : 14 }]}
+                style={[
+                  styles.submitButton,
+                  submitDisabled && styles.submitButtonDisabled,
+                  { paddingVertical: responsiveLayout.isSmallPhone ? 12 : 14 },
+                ]}
                 onPress={handleSubmit}
+                disabled={submitDisabled}
               >
                 <Text style={[styles.submitButtonText, { fontSize: responsiveLayout.isSmallPhone ? 14 : 15 }]}>
                   Submit & Download CSV
@@ -1986,6 +2156,8 @@ const styles = StyleSheet.create({
   card: {
     width: CARD_WIDTH,
     backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#dfe6e9',
     minHeight: IS_TABLET ? 210 : 180,
     borderRadius: 18,
     paddingHorizontal: IS_TABLET ? 16 : 12,
@@ -2308,7 +2480,6 @@ const styles = StyleSheet.create({
   },
 
   stopwatchButton: {
-    backgroundColor: '#25c05a',
     paddingVertical: IS_SMALL_PHONE ? 12 : 16,
     paddingHorizontal: IS_SMALL_PHONE ? 14 : 24,
     borderRadius: 14,
@@ -2317,12 +2488,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
-  stopwatchButtonActive: {
-    backgroundColor: '#1b9148',
+  stopwatchButtonStart: {
+    backgroundColor: '#25c05a',
+  },
+
+  stopwatchButtonStop: {
+    backgroundColor: '#e74c3c',
   },
 
   stopwatchResetButton: {
-    backgroundColor: '#f44343',
+    backgroundColor: '#4f6d8a',
+  },
+
+  stopwatchButtonDisabled: {
+    backgroundColor: '#b8c2cc',
   },
 
   stopwatchResetCompact: {
@@ -2685,6 +2864,10 @@ const styles = StyleSheet.create({
     color: '#ffffff',
   },
 
+  submitButtonDisabled: {
+    backgroundColor: '#b8c2cc',
+  },
+
   // Penalty Row Styles
   penaltyGrid: {
     flexDirection: 'row',
@@ -2724,6 +2907,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 10,
     backgroundColor: '#3565df',
+  },
+
+  counterButtonDisabled: {
+    backgroundColor: '#cbd5e1',
   },
 
   counterButtonText: {
