@@ -27,7 +27,7 @@
       "versionCode": 2,
       "permissions": [],
       "targetSdkVersion": 34,
-      "minSdkVersion": 21
+      "minSdkVersion": 24
     },
     "web": {},
     "plugins": [],

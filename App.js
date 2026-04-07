@@ -576,7 +576,7 @@ const CategoryCard = ({ category, onPress, teamCount = 0, cardStyle, layout }) =
             ]}
           >
             <Text style={styles.countText}>{teamCount}</Text>
-            <Text style={styles.countLabel}>teams</Text>
+            <Text style={styles.countLabel}>Teams</Text>
           </View>
         </View>
       </TouchableOpacity>
@@ -828,8 +828,8 @@ const RegistrationForm = ({
     attemptPenaltyTime +
     taskSkippedPenaltyTime;
 
-  const completionTimeInSeconds = Math.floor(stopwatchTime / 1000);
-  const totalTime = totalPenaltiesTime + completionTimeInSeconds;
+  const totalPenaltiesMilliseconds = totalPenaltiesTime * 1000;
+  const totalTimeMilliseconds = totalPenaltiesMilliseconds + stopwatchTime;
 
   useEffect(() => {
     let interval;
@@ -889,10 +889,13 @@ const RegistrationForm = ({
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}:${ms.toString().padStart(2, '0')}`;
   };
 
-  const formatTimeWithMs = (seconds) => {
-    const minutes = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}:00`;
+  const formatDuration = milliseconds => {
+    const safeMilliseconds = Math.max(0, milliseconds || 0);
+    const totalSeconds = Math.floor(safeMilliseconds / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    const cs = Math.floor((safeMilliseconds % 1000) / 10);
+    return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}:${cs.toString().padStart(2, '0')}`;
   };
 
   const resetForm = () => {
@@ -973,8 +976,8 @@ const RegistrationForm = ({
         data.fourthAttemptCount,
         data.fourthAttemptPenaltyTime,
         data.totalPenaltiesTime,
-        formatTimeWithMs(data.completionTimeSeconds),
-        formatTimeWithMs(data.totalTime),
+        formatDuration(data.completionTimeMilliseconds),
+        formatDuration(data.totalTimeMilliseconds),
         new Date().toLocaleString(),
       ]];
 
@@ -1010,7 +1013,7 @@ const RegistrationForm = ({
       driverName,
       coDriverName,
       completionTime: formatTime(stopwatchTime),
-      completionTimeSeconds: completionTimeInSeconds,
+      completionTimeMilliseconds: stopwatchTime,
       bustingCount,
       seatbeltCount,
       groundTouchCount,
@@ -1028,7 +1031,7 @@ const RegistrationForm = ({
       wrongCoursePenaltyTime,
       fourthAttemptPenaltyTime,
       totalPenaltiesTime,
-      totalTime,
+      totalTimeMilliseconds,
     };
 
     generateAndDownloadExcel(formData);
@@ -1373,7 +1376,7 @@ const RegistrationForm = ({
                       <View style={styles.summaryRow}>
                         <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>Performance Time:</Text>
                         <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>
-                          {formatTimeWithMs(completionTimeInSeconds)}
+                          {formatDuration(stopwatchTime)}
                         </Text>
                       </View>
                       <View style={styles.summaryDivider} />
@@ -1400,7 +1403,7 @@ const RegistrationForm = ({
                             { fontSize: responsiveLayout.isTablet ? 26 : responsiveLayout.isSmallPhone ? 20 : 22 },
                           ]}
                         >
-                          {formatTimeWithMs(totalTime)}
+                          {formatDuration(totalTimeMilliseconds)}
                         </Text>
                       </View>
                     </View>
@@ -1438,7 +1441,7 @@ const RegistrationForm = ({
                     <View style={styles.summaryRow}>
                       <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>Performance Time:</Text>
                       <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>
-                        {formatTimeWithMs(completionTimeInSeconds)}
+                        {formatDuration(stopwatchTime)}
                       </Text>
                     </View>
                     <View style={styles.summaryDivider} />
@@ -1465,7 +1468,7 @@ const RegistrationForm = ({
                           { fontSize: responsiveLayout.isTablet ? 26 : responsiveLayout.isSmallPhone ? 20 : 22 },
                         ]}
                       >
-                        {formatTimeWithMs(totalTime)}
+                        {formatDuration(totalTimeMilliseconds)}
                       </Text>
                     </View>
                   </View>
@@ -1509,9 +1512,11 @@ const CategoryRecordsModal = ({
   records,
   onClose,
   onStart,
+  onRecordActivate,
   onTrackSelect,
   selectedTracksByRecord,
   completedTracksByRecord,
+  activeRecordKey,
 }) => {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const responsiveLayout = getResponsiveLayout(screenWidth, screenHeight);
@@ -1573,10 +1578,23 @@ const CategoryRecordsModal = ({
           const recordKey = getRecordKey(item);
           const selectedTrack = selectedTracksByRecord[recordKey];
           const completedTracks = completedTracksByRecord[recordKey] || [];
-          const canStart = Boolean(selectedTrack) && !completedTracks.includes(selectedTrack);
+          const isActiveRecord = activeRecordKey === recordKey;
+          const hasLockedSelection = Boolean(activeRecordKey) && !isActiveRecord;
+          const canStart =
+            isActiveRecord &&
+            Boolean(selectedTrack) &&
+            !completedTracks.includes(selectedTrack);
 
           return (
-            <View style={styles.recordCard}>
+            <TouchableOpacity
+              activeOpacity={0.9}
+              onPress={() => onRecordActivate(item)}
+              style={[
+                styles.recordCard,
+                !isActiveRecord && styles.recordCardDisabled,
+                hasLockedSelection && styles.recordCardLocked,
+              ]}
+            >
               <View
                 style={[
                   styles.recordTopRow,
@@ -1651,9 +1669,10 @@ const CategoryRecordsModal = ({
                         styles.trackChip,
                         selectedTrack === track && styles.trackChipSelected,
                         completedTracks.includes(track) && styles.trackChipCompleted,
+                        !isActiveRecord && styles.trackChipDisabled,
                       ]}
                       onPress={() => onTrackSelect(item, track)}
-                      disabled={completedTracks.includes(track)}
+                      disabled={completedTracks.includes(track) || !isActiveRecord}
                       activeOpacity={0.85}
                     >
                       <Text
@@ -1669,7 +1688,7 @@ const CategoryRecordsModal = ({
                   ))}
                 </View>
               </View>
-            </View>
+            </TouchableOpacity>
           );
         }}
       />
@@ -1688,6 +1707,7 @@ export default function App() {
   const responsiveLayout = getResponsiveLayout(screenWidth, screenHeight);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [selectedRecord, setSelectedRecord] = useState(null);
+  const [activeRecordKey, setActiveRecordKey] = useState('');
   const [formVisible, setFormVisible] = useState(false);
   const [recordsVisible, setRecordsVisible] = useState(false);
   const [selectedTracksByRecord, setSelectedTracksByRecord] = useState({});
@@ -1832,20 +1852,31 @@ export default function App() {
    */
   const handleCategoryPress = (category) => {
     setSelectedCategory(category);
+    setActiveRecordKey('');
     setRecordsVisible(true);
   };
 
   const handleRecordStart = (record) => {
     setSelectedRecord(record);
+    setActiveRecordKey(record.recordKey || getRecordKey(record));
     setRecordsVisible(false);
     setFormVisible(true);
+  };
+
+  const handleRecordActivate = record => {
+    const recordKey = getRecordKey(record);
+    setActiveRecordKey(recordKey);
+    setSelectedTracksByRecord(prev => ({
+      ...prev,
+      [recordKey]: prev[recordKey] || '',
+    }));
   };
 
   const handleTrackSelect = (record, track) => {
     const recordKey = getRecordKey(record);
     const completedTracks = completedTracksByRecord[recordKey] || [];
 
-    if (completedTracks.includes(track)) {
+    if (completedTracks.includes(track) || activeRecordKey !== recordKey) {
       return;
     }
 
@@ -1883,6 +1914,7 @@ export default function App() {
           onPress: () => {
             setFormVisible(false);
             setSelectedRecord(null);
+            setActiveRecordKey('');
             setRecordsVisible(true);
           },
         },
@@ -1927,22 +1959,8 @@ export default function App() {
             { fontSize: responsiveLayout.isTablet ? 32 : responsiveLayout.isSmallPhone ? 24 : 28 },
           ]}
         >
-          Explore
+          TKO-Ground Zero
         </Text>
-        <View style={styles.headerIcons}>
-          <TouchableOpacity
-            style={[
-              styles.iconButton,
-              {
-                width: responsiveLayout.isTablet ? 46 : 40,
-                height: responsiveLayout.isTablet ? 46 : 40,
-                borderRadius: responsiveLayout.isTablet ? 23 : 20,
-              },
-            ]}
-          >
-            <Text style={styles.iconText}>☰</Text>
-          </TouchableOpacity>
-        </View>
       </View>
 
       {/* Search Bar */}
@@ -2020,12 +2038,15 @@ export default function App() {
         visible={recordsVisible}
         category={selectedCategory}
         records={selectedCategoryRecords}
+        activeRecordKey={activeRecordKey}
         selectedTracksByRecord={selectedTracksByRecord}
         completedTracksByRecord={completedTracksByRecord}
         onClose={() => {
           setRecordsVisible(false);
           setSelectedCategory(null);
+          setActiveRecordKey('');
         }}
+        onRecordActivate={handleRecordActivate}
         onTrackSelect={handleTrackSelect}
         onStart={handleRecordStart}
       />
@@ -2038,6 +2059,7 @@ export default function App() {
         onClose={() => {
           setFormVisible(false);
           setSelectedRecord(null);
+          setActiveRecordKey('');
           setRecordsVisible(true);
         }}
         onSubmit={handleFormSubmit}
@@ -2071,26 +2093,6 @@ const styles = StyleSheet.create({
   exploreTitle: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#212529',
-  },
-
-  headerIcons: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-
-  iconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f0f0f0',
-    justifyContent: 'center',
-    alignItems: 'center',
-    position: 'relative',
-  },
-
-  iconText: {
-    fontSize: 18,
     color: '#212529',
   },
 
@@ -2289,6 +2291,15 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
 
+  recordCardDisabled: {
+    opacity: 0.72,
+  },
+
+  recordCardLocked: {
+    backgroundColor: '#f6f8fb',
+    borderColor: '#e3e8ef',
+  },
+
   recordTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2413,6 +2424,10 @@ const styles = StyleSheet.create({
   trackChipCompleted: {
     backgroundColor: '#ccefd7',
     borderColor: '#60b77e',
+  },
+
+  trackChipDisabled: {
+    opacity: 0.45,
   },
 
   trackChipText: {
