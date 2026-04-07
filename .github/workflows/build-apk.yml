@@ -1,30 +1,100 @@
-name: Build Expo APK
+name: Build Android APK (Free - No Expo Token Required)
 
 on:
   push:
     branches:
       - main
+      - master
+      - develop
+  workflow_dispatch:
 
 jobs:
   build:
+    name: Build APK with Gradle
     runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      - name: 📱 Checkout code
+        uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v3
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: '18.x'
+          cache: 'npm'
 
-      - name: Install dependencies
-        run: npm install
+      - name: 🔗 Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+          cache: 'gradle'
 
-      - name: Install EAS CLI
-        run: npm install -g eas-cli
+      - name: 📦 Install NPM dependencies
+        run: npm ci
 
-      - name: Build APK
-        run: eas build -p android --profile preview --non-interactive
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      - name: 🚀 Generate Android project with Expo Prebuild
+        run: |
+          npm install -g eas-cli
+          npx expo prebuild --clean --platform android --non-interactive || true
+
+      - name: 🏗️ Build APK with Gradle
+        run: |
+          cd android
+          chmod +x gradlew
+          
+          # Print gradle properties
+          echo "Building APK..."
+          
+          # Build release APK
+          ./gradlew assembleRelease \
+            --no-daemon \
+            --stacktrace \
+            -Dorg.gradle.jvmargs="-Xmx4096m"
+          
+          # Find the APK
+          echo "Searching for APK..."
+          find . -name "*.apk" -type f
+          
+          # Copy APK to root
+          APK_FILE=$(find . -name "*release*.apk" -type f | head -1)
+          if [ -z "$APK_FILE" ]; then
+            APK_FILE=$(find . -name "*.apk" -type f | head -1)
+          fi
+          
+          if [ -n "$APK_FILE" ]; then
+            echo "Found APK: $APK_FILE"
+            cp "$APK_FILE" ../app.apk
+            ls -lh ../app.apk
+          else
+            echo "❌ No APK found!"
+            exit 1
+          fi
+
+      - name: ✅ Verify APK
+        run: |
+          if [ -f app.apk ]; then
+            echo "✅ APK created successfully!"
+            ls -lh app.apk
+            file app.apk
+          else
+            echo "❌ APK not found!"
+            exit 1
+          fi
+
+      - name: 📤 Upload APK as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TKO-Ground-Zero
+          path: app.apk
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: 🎉 Build Success Message
+        if: success()
+        run: |
+          echo "✅ APK built successfully!"
+          echo "📱 APK Location: TKO-Ground-Zero.apk"
+          echo "📲 Installation: adb install app.apk"
+          echo "🔗 Download from: Actions → Artifacts"
