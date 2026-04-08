@@ -1,4 +1,11 @@
-import * as SQLite from 'expo-sqlite';
+import { Platform } from 'react-native';
+
+const isWeb = Platform.OS === 'web';
+let SQLite = null;
+
+if (!isWeb) {
+  SQLite = require('expo-sqlite');
+}
 
 const DB_NAME = 'tko_app.db';
 
@@ -142,6 +149,10 @@ const SEEDED_CATEGORIES = [
 let dbPromise = null;
 
 const getDatabase = async () => {
+  if (isWeb) {
+    return null;
+  }
+
   if (!dbPromise) {
     dbPromise = SQLite.openDatabaseAsync(DB_NAME);
   }
@@ -209,11 +220,37 @@ const initializeSchema = async database => {
       total_time TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS results (
+      id INTEGER PRIMARY KEY NOT NULL,
+      track_name TEXT NOT NULL,
+      sticker_number TEXT NOT NULL,
+      driver_name TEXT NOT NULL,
+      codriver_name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      bunting_count INTEGER DEFAULT 0,
+      seatbelt_count INTEGER DEFAULT 0,
+      ground_touch_count INTEGER DEFAULT 0,
+      late_start_count INTEGER DEFAULT 0,
+      attempt_count INTEGER DEFAULT 0,
+      task_skipped_count INTEGER DEFAULT 0,
+      wrong_course_count INTEGER DEFAULT 0,
+      fourth_attempt_count INTEGER DEFAULT 0,
+      is_dns INTEGER DEFAULT 0,
+      total_penalties_time INTEGER DEFAULT 0,
+      performance_time TEXT,
+      total_time TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 };
 
 export const initializeDatabase = async () => {
   try {
+    if (isWeb) {
+      return true;
+    }
+
     const database = await getDatabase();
     await initializeSchema(database);
     console.log('Database initialized successfully');
@@ -226,6 +263,10 @@ export const initializeDatabase = async () => {
 
 export const seedDatabase = async () => {
   try {
+    if (isWeb) {
+      return true;
+    }
+
     const database = await getDatabase();
     await initializeSchema(database);
 
@@ -552,6 +593,86 @@ export const getAllRegistrations = async () => {
   } catch (error) {
     console.error('Error fetching registrations:', error);
     return [];
+  }
+};
+
+export const addResult = async resultData => {
+  try {
+    const database = await getDatabase();
+    const existingResult = await database.getFirstAsync(
+      `SELECT id FROM results
+       WHERE LOWER(TRIM(category)) = LOWER(TRIM(?))
+         AND LOWER(TRIM(track_name)) = LOWER(TRIM(?))
+         AND LOWER(TRIM(sticker_number)) = LOWER(TRIM(?))
+       LIMIT 1`,
+      [
+        resultData.category || '',
+        resultData.track_name || '',
+        resultData.sticker_number || '',
+      ]
+    );
+
+    if (existingResult) {
+      const duplicateError = new Error('Duplicate result already exists');
+      duplicateError.code = 'DUPLICATE_RESULT';
+      throw duplicateError;
+    }
+
+    const result = await database.runAsync(
+      `INSERT INTO results (
+        track_name, sticker_number, driver_name, codriver_name, category,
+        bunting_count, seatbelt_count, ground_touch_count, late_start_count,
+        attempt_count, task_skipped_count, wrong_course_count, fourth_attempt_count,
+        is_dns, total_penalties_time, performance_time, total_time
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        resultData.track_name,
+        resultData.sticker_number,
+        resultData.driver_name,
+        resultData.codriver_name,
+        resultData.category,
+        resultData.bunting_count || 0,
+        resultData.seatbelt_count || 0,
+        resultData.ground_touch_count || 0,
+        resultData.late_start_count || 0,
+        resultData.attempt_count || 0,
+        resultData.task_skipped_count || 0,
+        resultData.wrong_course_count || 0,
+        resultData.fourth_attempt_count || 0,
+        resultData.is_dns ? 1 : 0,
+        resultData.total_penalties_time || 0,
+        resultData.performance_time || null,
+        resultData.total_time || null,
+      ]
+    );
+    return result.lastInsertRowId;
+  } catch (error) {
+    if (error?.code === 'DUPLICATE_RESULT') {
+      throw error;
+    }
+    console.error('Error adding result:', error);
+    throw error;
+  }
+};
+
+export const getAllResults = async () => {
+  try {
+    const database = await getDatabase();
+    return await database.getAllAsync('SELECT * FROM results ORDER BY id DESC');
+  } catch (error) {
+    console.error('Error fetching results:', error);
+    return [];
+  }
+};
+
+export const deleteResultById = async id => {
+  try {
+    const database = await getDatabase();
+    await database.runAsync('DELETE FROM results WHERE id = ?', [id]);
+    return true;
+  } catch (error) {
+    console.error('Error deleting result:', error);
+    throw error;
   }
 };
 

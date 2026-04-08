@@ -18,10 +18,31 @@ import {
   getAllCategories as getCategoriesDB,
   getAllRegistrations as getRegistrationsDB,
   addRegistration as addRegistrationDB,
+  getAllResults as getResultsDB,
+  addResult as addResultDB,
+  deleteResultById as deleteResultByIdDB,
 } from '../db/database';
 
 const API_BASE_URL = 'https://www.teamkaradoffroaders.online/api';
 const isWeb = Platform.OS === 'web';
+const WEB_RESULTS_KEY = 'tko_app_results';
+const normalizeResultKey = value => String(value || '').trim().toLowerCase();
+const isDuplicateResult = (existingResults, resultData) => {
+  const nextCategory = normalizeResultKey(resultData.category);
+  const nextTrack = normalizeResultKey(resultData.track_name);
+  const nextSticker = normalizeResultKey(resultData.sticker_number);
+
+  return existingResults.some(item =>
+    normalizeResultKey(item.category) === nextCategory &&
+    normalizeResultKey(item.track_name) === nextTrack &&
+    normalizeResultKey(item.sticker_number) === nextSticker
+  );
+};
+const getResultDuplicateKey = item => [
+  normalizeResultKey(item.category),
+  normalizeResultKey(item.track_name),
+  normalizeResultKey(item.sticker_number),
+].join('|');
 const WEB_FALLBACK_TEAMS = [
   {
     team_name: 'Team offroaders Pune ',
@@ -481,9 +502,116 @@ export const RegistrationsService = {
   },
 };
 
+/**
+ * Results Service
+ */
+export const ResultsService = {
+  isDuplicateResult: async resultData => {
+    const results = await ResultsService.getAllResults();
+    return isDuplicateResult(results, resultData);
+  },
+
+  cleanupDuplicateResults: async () => {
+    try {
+      if (isWeb) {
+        const existingResults = JSON.parse(window.localStorage.getItem(WEB_RESULTS_KEY) || '[]');
+        const seen = new Set();
+        const deduped = [];
+
+        for (const item of existingResults) {
+          const key = getResultDuplicateKey(item);
+          if (seen.has(key)) {
+            continue;
+          }
+          seen.add(key);
+          deduped.push(item);
+        }
+
+        if (deduped.length !== existingResults.length) {
+          window.localStorage.setItem(WEB_RESULTS_KEY, JSON.stringify(deduped));
+        }
+
+        return existingResults.length - deduped.length;
+      }
+
+      const results = await getResultsDB();
+      const seen = new Set();
+      const duplicateIds = [];
+
+      for (const item of results) {
+        const key = getResultDuplicateKey(item);
+        if (seen.has(key)) {
+          duplicateIds.push(item.id);
+          continue;
+        }
+        seen.add(key);
+      }
+
+      for (const id of duplicateIds) {
+        await deleteResultByIdDB(id);
+      }
+
+      return duplicateIds.length;
+    } catch (error) {
+      console.error('❌ Error cleaning duplicate results:', error);
+      return 0;
+    }
+  },
+
+  addResult: async resultData => {
+    try {
+      if (isWeb) {
+        const existingResults = JSON.parse(window.localStorage.getItem(WEB_RESULTS_KEY) || '[]');
+        if (isDuplicateResult(existingResults, resultData)) {
+          const duplicateError = new Error('Duplicate result already exists');
+          duplicateError.code = 'DUPLICATE_RESULT';
+          throw duplicateError;
+        }
+
+        const nextResults = [
+          {
+            ...resultData,
+            id: Date.now(),
+            created_at: new Date().toISOString(),
+          },
+          ...existingResults,
+        ];
+        window.localStorage.setItem(WEB_RESULTS_KEY, JSON.stringify(nextResults));
+        return nextResults[0].id;
+      }
+
+      const localId = await addResultDB(resultData);
+      console.log('💾 Result saved to local database, ID:', localId);
+
+      return localId;
+    } catch (error) {
+      console.error('❌ Error adding result:', error);
+      throw error;
+    }
+  },
+
+  getAllResults: async () => {
+    try {
+      if (isWeb) {
+        const results = JSON.parse(window.localStorage.getItem(WEB_RESULTS_KEY) || '[]');
+        console.log('💾 Results fetched from web storage:', results.length);
+        return results;
+      }
+
+      const results = await getResultsDB();
+      console.log('💾 Results fetched from local database:', results.length);
+      return results;
+    } catch (error) {
+      console.error('❌ Error fetching results:', error);
+      return [];
+    }
+  },
+};
+
 export default {
   TeamsService,
   PlayersService,
   CategoriesService,
   RegistrationsService,
+  ResultsService,
 };
