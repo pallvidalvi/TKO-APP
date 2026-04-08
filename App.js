@@ -21,17 +21,24 @@ import { TeamsService, CategoriesService, ResultsService } from './src/services/
 import ReportScreen from './src/screens/ReportScreen';
 
 const HEADING_FONT = Platform.select({
-  ios: 'Biome',
-  android: 'Biome',
-  web: 'Biome',
-  default: 'Biome',
+  ios: 'monospace',
+  android: 'monospace',
+  web: 'monospace',
+  default: 'monospace',
+});
+
+const TITLE_FONT = Platform.select({
+  ios: 'monospace',
+  android: 'monospace',
+  web: 'monospace',
+  default: 'monospace',
 });
 
 const BODY_FONT = Platform.select({
-  ios: 'Avenir Next',
-  android: 'sans-serif',
-  web: 'Arial',
-  default: 'sans-serif',
+  ios: 'monospace',
+  android: 'monospace',
+  web: 'monospace',
+  default: 'monospace',
 });
 
 // Platform-specific imports
@@ -230,103 +237,103 @@ const CATEGORY_CARD_PALETTES = {
     description: '#586779',
   },
   PETROL_MODIFIED: {
-    background: '#fff9f2',
-    border: '#ffbf78',
-    iconBackground: '#ff9f43',
-    badgeBackground: '#d87b24',
-    secondaryBadgeBackground: '#ffe7ca',
-    secondaryBadgeBorder: '#ffc27d',
-    secondaryBadgeText: '#b06115',
-    title: '#7f4800',
-    description: '#9d6a2f',
+    background: '#fffedf',
+    border: '#e4db52',
+    iconBackground: '#e1d400',
+    badgeBackground: '#c6b800',
+    secondaryBadgeBackground: '#fff7a6',
+    secondaryBadgeBorder: '#eadf5e',
+    secondaryBadgeText: '#9d9000',
+    title: '#7d7300',
+    description: '#a29b2a',
   },
   DIESEL_EXPERT: {
-    background: '#f5fbff',
-    border: '#8ec4ff',
-    iconBackground: '#0984e3',
-    badgeBackground: '#0a65af',
-    secondaryBadgeBackground: '#dff0ff',
-    secondaryBadgeBorder: '#93c8f5',
-    secondaryBadgeText: '#0a65af',
-    title: '#0f4677',
-    description: '#4a79a3',
+    background: '#fff7ef',
+    border: '#c98a3d',
+    iconBackground: '#b56a1f',
+    badgeBackground: '#8f4f12',
+    secondaryBadgeBackground: '#f6ddbf',
+    secondaryBadgeBorder: '#d7a15b',
+    secondaryBadgeText: '#8c4b0c',
+    title: '#7a3f05',
+    description: '#9c6b34',
   },
   PETROL_EXPERT: {
-    background: '#f8f5ff',
-    border: '#b59cff',
-    iconBackground: '#7a5af8',
-    badgeBackground: '#5c42c5',
-    secondaryBadgeBackground: '#ebe4ff',
-    secondaryBadgeBorder: '#c4b3ff',
-    secondaryBadgeText: '#5c42c5',
-    title: '#3b297b',
-    description: '#6e5bab',
+    background: '#f5f7e8',
+    border: '#95a54c',
+    iconBackground: '#6f7f2f',
+    badgeBackground: '#5e6d25',
+    secondaryBadgeBackground: '#e5ecc6',
+    secondaryBadgeBorder: '#aab86c',
+    secondaryBadgeText: '#58681f',
+    title: '#4c5a1a',
+    description: '#738249',
   },
   THAR_SUV: {
-    background: '#f3fffb',
-    border: '#77d9bb',
-    iconBackground: '#00b894',
-    badgeBackground: '#098a71',
-    secondaryBadgeBackground: '#dff8f0',
-    secondaryBadgeBorder: '#8dddc7',
-    secondaryBadgeText: '#098a71',
-    title: '#0f5d4d',
-    description: '#4b8478',
+    background: '#edf3ff',
+    border: '#294f9e',
+    iconBackground: '#102d68',
+    badgeBackground: '#143b8b',
+    secondaryBadgeBackground: '#d8e4ff',
+    secondaryBadgeBorder: '#6f92d6',
+    secondaryBadgeText: '#173d86',
+    title: '#102e69',
+    description: '#47659c',
   },
   JIMNY_SUV: {
-    background: '#f4faff',
-    border: '#90bef2',
-    iconBackground: '#2d98ff',
-    badgeBackground: '#216fc0',
-    secondaryBadgeBackground: '#e0efff',
-    secondaryBadgeBorder: '#97c4f5',
-    secondaryBadgeText: '#216fc0',
-    title: '#174974',
-    description: '#4f78a1',
+    background: '#f2fff1',
+    border: '#57f56a',
+    iconBackground: '#12d94e',
+    badgeBackground: '#0ea43a',
+    secondaryBadgeBackground: '#d8ffd8',
+    secondaryBadgeBorder: '#83f38d',
+    secondaryBadgeText: '#0d9e35',
+    title: '#0c7d2c',
+    description: '#3f9757',
   },
   SUV_MODIFIED: {
-    background: '#fffdf2',
-    border: '#f0d278',
-    iconBackground: '#e1a800',
-    badgeBackground: '#b17c00',
-    secondaryBadgeBackground: '#fff1c9',
-    secondaryBadgeBorder: '#efcf6a',
-    secondaryBadgeText: '#9a6b00',
-    title: '#705100',
-    description: '#94723b',
+    background: '#fffde4',
+    border: '#f3d51f',
+    iconBackground: '#ffd400',
+    badgeBackground: '#d4ad00',
+    secondaryBadgeBackground: '#fff6a8',
+    secondaryBadgeBorder: '#f3d84e',
+    secondaryBadgeText: '#ab8600',
+    title: '#846800',
+    description: '#a6881b',
   },
   STOCK_NDMS: {
-    background: '#f5faff',
-    border: '#9bc5ef',
-    iconBackground: '#74b9ff',
-    badgeBackground: '#4d8fcc',
-    secondaryBadgeBackground: '#e1f0ff',
-    secondaryBadgeBorder: '#9fc8ef',
-    secondaryBadgeText: '#3f80bc',
-    title: '#24537f',
-    description: '#5b7fa3',
+    background: '#fff5eb',
+    border: '#ff8c1a',
+    iconBackground: '#ff6f00',
+    badgeBackground: '#ff7a00',
+    secondaryBadgeBackground: '#ffe2bf',
+    secondaryBadgeBorder: '#ffb05c',
+    secondaryBadgeText: '#ff6a00',
+    title: '#ff5a00',
+    description: '#c95b00',
   },
   LADIES: {
-    background: '#fff6fb',
-    border: '#ef9dc4',
-    iconBackground: '#e86aa6',
-    badgeBackground: '#bf4f83',
-    secondaryBadgeBackground: '#ffdff0',
-    secondaryBadgeBorder: '#ef9dc4',
-    secondaryBadgeText: '#bf4f83',
-    title: '#8a2854',
-    description: '#aa5f83',
+    background: '#fff0f7',
+    border: '#f7a9cf',
+    iconBackground: '#f38fbe',
+    badgeBackground: '#ea72ab',
+    secondaryBadgeBackground: '#ffd8e9',
+    secondaryBadgeBorder: '#f4acd0',
+    secondaryBadgeText: '#cf4b8c',
+    title: '#bf4b82',
+    description: '#c97aa1',
   },
   LADIES_CATEGORY: {
-    background: '#fff6fb',
-    border: '#ef9dc4',
-    iconBackground: '#e86aa6',
-    badgeBackground: '#bf4f83',
-    secondaryBadgeBackground: '#ffdff0',
-    secondaryBadgeBorder: '#ef9dc4',
-    secondaryBadgeText: '#bf4f83',
-    title: '#8a2854',
-    description: '#aa5f83',
+    background: '#fff0f7',
+    border: '#f7a9cf',
+    iconBackground: '#f38fbe',
+    badgeBackground: '#ea72ab',
+    secondaryBadgeBackground: '#ffd8e9',
+    secondaryBadgeBorder: '#f4acd0',
+    secondaryBadgeText: '#cf4b8c',
+    title: '#bf4b82',
+    description: '#c97aa1',
   },
 };
 
@@ -475,6 +482,8 @@ const CATEGORY_MOCK_TEAMS = {
     status: 'MOCK',
   },
 };
+
+const IGNITION_SOUND_DURATION_MS = 3000;
 
 const normalizeCategoryKey = (value = '') => {
   const normalizedValue = value
@@ -1500,7 +1509,7 @@ const RegistrationForm = ({
                 styles.formHeader,
                 {
                   paddingHorizontal: responsiveLayout.isTablet ? 28 : responsiveLayout.shellPadding,
-                  paddingTop: responsiveLayout.isTablet ? 24 : 16,
+                  paddingTop: 60,
                 },
               ]}
             >
@@ -2000,7 +2009,7 @@ const CategoryRecordsModal = ({
           styles.recordsPageContainer,
           {
             paddingHorizontal: responsiveLayout.isTablet ? 24 : responsiveLayout.shellPadding,
-            paddingTop: responsiveLayout.isTablet ? 28 : 20,
+            paddingTop: 60,
           },
         ]}
       >
@@ -2232,7 +2241,7 @@ const RegistrationResultsModal = ({
           styles.recordsPageContainer,
           {
             paddingHorizontal: responsiveLayout.isTablet ? 24 : responsiveLayout.shellPadding,
-            paddingTop: responsiveLayout.isTablet ? 28 : 20,
+            paddingTop: 60,
           },
         ]}
       >
@@ -2394,89 +2403,124 @@ export default function App() {
   const [appStage, setAppStage] = useState('splash');
   const [selectedDay, setSelectedDay] = useState(null);
   const splashLogoAnim = useRef(new Animated.Value(0)).current;
-  const ignitionAnim = useRef(new Animated.Value(0)).current;
-  const sparkAnim = useRef(new Animated.Value(0)).current;
+  const switchAnim = useRef(new Animated.Value(0)).current;
   const ignitionSoundRef = useRef(null);
+  const splashStartTriggeredRef = useRef(false);
+  const ignitionSequenceTimerRef = useRef(null);
 
   useEffect(() => {
     if (appStage !== 'splash') {
       return undefined;
     }
 
+    splashStartTriggeredRef.current = false;
     splashLogoAnim.setValue(0);
-    ignitionAnim.setValue(0);
-    sparkAnim.setValue(0);
-
-    const playIgnitionSound = async () => {
-      try {
-        await Audio.setAudioModeAsync({
-          playsInSilentModeIOS: true,
-          staysActiveInBackground: false,
-        });
-
-        const { sound } = await Audio.Sound.createAsync(
-          require('./assets/ignition-start.wav'),
-          {
-            shouldPlay: true,
-            volume: 0.85,
-          }
-        );
-
-        ignitionSoundRef.current = sound;
-      } catch (error) {
-        console.warn('Unable to play ignition sound:', error);
-      }
-    };
-
-    playIgnitionSound();
+    switchAnim.setValue(0);
+    if (ignitionSequenceTimerRef.current) {
+      clearTimeout(ignitionSequenceTimerRef.current);
+      ignitionSequenceTimerRef.current = null;
+    }
 
     Animated.parallel([
-      Animated.spring(splashLogoAnim, {
-        toValue: 1,
-        useNativeDriver: true,
-        friction: 7,
-        tension: 65,
-      }),
       Animated.sequence([
-        Animated.delay(120),
-        Animated.timing(ignitionAnim, {
+        Animated.delay(220),
+        Animated.spring(splashLogoAnim, {
           toValue: 1,
-          duration: 180,
           useNativeDriver: true,
-        }),
-        Animated.timing(ignitionAnim, {
-          toValue: 0.35,
-          duration: 260,
-          useNativeDriver: true,
-        }),
-      ]),
-      Animated.sequence([
-        Animated.delay(180),
-        Animated.timing(sparkAnim, {
-          toValue: 1,
-          duration: 160,
-          useNativeDriver: true,
-        }),
-        Animated.timing(sparkAnim, {
-          toValue: 0,
-          duration: 420,
-          useNativeDriver: true,
+          friction: 7,
+          tension: 65,
         }),
       ]),
     ]).start();
 
-    const splashTimer = setTimeout(() => {
-      setAppStage('day');
-    }, 1500);
-
     return () => {
-      clearTimeout(splashTimer);
+      if (ignitionSequenceTimerRef.current) {
+        clearTimeout(ignitionSequenceTimerRef.current);
+        ignitionSequenceTimerRef.current = null;
+      }
       if (ignitionSoundRef.current) {
         ignitionSoundRef.current.unloadAsync().catch(() => {});
         ignitionSoundRef.current = null;
       }
     };
-  }, [appStage, ignitionAnim, sparkAnim, splashLogoAnim]);
+  }, [appStage, splashLogoAnim, switchAnim]);
+
+  const playIgnitionSound = async () => {
+    try {
+      if (ignitionSoundRef.current) {
+        return;
+      }
+
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+      });
+
+      const { sound } = await Audio.Sound.createAsync(require('./assets/54789481-car-start-engine-start-diesel-engine-car-start-490819.mp3'), {
+        shouldPlay: true,
+        volume: 0.9,
+      });
+
+      ignitionSoundRef.current = sound;
+    } catch (error) {
+      console.warn('Unable to play ignition sound:', error);
+    }
+  };
+
+  const stopIgnitionSound = async () => {
+    try {
+      if (!ignitionSoundRef.current) {
+        return;
+      }
+
+      await ignitionSoundRef.current.stopAsync().catch(() => {});
+      await ignitionSoundRef.current.unloadAsync().catch(() => {});
+      ignitionSoundRef.current = null;
+    } catch (error) {
+      console.warn('Unable to stop ignition sound:', error);
+    }
+  };
+
+  const handleIgnitionPress = async () => {
+    if (splashStartTriggeredRef.current) {
+      return;
+    }
+
+    splashStartTriggeredRef.current = true;
+    if (ignitionSequenceTimerRef.current) {
+      clearTimeout(ignitionSequenceTimerRef.current);
+      ignitionSequenceTimerRef.current = null;
+    }
+
+    switchAnim.stopAnimation();
+    switchAnim.setValue(0);
+
+    await playIgnitionSound();
+
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(switchAnim, {
+          toValue: 1,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+        Animated.timing(switchAnim, {
+          toValue: 0.18,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+      ]),
+      { iterations: 3 }
+    ).start();
+
+    ignitionSequenceTimerRef.current = setTimeout(async () => {
+      ignitionSequenceTimerRef.current = null;
+      switchAnim.stopAnimation();
+      switchAnim.setValue(0);
+      await stopIgnitionSound();
+      setAppStage('day');
+    }, IGNITION_SOUND_DURATION_MS);
+  };
 
   // Initialize database on app startup
   useEffect(() => {
@@ -2964,100 +3008,6 @@ export default function App() {
       <View style={styles.splashScreen}>
         <Animated.View
           style={[
-            styles.splashIgnitionHalo,
-            {
-              opacity: ignitionAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0.15, 0.9],
-              }),
-              transform: [
-                {
-                  scale: ignitionAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0.78, 1.08],
-                  }),
-                },
-              ],
-            },
-          ]}
-        />
-        <Animated.View
-          style={[
-            styles.splashIgnitionBar,
-            {
-              opacity: ignitionAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0.18, 0.75],
-              }),
-              transform: [
-                {
-                  scaleX: sparkAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0.7, 1.15],
-                  }),
-                },
-              ],
-            },
-          ]}
-        />
-        <Animated.View
-          style={[
-            styles.splashSparkLeft,
-            {
-              opacity: sparkAnim,
-              transform: [
-                {
-                  translateX: sparkAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [-20, -52],
-                  }),
-                },
-                {
-                  translateY: sparkAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [16, 0],
-                  }),
-                },
-                {
-                  scale: sparkAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0.6, 1],
-                  }),
-                },
-              ],
-            },
-          ]}
-        />
-        <Animated.View
-          style={[
-            styles.splashSparkRight,
-            {
-              opacity: sparkAnim,
-              transform: [
-                {
-                  translateX: sparkAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [20, 52],
-                  }),
-                },
-                {
-                  translateY: sparkAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [16, 0],
-                  }),
-                },
-                {
-                  scale: sparkAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0.6, 1],
-                  }),
-                },
-              ],
-            },
-          ]}
-        />
-        <Animated.View
-          style={[
             styles.splashLogoGround,
             {
               opacity: splashLogoAnim,
@@ -3078,6 +3028,27 @@ export default function App() {
             },
           ]}
         >
+          <View style={styles.splashLogoSideGlowLeft} />
+          <View style={styles.splashLogoSideGlowRight} />
+          <Animated.View
+            style={[
+              styles.splashLogoAmberGlow,
+              {
+                opacity: switchAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0.2, 0.8],
+                }),
+                transform: [
+                  {
+                    scale: switchAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.72, 1.06],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          />
           <Animated.Image
             source={require('./assets/welcome-logo-transparent.png')}
             style={styles.splashLogo}
@@ -3085,7 +3056,69 @@ export default function App() {
           />
         </Animated.View>
         <Text style={styles.splashTitle}>TKO-Ground Zero</Text>
-        <Text style={styles.splashSubtitle}>Loading report flow...</Text>
+        <Animated.View
+          style={[
+            styles.splashSwitchRow,
+            {
+              opacity: splashLogoAnim,
+              transform: [
+                {
+                  translateY: splashLogoAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [18, 0],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          <TouchableOpacity
+            activeOpacity={0.92}
+            disabled={splashStartTriggeredRef.current}
+            onPress={handleIgnitionPress}
+            style={styles.ignitionButtonHitbox}
+          >
+            <Animated.View
+              style={[
+                styles.ignitionButton,
+                {
+                  opacity: switchAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [1, 0.96],
+                  }),
+                  transform: [
+                    {
+                      scale: switchAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.96, 1.08],
+                      }),
+                    },
+                    {
+                      translateY: switchAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [2, -5],
+                      }),
+                    },
+                    {
+                      rotate: switchAnim.interpolate({
+                        inputRange: [0, 0.5, 1],
+                        outputRange: ['0deg', '-2deg', '2deg'],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <View style={styles.ignitionButtonOuterRing} />
+              <View style={styles.ignitionButtonInnerRing} />
+              <View style={styles.ignitionButtonCenter}>
+                <Text style={styles.ignitionButtonTopText}>START</Text>
+                <Text style={styles.ignitionButtonMiddleText}>ENGINE</Text>
+              </View>
+            </Animated.View>
+          </TouchableOpacity>
+        </Animated.View>
+        <Text style={styles.splashSubtitle}>Tap the button to start</Text>
       </View>
     );
   }
@@ -3094,10 +3127,13 @@ export default function App() {
     return (
       <View style={styles.dayScreen}>
         <View style={styles.dayScreenHeader}>
-          <View style={styles.dayLogoRing}>
+          <View style={styles.splashLogoGround}>
+            <View style={styles.splashLogoSideGlowLeft} />
+            <View style={styles.splashLogoSideGlowRight} />
+            <View style={[styles.splashLogoAmberGlow, styles.dayLogoAmberGlow]} />
             <Image
               source={require('./assets/welcome-logo-transparent.png')}
-              style={styles.dayScreenLogo}
+              style={styles.splashLogo}
               resizeMode="contain"
             />
           </View>
@@ -3130,7 +3166,7 @@ export default function App() {
           styles.topHeader,
           {
             paddingHorizontal: responsiveLayout.shellPadding,
-            paddingTop: responsiveLayout.isTablet ? 24 : 16,
+            paddingTop: 60,
             paddingBottom: responsiveLayout.isTablet ? 18 : 16,
           },
         ]}
@@ -3325,31 +3361,39 @@ const styles = StyleSheet.create({
 
   splashIgnitionHalo: {
     position: 'absolute',
-    width: 280,
-    height: 280,
-    borderRadius: 140,
+    width: 132,
+    height: 132,
+    borderRadius: 66,
     borderWidth: 2,
     borderColor: '#ff8a1f',
+    backgroundColor: '#080808',
+    top: '38%',
+    left: '50%',
+    marginLeft: -66,
+    marginTop: -66,
     shadowColor: '#ff8a1f',
-    shadowOpacity: 0.35,
-    shadowRadius: 26,
+    shadowOpacity: 0.42,
+    shadowRadius: 30,
     shadowOffset: { width: 0, height: 0 },
     elevation: 8,
   },
 
   splashIgnitionBar: {
     position: 'absolute',
-    width: 220,
-    height: 14,
-    borderRadius: 7,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     backgroundColor: '#ff8a1f',
-    opacity: 0.22,
+    opacity: 0.16,
     shadowColor: '#ff8a1f',
-    shadowOpacity: 0.55,
-    shadowRadius: 30,
+    shadowOpacity: 0.72,
+    shadowRadius: 22,
     shadowOffset: { width: 0, height: 0 },
     elevation: 10,
-    top: '58%',
+    top: '38%',
+    left: '50%',
+    marginLeft: -36,
+    marginTop: -36,
   },
 
   splashSparkLeft: {
@@ -3363,9 +3407,10 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 0 },
     elevation: 8,
-    top: '58%',
+    top: '38%',
     left: '50%',
-    marginLeft: -70,
+    marginLeft: -52,
+    marginTop: -44,
   },
 
   splashSparkRight: {
@@ -3379,9 +3424,10 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 0 },
     elevation: 8,
-    top: '58%',
+    top: '38%',
     left: '50%',
-    marginLeft: 56,
+    marginLeft: 38,
+    marginTop: -44,
   },
 
   splashLogoGround: {
@@ -3390,29 +3436,83 @@ const styles = StyleSheet.create({
     borderRadius: 125,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#000000',
-    borderWidth: 1,
-    borderColor: '#1c1c1c',
-    shadowColor: '#000000',
-    shadowOpacity: 0.5,
-    shadowRadius: 22,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 8,
+    backgroundColor: '#050505',
+    borderWidth: 1.5,
+    borderColor: '#8a6720',
+    shadowColor: '#f1b94d',
+    shadowOpacity: 0.34,
+    shadowRadius: 36,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 12,
     marginBottom: 18,
     overflow: 'hidden',
   },
 
+  splashLogoSideGlowLeft: {
+    position: 'absolute',
+    left: -34,
+    width: 118,
+    height: 204,
+    borderRadius: 59,
+    backgroundColor: 'rgba(255, 196, 64, 0.32)',
+    borderWidth: 1.4,
+    borderColor: 'rgba(255, 234, 170, 0.42)',
+    transform: [{ rotate: '-18deg' }],
+    shadowColor: '#ffd36b',
+    shadowOpacity: 0.82,
+    shadowRadius: 36,
+    shadowOffset: { width: -8, height: 0 },
+    elevation: 12,
+  },
+
+  splashLogoSideGlowRight: {
+    position: 'absolute',
+    right: -34,
+    width: 118,
+    height: 204,
+    borderRadius: 59,
+    backgroundColor: 'rgba(255, 204, 82, 0.32)',
+    borderWidth: 1.4,
+    borderColor: 'rgba(255, 236, 176, 0.42)',
+    transform: [{ rotate: '18deg' }],
+    shadowColor: '#ffd778',
+    shadowOpacity: 0.82,
+    shadowRadius: 36,
+    shadowOffset: { width: 8, height: 0 },
+    elevation: 12,
+  },
+
+  splashLogoAmberGlow: {
+    position: 'absolute',
+    width: 208,
+    height: 208,
+    borderRadius: 104,
+    backgroundColor: 'rgba(255, 193, 62, 0.34)',
+    borderWidth: 1.4,
+    borderColor: 'rgba(255, 232, 158, 0.34)',
+    shadowColor: '#ffd05c',
+    shadowOpacity: 0.9,
+    shadowRadius: 42,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 14,
+  },
+
+  dayLogoAmberGlow: {
+    opacity: 0.82,
+    transform: [{ scale: 1.02 }],
+  },
+
   splashLogo: {
-    width: 212,
-    height: 212,
+    width: 238,
+    height: 238,
   },
 
   splashTitle: {
-    fontSize: 24,
-    fontWeight: '800',
+    fontSize: 30,
+    fontWeight: '900',
     color: '#fff6ea',
     letterSpacing: 0.3,
-    fontFamily: HEADING_FONT,
+    fontFamily: 'monospace',
   },
 
   splashSubtitle: {
@@ -3424,16 +3524,93 @@ const styles = StyleSheet.create({
     fontFamily: BODY_FONT,
   },
 
+  splashSwitchRow: {
+    marginTop: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  ignitionButtonHitbox: {
+    width: 192,
+    height: 192,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  ignitionButton: {
+    width: 166,
+    height: 166,
+    borderRadius: 83,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f5aa19',
+    borderWidth: 4,
+    borderColor: '#7e3100',
+    shadowColor: '#ff8a1f',
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 6,
+  },
+
+  ignitionButtonOuterRing: {
+    position: 'absolute',
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    borderWidth: 3,
+    borderColor: '#fff2c7',
+    opacity: 0.9,
+  },
+
+  ignitionButtonInnerRing: {
+    position: 'absolute',
+    width: 128,
+    height: 128,
+    borderRadius: 64,
+    borderWidth: 4,
+    borderColor: '#fff6df',
+    shadowColor: '#ffffff',
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 0 },
+  },
+
+  ignitionButtonCenter: {
+    width: 96,
+    height: 96,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  ignitionButtonTopText: {
+    fontSize: 20,
+    lineHeight: 22,
+    color: '#f7ecd2',
+    fontWeight: '700',
+    fontFamily: BODY_FONT,
+  },
+
+  ignitionButtonMiddleText: {
+    fontSize: 16,
+    lineHeight: 18,
+    color: '#f7ecd2',
+    fontWeight: '700',
+    fontFamily: BODY_FONT,
+    textAlign: 'center',
+  },
+
   dayScreen: {
     flex: 1,
     backgroundColor: '#080b10',
     paddingHorizontal: 16,
-    paddingTop: 28,
+    paddingTop: 60,
+    paddingBottom: 28,
   },
 
   dayScreenHeader: {
     alignItems: 'center',
-    marginBottom: 22,
+    marginBottom: 28,
   },
 
   dayScreenLogo: {
@@ -3523,8 +3700,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'flex-start',
     paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 16,
+    paddingTop: 60,
+    paddingBottom: 24,
     backgroundColor: '#0b111a',
   },
 
@@ -3536,10 +3713,10 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   exploreTitle: {
-    fontSize: 28,
-    fontWeight: '700',
+    fontSize: 30,
+    fontWeight: '900',
     color: '#fff6ea',
-    fontFamily: HEADING_FONT,
+    fontFamily: 'monospace',
   },
 
   selectedDayLabel: {
@@ -3817,7 +3994,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#080b10',
     paddingHorizontal: IS_TABLET ? 24 : 16,
-    paddingTop: IS_TABLET ? 28 : 20,
+    paddingTop: 60,
+    paddingBottom: IS_TABLET ? 28 : 20,
   },
 
   recordsHeader: {
@@ -4573,7 +4751,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: IS_TABLET ? 28 : 20,
-    paddingTop: IS_TABLET ? 24 : 16,
+    paddingTop: 60,
     paddingBottom: 12,
     backgroundColor: '#1a2432',
   },

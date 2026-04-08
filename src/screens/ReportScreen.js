@@ -14,17 +14,17 @@ import {
 import { ResultsService } from '../services/dataService';
 
 const HEADING_FONT = Platform.select({
-  ios: 'Biome',
-  android: 'Biome',
-  web: 'Biome',
-  default: 'Biome',
+  ios: 'monospace',
+  android: 'monospace',
+  web: 'monospace',
+  default: 'monospace',
 });
 
 const BODY_FONT = Platform.select({
-  ios: 'Avenir Next',
-  android: 'sans-serif',
-  web: 'Arial',
-  default: 'sans-serif',
+  ios: 'monospace',
+  android: 'monospace',
+  web: 'monospace',
+  default: 'monospace',
 });
 
 let FileSystem = null;
@@ -295,7 +295,8 @@ const ReportScreen = ({ visible, onClose }) => {
           styles.container,
           {
             paddingHorizontal: responsiveLayout.shellPadding,
-            paddingTop: responsiveLayout.isTablet ? 28 : 20,
+            paddingTop: 60,
+            paddingBottom: responsiveLayout.isTablet ? 28 : 20,
           },
         ]}
       >
