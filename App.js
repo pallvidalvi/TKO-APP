@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -484,6 +484,7 @@ const CATEGORY_MOCK_TEAMS = {
 };
 
 const IGNITION_SOUND_DURATION_MS = 3000;
+const RESULTS_RESET_TOKEN = '2026-04-09-clear-report-records';
 
 const normalizeCategoryKey = (value = '') => {
   const normalizedValue = value
@@ -523,6 +524,85 @@ const getRecordKey = (record = {}) =>
 
 const getTeamStickerNumber = (team = {}) =>
   team.stickerNumber || team.sticker_number || team.car_number || '';
+
+const normalizeLookupValue = value => String(value || '').trim().toUpperCase();
+
+const getStickerSortValue = record => {
+  const rawValue = getTeamStickerNumber(record);
+  const numericValue = Number(rawValue);
+
+  if (!Number.isNaN(numericValue)) {
+    return { numeric: true, value: numericValue };
+  }
+
+  return { numeric: false, value: String(rawValue || '').toUpperCase() };
+};
+
+const buildCompletedTracksMap = (teams = [], results = []) => {
+  const recordKeyByCategoryAndSticker = new Map();
+
+  teams.forEach(team => {
+    const categoryKey = normalizeCategoryKey(team.category || '');
+    const stickerKey = normalizeLookupValue(getTeamStickerNumber(team));
+
+    if (!categoryKey || !stickerKey) {
+      return;
+    }
+
+    recordKeyByCategoryAndSticker.set(`${categoryKey}::${stickerKey}`, getRecordKey(team));
+  });
+
+  return results.reduce((acc, result) => {
+    const categoryKey = normalizeCategoryKey(result.category || '');
+    const stickerKey = normalizeLookupValue(result.sticker_number || result.stickerNumber || '');
+    const trackName = String(result.track_name || result.trackName || '').trim();
+
+    if (!categoryKey || !stickerKey || !trackName) {
+      return acc;
+    }
+
+    const recordKey = recordKeyByCategoryAndSticker.get(`${categoryKey}::${stickerKey}`);
+
+    if (!recordKey) {
+      return acc;
+    }
+
+    acc[recordKey] = [...new Set([...(acc[recordKey] || []), trackName])];
+    return acc;
+  }, {});
+};
+
+const ensureResultsClearedOnce = async () => {
+  try {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const resetKey = 'tko_results_reset_token';
+      if (window.localStorage.getItem(resetKey) === RESULTS_RESET_TOKEN) {
+        return false;
+      }
+
+      await ResultsService.clearAllResults();
+      window.localStorage.setItem(resetKey, RESULTS_RESET_TOKEN);
+      return true;
+    }
+
+    if (FileSystem?.documentDirectory) {
+      const markerPath = `${FileSystem.documentDirectory}results-reset-${RESULTS_RESET_TOKEN}.txt`;
+      const markerInfo = await FileSystem.getInfoAsync(markerPath).catch(() => ({ exists: false }));
+
+      if (markerInfo.exists) {
+        return false;
+      }
+
+      await ResultsService.clearAllResults();
+      await FileSystem.writeAsStringAsync(markerPath, 'done');
+      return true;
+    }
+  } catch (error) {
+    console.warn('Unable to clear stored results automatically:', error);
+  }
+
+  return false;
+};
 
 const getTeamTracks = (team = {}, categoryName = '') => {
   const rawTracks =
@@ -1967,35 +2047,64 @@ const CategoryRecordsModal = ({
   onTrackCardBack,
   selectedLateStartEnabledByRecord,
   selectedLateStartByRecord,
+  lateStartActionOrderByRecord,
   completedTracksByRecord,
   activeRecordKey,
 }) => {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const responsiveLayout = getResponsiveLayout(screenWidth, screenHeight);
   const categoryTracks = getCategoryTracks(category?.name);
-  const orderedRecords = [...records].sort((a, b) => {
-    const aLateStart =
-      Boolean(selectedLateStartEnabledByRecord[getRecordKey(a)]) && Boolean(selectedLateStartByRecord[getRecordKey(a)]);
-    const bLateStart =
-      Boolean(selectedLateStartEnabledByRecord[getRecordKey(b)]) && Boolean(selectedLateStartByRecord[getRecordKey(b)]);
+  const orderedRecords = useMemo(
+    () =>
+      [...records].sort((a, b) => {
+        const aLateStart =
+          Boolean(selectedLateStartEnabledByRecord[getRecordKey(a)]) && Boolean(selectedLateStartByRecord[getRecordKey(a)]);
+        const bLateStart =
+          Boolean(selectedLateStartEnabledByRecord[getRecordKey(b)]) && Boolean(selectedLateStartByRecord[getRecordKey(b)]);
 
-    if (aLateStart === bLateStart) {
-      return 0;
-    }
+        if (aLateStart !== bLateStart) {
+          return aLateStart ? 1 : -1;
+        }
 
-    return aLateStart ? 1 : -1;
-  });
-  const filteredRecords = selectedTrackFilter
-    ? orderedRecords.filter(record => {
-        const recordKey = getRecordKey(record);
-        const completedTracks = completedTracksByRecord[recordKey] || [];
+        if (aLateStart && bLateStart) {
+          const aLateStartOrder = lateStartActionOrderByRecord[getRecordKey(a)] ?? 0;
+          const bLateStartOrder = lateStartActionOrderByRecord[getRecordKey(b)] ?? 0;
 
-        return (
-          getTeamTracks(record, category?.name).includes(selectedTrackFilter) &&
-          !completedTracks.includes(selectedTrackFilter)
-        );
-      })
-    : [];
+          if (aLateStartOrder !== bLateStartOrder) {
+            return aLateStartOrder - bLateStartOrder;
+          }
+        }
+
+        const aSticker = getStickerSortValue(a);
+        const bSticker = getStickerSortValue(b);
+
+        if (aSticker.numeric && bSticker.numeric && aSticker.value !== bSticker.value) {
+          return aSticker.value - bSticker.value;
+        }
+
+        if (aSticker.value !== bSticker.value) {
+          return String(aSticker.value).localeCompare(String(bSticker.value), undefined, { numeric: true });
+        }
+        
+        return String(getRecordKey(a)).localeCompare(String(getRecordKey(b)));
+      }),
+    [lateStartActionOrderByRecord, records, selectedLateStartEnabledByRecord, selectedLateStartByRecord]
+  );
+  const filteredRecords = useMemo(
+    () =>
+      selectedTrackFilter
+        ? orderedRecords.filter(record => {
+            const recordKey = getRecordKey(record);
+            const completedTracks = completedTracksByRecord[recordKey] || [];
+
+            return (
+              getTeamTracks(record, category?.name).includes(selectedTrackFilter) &&
+              !completedTracks.includes(selectedTrackFilter)
+            );
+          })
+        : [],
+    [category?.name, completedTracksByRecord, orderedRecords, selectedTrackFilter]
+  );
 
   return (
     <Modal
@@ -2393,6 +2502,7 @@ export default function App() {
   const [selectedCategoryTrack, setSelectedCategoryTrack] = useState('');
   const [selectedLateStartEnabledByRecord, setSelectedLateStartEnabledByRecord] = useState({});
   const [selectedLateStartByRecord, setSelectedLateStartByRecord] = useState({});
+  const [lateStartActionOrderByRecord, setLateStartActionOrderByRecord] = useState({});
   const [completedTracksByRecord, setCompletedTracksByRecord] = useState({});
   const [searchText, setSearchText] = useState('');
   const [dbReady, setDbReady] = useState(false);
@@ -2407,6 +2517,7 @@ export default function App() {
   const ignitionSoundRef = useRef(null);
   const splashStartTriggeredRef = useRef(false);
   const ignitionSequenceTimerRef = useRef(null);
+  const lateStartActionCounterRef = useRef(0);
 
   useEffect(() => {
     if (appStage !== 'splash') {
@@ -2522,6 +2633,11 @@ export default function App() {
     }, IGNITION_SOUND_DURATION_MS);
   };
 
+  const refreshCompletedTracks = async (teamRecords = teams) => {
+    const results = await ResultsService.getAllResults();
+    setCompletedTracksByRecord(buildCompletedTracksMap(teamRecords, results));
+  };
+
   // Initialize database on app startup
   useEffect(() => {
     const setupDatabase = async () => {
@@ -2536,6 +2652,7 @@ export default function App() {
           await seedDatabase();
         }
 
+        await ensureResultsClearedOnce();
         await ResultsService.cleanupDuplicateResults();
         
         // Load teams with native local DB preferred and API fallback
@@ -2547,6 +2664,7 @@ export default function App() {
         const categoriesWithTeamCounts = attachTeamCountsToCategories(baseCategories, teamsData);
 
         setTeams(teamsData);
+        await refreshCompletedTracks(teamsData);
         
         console.log('🏆 Categories with counts:', categoriesWithTeamCounts);
         setCategoriesWithCounts(categoriesWithTeamCounts);
@@ -2646,13 +2764,14 @@ export default function App() {
   ];
 
   // Filter categories based on search
-  const filteredCategories = categoriesWithCounts.length > 0 
-    ? categoriesWithCounts.filter(cat =>
-        cat.name.toLowerCase().includes(searchText.toLowerCase())
-      )
-    : categories.filter(cat =>
-        cat.name.toLowerCase().includes(searchText.toLowerCase())
-      );
+  const filteredCategories = useMemo(() => {
+    const normalizedSearch = searchText.toLowerCase();
+    const sourceCategories = categoriesWithCounts.length > 0 ? categoriesWithCounts : categories;
+
+    return sourceCategories.filter(cat =>
+      cat.name.toLowerCase().includes(normalizedSearch)
+    );
+  }, [categories, categoriesWithCounts, searchText]);
 
   /**
    * Handle card press - Opens registration form
@@ -2745,6 +2864,11 @@ export default function App() {
         ...prev,
         [recordKey]: '',
       }));
+      setLateStartActionOrderByRecord(prev => {
+        const next = { ...prev };
+        delete next[recordKey];
+        return next;
+      });
     }
   };
 
@@ -2759,6 +2883,15 @@ export default function App() {
       ...prev,
       [recordKey]: lateStartMode,
     }));
+
+    if (lateStartMode) {
+      lateStartActionCounterRef.current += 1;
+      setLateStartActionOrderByRecord(prev => ({
+        ...prev,
+        [recordKey]: lateStartActionCounterRef.current,
+      }));
+      setActiveRecordKey('');
+    }
   };
 
   const handleDNSRecordSubmit = async record => {
@@ -2840,16 +2973,9 @@ export default function App() {
       await CSVExporter.downloadFile(fileName, RECORD_EXPORT_HEADERS, row);
 
       await ResultsService.addResult(dnsResultData);
+      await refreshCompletedTracks();
 
       const recordKey = record.recordKey || getRecordKey(record);
-      const completedTrack = record.selectedTrack || '';
-
-      if (recordKey && completedTrack) {
-        setCompletedTracksByRecord(prev => ({
-          ...prev,
-          [recordKey]: [...new Set([...(prev[recordKey] || []), completedTrack])],
-        }));
-      }
 
       setSelectedLateStartByRecord(prev => ({
         ...prev,
@@ -2871,6 +2997,7 @@ export default function App() {
               setSelectedRecord(null);
               setActiveRecordKey('');
               setRecordsVisible(true);
+              setResultsVisible(false);
             },
           },
         ]
@@ -2955,11 +3082,6 @@ export default function App() {
       }
 
       if (recordKey && completedTrack) {
-        setCompletedTracksByRecord(prev => ({
-          ...prev,
-          [recordKey]: [...new Set([...(prev[recordKey] || []), completedTrack])],
-        }));
-
         setSelectedLateStartByRecord(prev => ({
           ...prev,
           [recordKey]: '',
@@ -2971,11 +3093,12 @@ export default function App() {
         }));
       }
 
+      await refreshCompletedTracks();
       setFormVisible(false);
       setSelectedRecord(null);
       setActiveRecordKey('');
-      setRecordsVisible(false);
-      setResultsVisible(true);
+      setRecordsVisible(true);
+      setResultsVisible(false);
     } catch (error) {
       if (error?.code === 'DUPLICATE_RESULT') {
         Alert.alert('Duplicate Record', 'This result already exists for the same category, track, and sticker number.');
@@ -2999,9 +3122,10 @@ export default function App() {
     </View>
   );
 
-  const selectedCategoryRecords = selectedCategory
-    ? getTeamsForCategory(teams, selectedCategory.name)
-    : [];
+  const selectedCategoryRecords = useMemo(
+    () => (selectedCategory ? getTeamsForCategory(teams, selectedCategory.name) : []),
+    [selectedCategory, teams]
+  );
 
   if (appStage === 'splash') {
     return (
@@ -3055,7 +3179,7 @@ export default function App() {
             resizeMode="contain"
           />
         </Animated.View>
-        <Text style={styles.splashTitle}>TKO-Ground Zero</Text>
+        <Text style={styles.splashTitle}>TKO - GROUND ZERO</Text>
         <Animated.View
           style={[
             styles.splashSwitchRow,
@@ -3178,7 +3302,7 @@ export default function App() {
               { fontSize: responsiveLayout.isTablet ? 32 : responsiveLayout.isSmallPhone ? 24 : 28 },
             ]}
           >
-            TKO-Ground Zero
+            TKO - GROUND ZERO
           </Text>
         </View>
         {selectedDay ? (
@@ -3210,7 +3334,7 @@ export default function App() {
             styles.searchInput,
             { fontSize: responsiveLayout.isTablet ? 16 : 14 },
           ]}
-          placeholder="Search categories..."
+          placeholder="Search Categories..."
           placeholderTextColor="#bbb"
           value={searchText}
           onChangeText={setSearchText}
@@ -3304,6 +3428,7 @@ export default function App() {
         onTrackCardBack={handleTrackCardBack}
         selectedLateStartEnabledByRecord={selectedLateStartEnabledByRecord}
         selectedLateStartByRecord={selectedLateStartByRecord}
+        lateStartActionOrderByRecord={lateStartActionOrderByRecord}
         completedTracksByRecord={completedTracksByRecord}
         onClose={() => {
           setRecordsVisible(false);
@@ -3721,9 +3846,10 @@ const styles = StyleSheet.create({
 
   selectedDayLabel: {
     marginTop: 6,
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '800',
     color: '#ffb15a',
+    letterSpacing: 0.3,
     fontFamily: BODY_FONT,
   },
 

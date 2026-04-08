@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -26,14 +26,6 @@ const BODY_FONT = Platform.select({
   web: 'monospace',
   default: 'monospace',
 });
-
-let FileSystem = null;
-let Sharing = null;
-
-if (Platform.OS !== 'web') {
-  FileSystem = require('expo-file-system/legacy');
-  Sharing = require('expo-sharing');
-}
 
 const RECORD_EXPORT_HEADERS = [
   'Track Name',
@@ -105,84 +97,52 @@ const toTitleCase = value =>
 
 const normalizeValue = value => String(value || '').trim().toLowerCase();
 
-const buildDnsCsvRow = item => {
-  const nullValue = 'null';
+const parseTimeForSort = value => {
+  const rawValue = String(value || '').trim();
 
-  return [
-    item.track_name || item.trackName || nullValue,
-    item.sr_no || item.srNo || nullValue,
-    item.sticker_number || item.stickerNumber || nullValue,
-    item.driver_name || item.driverName || nullValue,
-    item.codriver_name || item.coDriverName || nullValue,
-    nullValue,
-    nullValue,
-    nullValue,
-    nullValue,
-    nullValue,
-    nullValue,
-    nullValue,
-    nullValue,
-    nullValue,
-    nullValue,
-    nullValue,
-    nullValue,
-    nullValue,
-    'Yes',
-    nullValue,
-    nullValue,
-    nullValue,
-    nullValue,
-    nullValue,
-    'DNS',
-    'DNS',
-    nullValue,
-  ];
+  if (!rawValue || rawValue === '--' || rawValue.toUpperCase() === 'DNS') {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const parts = rawValue.split(':').map(part => Number(part));
+
+  if (parts.some(part => Number.isNaN(part))) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  if (parts.length === 3) {
+    const [minutes, seconds, centiseconds] = parts;
+    return minutes * 60000 + seconds * 1000 + centiseconds * 10;
+  }
+
+  if (parts.length === 2) {
+    const [minutes, seconds] = parts;
+    return minutes * 60000 + seconds * 1000;
+  }
+
+  return Number.POSITIVE_INFINITY;
 };
 
-const downloadCsvFile = async (fileName, headers, rows) => {
-  const csvContent = [
-    headers.join(','),
-    ...rows.map(row =>
-      row
-        .map(cell => {
-          const str = String(cell ?? '');
-          if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-            return `"${str.replace(/"/g, '""')}"`;
-          }
-          return str;
-        })
-        .join(',')
-    ),
-  ].join('\n');
+const compareResultsByRank = (a, b) => {
+  const aIsDns = Boolean(a.is_dns || a.isDns);
+  const bIsDns = Boolean(b.is_dns || b.isDns);
 
-  if (Platform.OS === 'web') {
-    const element = document.createElement('a');
-    const file = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    element.href = URL.createObjectURL(file);
-    element.download = fileName;
-    element.style.display = 'none';
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
-    return true;
+  if (aIsDns !== bIsDns) {
+    return aIsDns ? 1 : -1;
   }
 
-  if (FileSystem && Sharing) {
-    const filePath = `${FileSystem.documentDirectory}${fileName}`;
-    await FileSystem.writeAsStringAsync(filePath, csvContent);
+  const aTime = parseTimeForSort(a.total_time || a.totalTimeDisplay || a.performance_time || a.performanceTimeDisplay);
+  const bTime = parseTimeForSort(b.total_time || b.totalTimeDisplay || b.performance_time || b.performanceTimeDisplay);
 
-    if (await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(filePath, {
-        mimeType: 'text/csv',
-        dialogTitle: 'Download DNS Report',
-        UTI: 'public.comma-separated-values-text',
-      });
-    }
-
-    return true;
+  if (aTime !== bTime) {
+    return aTime - bTime;
   }
 
-  throw new Error('CSV download not supported on this platform');
+  return String(a.sticker_number || a.stickerNumber || '').localeCompare(
+    String(b.sticker_number || b.stickerNumber || ''),
+    undefined,
+    { numeric: true }
+  );
 };
 
 const ReportScreen = ({ visible, onClose }) => {
@@ -217,76 +177,62 @@ const ReportScreen = ({ visible, onClose }) => {
     }
   }, [visible]);
 
-  const normalizedResults = results.map(parseRegistrationPayload);
-  const categoryBuckets = normalizedResults.reduce((acc, item) => {
-    const categoryKey = normalizeValue(item.category || 'Uncategorized');
+  const normalizedResults = useMemo(
+    () => results.map(parseRegistrationPayload),
+    [results]
+  );
+  const categoryCards = useMemo(() => {
+    const categoryBuckets = normalizedResults.reduce((acc, item) => {
+      const categoryKey = normalizeValue(item.category || 'Uncategorized');
 
-    if (!acc[categoryKey]) {
-      acc[categoryKey] = {
-        key: categoryKey,
-        label: toTitleCase(item.category || 'Uncategorized'),
-        count: 0,
-        dnsCount: 0,
-      };
-    }
+      if (!acc[categoryKey]) {
+        acc[categoryKey] = {
+          key: categoryKey,
+          label: toTitleCase(item.category || 'Uncategorized'),
+          count: 0,
+        };
+      }
 
-    acc[categoryKey].count += 1;
-    if (item.is_dns || item.isDns) {
-      acc[categoryKey].dnsCount += 1;
-    }
-    return acc;
-  }, {});
+      acc[categoryKey].count += 1;
+      return acc;
+    }, {});
 
-  const categoryCards = Object.values(categoryBuckets).sort((a, b) => a.label.localeCompare(b.label));
-  const selectedCategoryResults = selectedCategory
-    ? normalizedResults.filter(item => normalizeValue(item.category) === selectedCategory)
-    : [];
-  const trackBuckets = selectedCategoryResults.reduce((acc, item) => {
-    const trackKey = normalizeValue(item.track_name || item.trackName || 'Track');
-    if (!acc[trackKey]) {
-      acc[trackKey] = {
-        key: trackKey,
-        label: item.track_name || item.trackName || 'Track',
-        count: 0,
-        dnsCount: 0,
-      };
-    }
-    acc[trackKey].count += 1;
-    if (item.is_dns || item.isDns) {
-      acc[trackKey].dnsCount += 1;
-    }
-    return acc;
-  }, {});
-  const trackCards = Object.values(trackBuckets).sort((a, b) => a.label.localeCompare(b.label));
-  const selectedTrackResults = selectedTrack
-    ? selectedCategoryResults.filter(item => normalizeValue(item.track_name || item.trackName) === selectedTrack)
-    : [];
-  const selectedDnsResults = selectedTrackResults.filter(item => Boolean(item.is_dns || item.isDns));
+    return Object.values(categoryBuckets).sort((a, b) => a.label.localeCompare(b.label));
+  }, [normalizedResults]);
+  const selectedCategoryResults = useMemo(
+    () => (selectedCategory
+      ? normalizedResults.filter(item => normalizeValue(item.category) === selectedCategory)
+      : []),
+    [normalizedResults, selectedCategory]
+  );
+  const trackCards = useMemo(() => {
+    const trackBuckets = selectedCategoryResults.reduce((acc, item) => {
+      const trackKey = normalizeValue(item.track_name || item.trackName || 'Track');
+      if (!acc[trackKey]) {
+        acc[trackKey] = {
+          key: trackKey,
+          label: item.track_name || item.trackName || 'Track',
+          count: 0,
+        };
+      }
+      acc[trackKey].count += 1;
+      return acc;
+    }, {});
+
+    return Object.values(trackBuckets).sort((a, b) => a.label.localeCompare(b.label));
+  }, [selectedCategoryResults]);
+  const selectedTrackResults = useMemo(
+    () => (selectedTrack
+      ? selectedCategoryResults
+          .filter(item => normalizeValue(item.track_name || item.trackName) === selectedTrack)
+          .sort(compareResultsByRank)
+      : []),
+    [selectedCategoryResults, selectedTrack]
+  );
   const selectedCategoryLabel =
     categoryCards.find(item => item.key === selectedCategory)?.label || 'Report';
   const selectedTrackLabel =
     trackCards.find(item => item.key === selectedTrack)?.label || 'Select a Track';
-
-  const handleDownloadDnsCsv = async () => {
-    if (!selectedCategory) {
-      Alert.alert('DNS CSV', 'Please select a category first.');
-      return;
-    }
-
-    if (!selectedDnsResults.length) {
-      Alert.alert('DNS CSV', 'No DNS records found for the selected category or track.');
-      return;
-    }
-
-    const fileName = `${selectedCategoryLabel} - ${selectedTrackLabel} - DNS.csv`;
-    const rows = selectedDnsResults.map(buildDnsCsvRow);
-
-    try {
-      await downloadCsvFile(fileName, RECORD_EXPORT_HEADERS, rows);
-    } catch (error) {
-      Alert.alert('Error', 'Failed to generate DNS CSV: ' + error.message);
-    }
-  };
 
   return (
     <Modal visible={visible} transparent={false} animationType="slide" onRequestClose={onClose}>
@@ -315,11 +261,6 @@ const ReportScreen = ({ visible, onClose }) => {
               </Text>
             </View>
             <View style={styles.actions}>
-              {selectedCategory && selectedTrack ? (
-                <TouchableOpacity style={styles.actionButton} onPress={handleDownloadDnsCsv} activeOpacity={0.85}>
-                  <Text style={styles.actionButtonText}>DNS CSV</Text>
-                </TouchableOpacity>
-              ) : null}
               <TouchableOpacity style={styles.actionButton} onPress={loadResults} activeOpacity={0.85}>
                 <Text style={styles.actionButtonText}>Refresh</Text>
               </TouchableOpacity>
@@ -357,7 +298,7 @@ const ReportScreen = ({ visible, onClose }) => {
                     <Text style={styles.categoryCardLabel}>Report</Text>
                     <Text style={styles.categoryCardTitle}>{item.label}</Text>
                     <Text style={styles.categoryCardCount}>
-                      {item.count} {item.count === 1 ? 'Result' : 'Results'} | {item.dnsCount} DNS
+                      {item.count} {item.count === 1 ? 'Result' : 'Results'}
                     </Text>
                   </TouchableOpacity>
                 )}
@@ -378,7 +319,7 @@ const ReportScreen = ({ visible, onClose }) => {
                     {selectedTrack
                       ? `${selectedTrackLabel} | ${selectedTrackResults.length} ${
                           selectedTrackResults.length === 1 ? 'result' : 'results'
-                        } | ${selectedDnsResults.length} DNS`
+                        }`
                       : `${trackCards.length} tracks available. Select a track to view results.`}
                   </Text>
                 </View>
@@ -409,7 +350,7 @@ const ReportScreen = ({ visible, onClose }) => {
                         <Text style={styles.trackCardLabel}>Track</Text>
                         <Text style={styles.trackCardTitle}>{item.label}</Text>
                         <Text style={styles.trackCardCount}>
-                          {item.count} {item.count === 1 ? 'Result' : 'Results'} | {item.dnsCount} DNS
+                          {item.count} {item.count === 1 ? 'Result' : 'Results'}
                         </Text>
                       </TouchableOpacity>
                     )}
@@ -450,7 +391,7 @@ const ReportScreen = ({ visible, onClose }) => {
                       </View>
                     }
                     renderItem={({ item, index }) => {
-                      const srNo = item.sr_no || item.srNo || index + 1;
+                      const srNo = index + 1;
                       const trackName = item.track_name || item.trackName || '--';
                       const driverName = item.driver_name || item.driverName || '--';
                       const stickerNumber = item.sticker_number || item.stickerNumber || '--';

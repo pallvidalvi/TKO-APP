@@ -676,6 +676,17 @@ export const deleteResultById = async id => {
   }
 };
 
+export const clearAllResults = async () => {
+  try {
+    const database = await getDatabase();
+    await database.runAsync('DELETE FROM results');
+    return true;
+  } catch (error) {
+    console.error('Error clearing results:', error);
+    throw error;
+  }
+};
+
 export const getRegistrationsByCategory = async category => {
   try {
     const database = await getDatabase();

@@ -21,6 +21,7 @@ import {
   getAllResults as getResultsDB,
   addResult as addResultDB,
   deleteResultById as deleteResultByIdDB,
+  clearAllResults as clearAllResultsDB,
 } from '../db/database';
 
 const API_BASE_URL = 'https://www.teamkaradoffroaders.online/api';
@@ -604,6 +605,21 @@ export const ResultsService = {
     } catch (error) {
       console.error('❌ Error fetching results:', error);
       return [];
+    }
+  },
+
+  clearAllResults: async () => {
+    try {
+      if (isWeb) {
+        window.localStorage.removeItem(WEB_RESULTS_KEY);
+        return true;
+      }
+
+      await clearAllResultsDB();
+      return true;
+    } catch (error) {
+      console.error('❌ Error clearing results:', error);
+      throw error;
     }
   },
 };
