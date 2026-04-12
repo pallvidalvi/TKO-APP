@@ -544,6 +544,19 @@ const APP_THEMES = {
 };
 
 const normalizeThemeMode = value => (String(value || '').trim().toLowerCase() === 'light' ? 'light' : 'dark');
+const PASSWORD_RULE_MESSAGE =
+  'Password must be at least 8 characters and include one uppercase letter, one lowercase letter, one number, and one special character.';
+const isStrongPassword = value => {
+  const password = String(value || '');
+
+  return (
+    password.length >= 8 &&
+    /[a-z]/.test(password) &&
+    /[A-Z]/.test(password) &&
+    /\d/.test(password) &&
+    /[^A-Za-z0-9]/.test(password)
+  );
+};
 
 const normalizeCategoryKey = (value = '') => {
   const normalizedValue = value
@@ -3078,7 +3091,9 @@ export default function App() {
   const [settingsPasswordModalVisible, setSettingsPasswordModalVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [settingsView, setSettingsView] = useState('menu');
+  const [themeVisible, setThemeVisible] = useState(false);
   const [settingsPasswordInput, setSettingsPasswordInput] = useState('');
+  const [settingsPasswordError, setSettingsPasswordError] = useState('');
   const [settingsConfigDayId, setSettingsConfigDayId] = useState(REPORT_DAYS[0]?.id || '');
   const [settingsConfigCategoryKey, setSettingsConfigCategoryKey] = useState('EXTREME');
   const [disputeRecords, setDisputeRecords] = useState([]);
@@ -3086,6 +3101,14 @@ export default function App() {
   const [currentPasswordInput, setCurrentPasswordInput] = useState('');
   const [newPasswordInput, setNewPasswordInput] = useState('');
   const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
+  const [changePasswordError, setChangePasswordError] = useState('');
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const settingsPasswordInputRef = useRef(null);
+  const currentPasswordInputRef = useRef(null);
+  const newPasswordInputRef = useRef(null);
+  const confirmPasswordInputRef = useRef(null);
   const splashLogoAnim = useRef(new Animated.Value(0)).current;
   const switchAnim = useRef(new Animated.Value(0)).current;
   const glowPulseAnim = useRef(new Animated.Value(0)).current;
@@ -3545,6 +3568,7 @@ export default function App() {
     setReportMenuVisible(false);
     setSettingsVisible(false);
     setSettingsView('menu');
+    setThemeVisible(false);
     setSelectedCategoryTrack('');
     setSearchText('');
     setAppStage('main');
@@ -3558,6 +3582,7 @@ export default function App() {
     setReportMenuVisible(false);
     setSettingsVisible(false);
     setSettingsView('menu');
+    setThemeVisible(false);
     setSelectedCategory(null);
     setSelectedRecord(null);
     setSelectedCategoryTrack('');
@@ -3568,6 +3593,7 @@ export default function App() {
   const handleSettingsOpen = () => {
     setReportMenuVisible(false);
     setSettingsPasswordInput('');
+    setSettingsPasswordError('');
     setSettingsConfigDayId(selectedDay?.id || REPORT_DAYS[0]?.id || '');
     setSettingsConfigCategoryKey(normalizeCategoryKey(selectedCategory?.name || 'Extreme'));
     setSettingsPasswordModalVisible(true);
@@ -3580,18 +3606,18 @@ export default function App() {
 
   const handleThemeOpen = () => {
     setReportMenuVisible(false);
-    setSettingsVisible(true);
-    setSettingsView('theme');
+    setThemeVisible(true);
   };
 
   const handleSettingsPasswordSubmit = () => {
     if (settingsPasswordInput !== settingsPassword) {
-      Alert.alert('Wrong Password', 'Wrong Password');
+      setSettingsPasswordError('Wrong password. Please try again.');
       return;
     }
 
     setSettingsPasswordModalVisible(false);
     setSettingsPasswordInput('');
+    setSettingsPasswordError('');
     setSettingsView('menu');
     setSettingsVisible(true);
   };
@@ -3600,22 +3626,31 @@ export default function App() {
     setCurrentPasswordInput('');
     setNewPasswordInput('');
     setConfirmPasswordInput('');
+    setChangePasswordError('');
+    setShowCurrentPassword(false);
+    setShowNewPassword(false);
+    setShowConfirmPassword(false);
     setSettingsView('password');
   };
 
   const handleChangePasswordSave = () => {
     if (currentPasswordInput !== settingsPassword) {
-      Alert.alert('Incorrect Password', 'Current password does not match.');
+      setChangePasswordError('Current password does not match.');
       return;
     }
 
     if (!newPasswordInput.trim()) {
-      Alert.alert('Invalid Password', 'Please enter a new password.');
+      setChangePasswordError('Please enter a new password.');
+      return;
+    }
+
+    if (!isStrongPassword(newPasswordInput.trim())) {
+      setChangePasswordError(PASSWORD_RULE_MESSAGE);
       return;
     }
 
     if (newPasswordInput !== confirmPasswordInput) {
-      Alert.alert('Mismatch', 'New password and confirm password do not match.');
+      setChangePasswordError('New password and confirm new password must match exactly.');
       return;
     }
 
@@ -3623,6 +3658,10 @@ export default function App() {
     setCurrentPasswordInput('');
     setNewPasswordInput('');
     setConfirmPasswordInput('');
+    setChangePasswordError('');
+    setShowCurrentPassword(false);
+    setShowNewPassword(false);
+    setShowConfirmPassword(false);
     setSettingsView('menu');
     Alert.alert('Success', 'Password updated successfully.');
   };
@@ -3935,17 +3974,21 @@ const buildRegistrationData = formData => ({
 
   const finalizeRecordSubmission = async formData => {
     const completedTrack = formData.trackName;
-    const shouldReturnToDisputes = formData.source === 'dispute' || Boolean(formData.disputeId);
+    const isDisputeRecord = formData.source === 'dispute' || Boolean(formData.disputeId);
+    const shouldReturnToDisputes = isDisputeRecord;
     const recordKey = selectedRecord?.recordKey || getRecordKey(selectedRecord || {});
     const registrationData = buildRegistrationData(formData);
-    const didDownload = await downloadResultCsv(formData).then(() => true).catch(error => {
-      Alert.alert('Error', 'Failed to generate file: ' + error.message);
-      console.error('File generation error:', error);
-      return false;
-    });
 
-    if (!didDownload) {
-      return false;
+    if (!isDisputeRecord) {
+      const didDownload = await downloadResultCsv(formData).then(() => true).catch(error => {
+        Alert.alert('Error', 'Failed to generate file: ' + error.message);
+        console.error('File generation error:', error);
+        return false;
+      });
+
+      if (!didDownload) {
+        return false;
+      }
     }
 
     const isDuplicate = await ResultsService.isDuplicateResult(registrationData);
@@ -4280,7 +4323,7 @@ const buildRegistrationData = formData => ({
                 onPress={() => handleDaySelect(day)}
               >
                 <View style={styles.dayCardTextBlock}>
-                  <Text style={styles.dayCardLabel}>{day.dayLabel}</Text>
+                  <Text style={styles.dayCardLabel}>{String(day.dayLabel || '').toUpperCase()}</Text>
                   <Text style={styles.dayCardDate}>{day.dateLabel}</Text>
                 </View>
               </TouchableOpacity>
@@ -4508,6 +4551,7 @@ const buildRegistrationData = formData => ({
         onRequestClose={() => {
           setSettingsPasswordModalVisible(false);
           setSettingsPasswordInput('');
+          setSettingsPasswordError('');
         }}
       >
         <View style={[styles.settingsOverlay, { backgroundColor: theme.overlay }]}>
@@ -4517,19 +4561,38 @@ const buildRegistrationData = formData => ({
               Enter password to open protected settings.
             </Text>
             <TextInput
+              ref={settingsPasswordInputRef}
+              autoFocus
               value={settingsPasswordInput}
-              onChangeText={setSettingsPasswordInput}
-              style={[styles.settingsInput, { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary }]}
+              onChangeText={value => {
+                setSettingsPasswordInput(value);
+                if (settingsPasswordError) {
+                  setSettingsPasswordError('');
+                }
+              }}
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={[
+                styles.settingsInput,
+                { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary },
+                settingsPasswordError ? styles.settingsInputError : null,
+              ]}
               placeholder="Enter password"
               placeholderTextColor={theme.textTertiary}
               secureTextEntry
+              returnKeyType="done"
+              onSubmitEditing={handleSettingsPasswordSubmit}
             />
+            {settingsPasswordError ? (
+              <Text style={styles.settingsPasswordErrorText}>{settingsPasswordError}</Text>
+            ) : null}
             <View style={styles.settingsPasswordActions}>
               <TouchableOpacity
                 style={[styles.settingsActionButton, styles.settingsSecondaryButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
                 onPress={() => {
                   setSettingsPasswordModalVisible(false);
                   setSettingsPasswordInput('');
+                  setSettingsPasswordError('');
                 }}
                 activeOpacity={0.85}
               >
@@ -4569,8 +4632,6 @@ const buildRegistrationData = formData => ({
                     ? 'Configuration'
                     : settingsView === 'disputes'
                       ? 'Disputes'
-                      : settingsView === 'theme'
-                        ? 'Theme'
                       : 'Change Password'}
               </Text>
               <Text style={[styles.settingsPageSubtitle, { color: theme.textSecondary }]}>
@@ -4578,8 +4639,6 @@ const buildRegistrationData = formData => ({
                   ? 'Control which tracks are visible for each day and category.'
                   : settingsView === 'disputes'
                     ? 'Review and resolve disputed stopwatch records for the selected day.'
-                    : settingsView === 'theme'
-                      ? 'Choose between a brighter day theme and the darker night theme.'
                     : settingsView === 'password'
                       ? 'Update the password used to open Settings.'
                       : 'Protected tools for race-day configuration.'}
@@ -4644,18 +4703,6 @@ const buildRegistrationData = formData => ({
                   <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Change Password</Text>
                   <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
                     Update the password required to access Settings.
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
-                  onPress={() => setSettingsView('theme')}
-                  activeOpacity={0.88}
-                >
-                  <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Appearance</Text>
-                  <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Theme</Text>
-                  <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
-                    Switch between light day mode and dark night mode.
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -4824,82 +4871,121 @@ const buildRegistrationData = formData => ({
               />
             ) : null}
 
-            {settingsView === 'theme' ? (
-              <View style={[styles.settingsFormCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Theme Mode</Text>
-                <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
-                  Pick the look you want for the app.
-                </Text>
-                <View style={styles.settingsChipWrap}>
-                  <TouchableOpacity
-                    style={[
-                      styles.settingsChip,
-                      { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
-                      themeMode === 'light' && [styles.settingsChipSelected, { backgroundColor: theme.accent, borderColor: theme.accent }],
-                    ]}
-                    onPress={() => setThemeMode('light')}
-                    activeOpacity={0.85}
-                  >
-                    <Text
-                      style={[
-                        styles.settingsChipText,
-                        { color: theme.textPrimary },
-                        themeMode === 'light' && [styles.settingsChipTextSelected, { color: theme.accentText }],
-                      ]}
-                    >
-                      Light
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.settingsChip,
-                      { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
-                      themeMode === 'dark' && [styles.settingsChipSelected, { backgroundColor: theme.accent, borderColor: theme.accent }],
-                    ]}
-                    onPress={() => setThemeMode('dark')}
-                    activeOpacity={0.85}
-                  >
-                    <Text
-                      style={[
-                        styles.settingsChipText,
-                        { color: theme.textPrimary },
-                        themeMode === 'dark' && [styles.settingsChipTextSelected, { color: theme.accentText }],
-                      ]}
-                    >
-                      Dark
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ) : null}
-
             {settingsView === 'password' ? (
               <View style={[styles.settingsFormCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                 <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Update Password</Text>
-                <TextInput
-                  value={currentPasswordInput}
-                  onChangeText={setCurrentPasswordInput}
-                  style={[styles.settingsInput, { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary }]}
-                  placeholder="Current password"
-                  placeholderTextColor={theme.textTertiary}
-                  secureTextEntry
-                />
-                <TextInput
-                  value={newPasswordInput}
-                  onChangeText={setNewPasswordInput}
-                  style={[styles.settingsInput, { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary }]}
-                  placeholder="New password"
-                  placeholderTextColor={theme.textTertiary}
-                  secureTextEntry
-                />
-                <TextInput
-                  value={confirmPasswordInput}
-                  onChangeText={setConfirmPasswordInput}
-                  style={[styles.settingsInput, { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary }]}
-                  placeholder="Confirm new password"
-                  placeholderTextColor={theme.textTertiary}
-                  secureTextEntry
-                />
+                <View
+                  style={[
+                    styles.settingsPasswordInputRow,
+                    { backgroundColor: theme.inputBackground, borderColor: theme.border },
+                    changePasswordError ? styles.settingsInputError : null,
+                  ]}
+                >
+                  <TextInput
+                    ref={currentPasswordInputRef}
+                    autoFocus
+                    value={currentPasswordInput}
+                    onChangeText={value => {
+                      setCurrentPasswordInput(value);
+                      if (changePasswordError) {
+                        setChangePasswordError('');
+                      }
+                    }}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={[styles.settingsPasswordTextInput, { color: theme.textPrimary }]}
+                    placeholder="Current password"
+                    placeholderTextColor={theme.textTertiary}
+                    secureTextEntry={!showCurrentPassword}
+                    returnKeyType="next"
+                    onSubmitEditing={() => newPasswordInputRef.current?.focus()}
+                  />
+                  <TouchableOpacity
+                    style={styles.settingsPasswordToggle}
+                    onPress={() => setShowCurrentPassword(prev => !prev)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={[styles.settingsPasswordToggleText, { color: theme.accent }]}>
+                      {showCurrentPassword ? 'Hide' : 'View'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <View
+                  style={[
+                    styles.settingsPasswordInputRow,
+                    { backgroundColor: theme.inputBackground, borderColor: theme.border },
+                    changePasswordError ? styles.settingsInputError : null,
+                  ]}
+                >
+                  <TextInput
+                    ref={newPasswordInputRef}
+                    value={newPasswordInput}
+                    onChangeText={value => {
+                      setNewPasswordInput(value);
+                      if (changePasswordError) {
+                        setChangePasswordError('');
+                      }
+                    }}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={[styles.settingsPasswordTextInput, { color: theme.textPrimary }]}
+                    placeholder="New password"
+                    placeholderTextColor={theme.textTertiary}
+                    secureTextEntry={!showNewPassword}
+                    returnKeyType="next"
+                    onSubmitEditing={() => confirmPasswordInputRef.current?.focus()}
+                  />
+                  <TouchableOpacity
+                    style={styles.settingsPasswordToggle}
+                    onPress={() => setShowNewPassword(prev => !prev)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={[styles.settingsPasswordToggleText, { color: theme.accent }]}>
+                      {showNewPassword ? 'Hide' : 'View'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <View
+                  style={[
+                    styles.settingsPasswordInputRow,
+                    { backgroundColor: theme.inputBackground, borderColor: theme.border },
+                    changePasswordError ? styles.settingsInputError : null,
+                  ]}
+                >
+                  <TextInput
+                    ref={confirmPasswordInputRef}
+                    value={confirmPasswordInput}
+                    onChangeText={value => {
+                      setConfirmPasswordInput(value);
+                      if (changePasswordError) {
+                        setChangePasswordError('');
+                      }
+                    }}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={[styles.settingsPasswordTextInput, { color: theme.textPrimary }]}
+                    placeholder="Confirm new password"
+                    placeholderTextColor={theme.textTertiary}
+                    secureTextEntry={!showConfirmPassword}
+                    returnKeyType="done"
+                    onSubmitEditing={handleChangePasswordSave}
+                  />
+                  <TouchableOpacity
+                    style={styles.settingsPasswordToggle}
+                    onPress={() => setShowConfirmPassword(prev => !prev)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={[styles.settingsPasswordToggleText, { color: theme.accent }]}>
+                      {showConfirmPassword ? 'Hide' : 'View'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                  {PASSWORD_RULE_MESSAGE}
+                </Text>
+                {changePasswordError ? (
+                  <Text style={styles.settingsPasswordErrorText}>{changePasswordError}</Text>
+                ) : null}
                 <TouchableOpacity
                   style={[styles.settingsActionButton, styles.settingsPrimaryButton, styles.settingsFormSaveButton, { backgroundColor: theme.accent }]}
                   onPress={handleChangePasswordSave}
@@ -4909,6 +4995,84 @@ const buildRegistrationData = formData => ({
                 </TouchableOpacity>
               </View>
             ) : null}
+          </ScrollView>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={themeVisible}
+        transparent={false}
+        animationType="slide"
+        onRequestClose={() => setThemeVisible(false)}
+      >
+        <View style={[styles.fullPageContainer, { backgroundColor: theme.background }]}>
+          <View style={[styles.settingsPageHeader, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
+            <View style={styles.settingsPageHeaderLeft}>
+              <Text style={[styles.settingsPageTitle, { color: theme.textPrimary }]}>Theme</Text>
+              <Text style={[styles.settingsPageSubtitle, { color: theme.textSecondary }]}>
+                Choose between a brighter day theme and the darker night theme.
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.settingsCloseButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
+              onPress={() => setThemeVisible(false)}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.settingsCloseButtonText, { color: theme.accent }]}>Back</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            style={[styles.fullPageContent, { backgroundColor: theme.background }]}
+            contentContainerStyle={styles.settingsPageContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={[styles.settingsFormCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Theme Mode</Text>
+              <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                Pick the look you want for the app.
+              </Text>
+              <View style={styles.settingsChipWrap}>
+                <TouchableOpacity
+                  style={[
+                    styles.settingsChip,
+                    { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
+                    themeMode === 'light' && [styles.settingsChipSelected, { backgroundColor: theme.accent, borderColor: theme.accent }],
+                  ]}
+                  onPress={() => setThemeMode('light')}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.settingsChipText,
+                      { color: theme.textPrimary },
+                      themeMode === 'light' && [styles.settingsChipTextSelected, { color: theme.accentText }],
+                    ]}
+                  >
+                    Light
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.settingsChip,
+                    { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
+                    themeMode === 'dark' && [styles.settingsChipSelected, { backgroundColor: theme.accent, borderColor: theme.accent }],
+                  ]}
+                  onPress={() => setThemeMode('dark')}
+                  activeOpacity={0.85}
+                >
+                  <Text
+                    style={[
+                      styles.settingsChipText,
+                      { color: theme.textPrimary },
+                      themeMode === 'dark' && [styles.settingsChipTextSelected, { color: theme.accentText }],
+                    ]}
+                  >
+                    Dark
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
           </ScrollView>
         </View>
       </Modal>
@@ -6569,6 +6733,51 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     color: '#fff6ea',
     fontSize: 14,
+    fontFamily: BODY_FONT,
+  },
+
+  settingsPasswordInputRow: {
+    marginTop: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#2a3441',
+    backgroundColor: '#0c111a',
+    paddingLeft: 14,
+    paddingRight: 10,
+    minHeight: 54,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+
+  settingsPasswordTextInput: {
+    flex: 1,
+    color: '#fff6ea',
+    fontSize: 14,
+    fontFamily: BODY_FONT,
+    paddingVertical: 14,
+    paddingRight: 12,
+  },
+
+  settingsPasswordToggle: {
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+
+  settingsPasswordToggleText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#ffb15a',
+    fontFamily: BODY_FONT,
+  },
+
+  settingsInputError: {
+    borderColor: '#d13f49',
+  },
+
+  settingsPasswordErrorText: {
+    marginTop: 8,
+    fontSize: 13,
+    color: '#ff8f96',
     fontFamily: BODY_FONT,
   },
 
