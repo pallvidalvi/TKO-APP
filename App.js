@@ -13,11 +13,12 @@ import {
   Alert,
   Platform,
   Image,
+  Vibration,
   useWindowDimensions,
 } from 'react-native';
 import { Audio } from 'expo-av';
 import { initializeDatabase, seedDatabase } from './src/db/database';
-import { TeamsService, CategoriesService, ResultsService } from './src/services/dataService';
+import { TeamsService, CategoriesService, ResultsService, DisputesService } from './src/services/dataService';
 import ReportScreen from './src/screens/ReportScreen';
 
 const HEADING_FONT = Platform.select({
@@ -484,7 +485,65 @@ const CATEGORY_MOCK_TEAMS = {
 };
 
 const IGNITION_SOUND_DURATION_MS = 3000;
+const IGNITION_VIBRATION_PATTERN = Platform.OS === 'android'
+  ? [0, 70, 60, 110, 70, 160, 90, 220]
+  : 220;
 const RESULTS_RESET_TOKEN = '2026-04-09-clear-report-records';
+const DEFAULT_SETTINGS_PASSWORD = 'Pritisangam@MH50';
+const APP_SETTINGS_STORAGE_KEY = 'tko_admin_settings_v1';
+const APP_SETTINGS_FILE_NAME = 'tko-admin-settings.json';
+const DEFAULT_THEME_MODE = 'dark';
+
+const APP_THEMES = {
+  dark: {
+    mode: 'dark',
+    background: '#1a2432',
+    backgroundStrong: '#0b111a',
+    surface: '#111722',
+    surfaceAlt: '#182131',
+    surfaceMuted: '#1f2a3b',
+    border: '#2a3441',
+    textPrimary: '#fff6ea',
+    textSecondary: '#cdbf9a',
+    textTertiary: '#8f9bad',
+    accent: '#ffb15a',
+    accentStrong: '#b45d16',
+    accentSoft: '#2b2013',
+    accentText: '#18120a',
+    primaryButton: '#3565df',
+    primaryButtonText: '#fff6ea',
+    inputBackground: '#0c111a',
+    timerBackground: '#161f36',
+    timerText: '#66a5ff',
+    overlay: 'rgba(0, 0, 0, 0.58)',
+    shadow: '#000000',
+  },
+  light: {
+    mode: 'light',
+    background: '#efe6d8',
+    backgroundStrong: '#e3d7c4',
+    surface: '#fffaf2',
+    surfaceAlt: '#f5ede1',
+    surfaceMuted: '#f0e4d3',
+    border: '#d7c7b1',
+    textPrimary: '#1d2430',
+    textSecondary: '#6d5a44',
+    textTertiary: '#847563',
+    accent: '#b86b22',
+    accentStrong: '#c7772b',
+    accentSoft: '#f7ead8',
+    accentText: '#fffaf2',
+    primaryButton: '#2f61d7',
+    primaryButtonText: '#fffaf2',
+    inputBackground: '#fffdf8',
+    timerBackground: '#dfeafb',
+    timerText: '#244d92',
+    overlay: 'rgba(30, 24, 16, 0.22)',
+    shadow: '#6a5843',
+  },
+};
+
+const normalizeThemeMode = value => (String(value || '').trim().toLowerCase() === 'light' ? 'light' : 'dark');
 
 const normalizeCategoryKey = (value = '') => {
   const normalizedValue = value
@@ -526,7 +585,6 @@ const getTeamStickerNumber = (team = {}) =>
   team.stickerNumber || team.sticker_number || team.car_number || '';
 
 const normalizeLookupValue = value => String(value || '').trim().toUpperCase();
-
 const getStickerSortValue = record => {
   const rawValue = getTeamStickerNumber(record);
   const numericValue = Number(rawValue);
@@ -538,7 +596,7 @@ const getStickerSortValue = record => {
   return { numeric: false, value: String(rawValue || '').toUpperCase() };
 };
 
-const buildCompletedTracksMap = (teams = [], results = []) => {
+const buildCompletedTracksMap = (teams = [], results = [], selectedDayId = '', disputes = []) => {
   const recordKeyByCategoryAndSticker = new Map();
 
   teams.forEach(team => {
@@ -552,12 +610,23 @@ const buildCompletedTracksMap = (teams = [], results = []) => {
     recordKeyByCategoryAndSticker.set(`${categoryKey}::${stickerKey}`, getRecordKey(team));
   });
 
-  return results.reduce((acc, result) => {
-    const categoryKey = normalizeCategoryKey(result.category || '');
-    const stickerKey = normalizeLookupValue(result.sticker_number || result.stickerNumber || '');
-    const trackName = String(result.track_name || result.trackName || '').trim();
+  return [...results, ...disputes].reduce((acc, result) => {
+    const parsedResult = parseRegistrationPayload(result);
+    const resultDayId =
+      parsedResult.selected_day_id ||
+      parsedResult.selectedDayId ||
+      parsedResult.day_id ||
+      parsedResult.dayId ||
+      '';
+    const categoryKey = normalizeCategoryKey(parsedResult.category || '');
+    const stickerKey = normalizeLookupValue(parsedResult.sticker_number || parsedResult.stickerNumber || '');
+    const trackName = String(parsedResult.track_name || parsedResult.trackName || '').trim();
 
     if (!categoryKey || !stickerKey || !trackName) {
+      return acc;
+    }
+
+    if (selectedDayId && String(resultDayId) !== String(selectedDayId)) {
       return acc;
     }
 
@@ -570,6 +639,38 @@ const buildCompletedTracksMap = (teams = [], results = []) => {
     acc[recordKey] = [...new Set([...(acc[recordKey] || []), trackName])];
     return acc;
   }, {});
+};
+
+const normalizeDisputeLookupValue = value => String(value || '').trim().toLowerCase();
+const normalizeDisputeDateValue = value =>
+  normalizeDisputeLookupValue(value)
+    .replace(/(\d+)(st|nd|rd|th)\b/g, '$1')
+    .replace(/,/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const getStoredDayIdentity = item => ({
+  dayId: normalizeDisputeLookupValue(item.selected_day_id || item.selectedDayId || item.day_id || item.dayId || ''),
+  dayLabel: normalizeDisputeLookupValue(
+    item.selected_day_label || item.selectedDayLabel || item.day_label || item.dayLabel || ''
+  ),
+  dayDate: normalizeDisputeDateValue(
+    item.selected_day_date || item.selectedDayDate || item.day_date || item.dayDate || ''
+  ),
+});
+
+const matchesStoredSelectedDay = (item, selectedDay) => {
+  if (!selectedDay?.id) {
+    return false;
+  }
+
+  const itemDay = getStoredDayIdentity(item);
+
+  return (
+    itemDay.dayId === normalizeDisputeLookupValue(selectedDay.id) ||
+    itemDay.dayLabel === normalizeDisputeLookupValue(selectedDay.dayLabel) ||
+    itemDay.dayDate === normalizeDisputeDateValue(selectedDay.dateLabel)
+  );
 };
 
 const ensureResultsClearedOnce = async () => {
@@ -633,6 +734,115 @@ const getCategoryTracks = categoryName => {
   return CATEGORY_TRACKS[categoryKey] || CATEGORY_TRACKS.LADIES_CATEGORY;
 };
 
+const buildDefaultTrackActivationConfig = () =>
+  REPORT_DAYS.reduce((dayAcc, day) => {
+    dayAcc[day.id] = Object.keys(CATEGORY_TRACKS).reduce((categoryAcc, categoryKey) => {
+      categoryAcc[categoryKey] = (CATEGORY_TRACKS[categoryKey] || []).reduce((trackAcc, trackName) => {
+        trackAcc[trackName] = true;
+        return trackAcc;
+      }, {});
+      return categoryAcc;
+    }, {});
+    return dayAcc;
+  }, {});
+
+const normalizeTrackActivationConfig = storedConfig => {
+  const fallback = buildDefaultTrackActivationConfig();
+
+  return REPORT_DAYS.reduce((dayAcc, day) => {
+    dayAcc[day.id] = Object.keys(CATEGORY_TRACKS).reduce((categoryAcc, categoryKey) => {
+      categoryAcc[categoryKey] = (CATEGORY_TRACKS[categoryKey] || []).reduce((trackAcc, trackName) => {
+        const storedValue = storedConfig?.[day.id]?.[categoryKey]?.[trackName];
+        trackAcc[trackName] = typeof storedValue === 'boolean' ? storedValue : true;
+        return trackAcc;
+      }, {});
+      return categoryAcc;
+    }, {});
+    return dayAcc;
+  }, fallback);
+};
+
+const getActiveTracksForDayCategory = (trackActivationConfig, dayId, categoryName) => {
+  const allTracks = getCategoryTracks(categoryName);
+
+  if (!dayId) {
+    return allTracks;
+  }
+
+  const categoryKey = normalizeCategoryKey(categoryName || '');
+  const dayConfig = trackActivationConfig?.[dayId]?.[categoryKey];
+
+  if (!dayConfig) {
+    return allTracks;
+  }
+
+  return allTracks.filter(trackName => dayConfig[trackName] !== false);
+};
+
+const loadStoredAppSettings = async () => {
+  const fallback = {
+    password: DEFAULT_SETTINGS_PASSWORD,
+    trackActivationConfig: buildDefaultTrackActivationConfig(),
+    themeMode: DEFAULT_THEME_MODE,
+  };
+
+  try {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const raw = window.localStorage.getItem(APP_SETTINGS_STORAGE_KEY);
+
+      if (!raw) {
+        return fallback;
+      }
+
+      const parsed = JSON.parse(raw);
+      return {
+        password: parsed?.password || DEFAULT_SETTINGS_PASSWORD,
+        trackActivationConfig: normalizeTrackActivationConfig(parsed?.trackActivationConfig),
+        themeMode: normalizeThemeMode(parsed?.themeMode),
+      };
+    }
+
+    if (FileSystem?.documentDirectory) {
+      const filePath = `${FileSystem.documentDirectory}${APP_SETTINGS_FILE_NAME}`;
+      const fileInfo = await FileSystem.getInfoAsync(filePath).catch(() => ({ exists: false }));
+
+      if (!fileInfo.exists) {
+        return fallback;
+      }
+
+      const raw = await FileSystem.readAsStringAsync(filePath);
+      const parsed = JSON.parse(raw);
+      return {
+        password: parsed?.password || DEFAULT_SETTINGS_PASSWORD,
+        trackActivationConfig: normalizeTrackActivationConfig(parsed?.trackActivationConfig),
+        themeMode: normalizeThemeMode(parsed?.themeMode),
+      };
+    }
+  } catch (error) {
+    console.warn('Unable to load admin settings:', error);
+  }
+
+  return fallback;
+};
+
+const saveStoredAppSettings = async settings => {
+  const payload = JSON.stringify({
+    password: settings.password || DEFAULT_SETTINGS_PASSWORD,
+    trackActivationConfig: normalizeTrackActivationConfig(settings.trackActivationConfig),
+    themeMode: normalizeThemeMode(settings.themeMode),
+  });
+
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    window.localStorage.setItem(APP_SETTINGS_STORAGE_KEY, payload);
+    return;
+  }
+
+  if (FileSystem?.documentDirectory) {
+    const filePath = `${FileSystem.documentDirectory}${APP_SETTINGS_FILE_NAME}`;
+    await FileSystem.writeAsStringAsync(filePath, payload);
+  }
+};
+
 const parseRegistrationPayload = registration => {
   if (!registration || !registration.submission_json) {
     return registration || {};
@@ -646,6 +856,41 @@ const parseRegistrationPayload = registration => {
   } catch (error) {
     return registration;
   }
+};
+
+const buildExportRows = data => [[
+  data.trackName,
+  data.srNo || '',
+  data.stickerNumber,
+  data.driverName,
+  data.coDriverName,
+  data.bustingCount,
+  data.bustingPenaltyTime,
+  data.seatbeltCount,
+  data.seatbeltPenaltyTime,
+  data.groundTouchCount,
+  data.groundTouchPenaltyTime,
+  data.lateStartStatus,
+  data.lateStartPenaltyTime,
+  data.attemptCount,
+  data.attemptPenaltyTime,
+  data.taskSkippedCount,
+  data.taskSkippedPenaltyTime,
+  data.isDNF ? 'Yes' : 'No',
+  data.isDNS ? 'Yes' : 'No',
+  data.wrongCourseSelected ? 'Yes' : 'No',
+  data.fourthAttemptSelected ? 'Yes' : 'No',
+  data.timeOverSelected ? 'Yes' : 'No',
+  data.dnfPoints,
+  data.totalPenaltiesTime,
+  data.performanceTimeDisplay,
+  data.totalTimeDisplay,
+  new Date().toLocaleString(),
+]];
+
+const downloadResultCsv = async data => {
+  const fileName = `${data.category} - ${data.trackName}.csv`;
+  await CSVExporter.downloadFile(fileName, RECORD_EXPORT_HEADERS, buildExportRows(data));
 };
 
 const formatBoolValue = value => (value ? 'Yes' : 'No');
@@ -1251,8 +1496,11 @@ const RegistrationForm = ({
   visible,
   category,
   initialRecord,
+  selectedDay,
   onClose,
   onSubmit,
+  onHoldForDispute,
+  theme = APP_THEMES.dark,
 }) => {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const responsiveLayout = getResponsiveLayout(screenWidth, screenHeight);
@@ -1338,14 +1586,35 @@ const RegistrationForm = ({
   useEffect(() => {
     if (visible && initialRecord) {
       const recordTracks = getTeamTracks(initialRecord, category?.name);
-      const defaultTrack = initialRecord.selectedTrack || recordTracks[0] || '';
+      const defaultTrack =
+        initialRecord.selectedTrack ||
+        initialRecord.trackName ||
+        initialRecord.track_name ||
+        recordTracks[0] ||
+        '';
+      const initialStopwatchTime =
+        initialRecord.completionTimeMilliseconds ??
+        initialRecord.stopwatchTime ??
+        0;
       setSrNo(String(initialRecord.srNo || ''));
       setStickerNumber(String(getTeamStickerNumber(initialRecord) || ''));
       setDriverName(initialRecord.driver_name || initialRecord.driverName || '');
       setCoDriverName(initialRecord.codriver_name || initialRecord.coDriverName || '');
       setTrackName(defaultTrack);
       setLateStartMode(initialRecord.lateStartMode || '');
-      setStopwatchTime(0);
+      setBustingCount(String(initialRecord.bustingCount ?? 0));
+      setSeatbeltCount(String(initialRecord.seatbeltCount ?? 0));
+      setGroundTouchCount(String(initialRecord.groundTouchCount ?? 0));
+      setAttemptCount(String(initialRecord.attemptCount ?? 0));
+      setTaskSkippedCount(String(initialRecord.taskSkippedCount ?? 0));
+      setWrongCourseSelected(Boolean(initialRecord.wrongCourseSelected));
+      setFourthAttemptSelected(Boolean(initialRecord.fourthAttemptSelected));
+      setTimeOverSelected(Boolean(initialRecord.timeOverSelected));
+      setDnfSelection(initialRecord.dnfSelection ? String(initialRecord.dnfSelection) : '');
+      setStopwatchTime(initialStopwatchTime);
+      setHasTimerStarted(Boolean(initialStopwatchTime) || Boolean(initialRecord.isDNF));
+      setHasTimerStopped(Boolean(initialStopwatchTime) || Boolean(initialRecord.isDNF));
+      setIsStopwatchRunning(false);
     }
   }, [visible, initialRecord]);
 
@@ -1450,120 +1719,96 @@ const RegistrationForm = ({
     onClose();
   };
 
-  const generateAndDownloadExcel = async (data) => {
-    try {
-      const headers = [
-        ...RECORD_EXPORT_HEADERS,
-      ];
+  const buildFormData = () => ({
+    disputeId: initialRecord?.disputeId || initialRecord?.id || null,
+    source: initialRecord?.source || 'records',
+    selectedDayId: selectedDay?.id || initialRecord?.selectedDayId || initialRecord?.selected_day_id || '',
+    selectedDayLabel: selectedDay?.dayLabel || initialRecord?.selectedDayLabel || initialRecord?.selected_day_label || '',
+    selectedDayDate: selectedDay?.dateLabel || initialRecord?.selectedDayDate || initialRecord?.selected_day_date || '',
+    trackName,
+    category: category?.name || initialRecord?.category || '',
+    srNo,
+    stickerNumber,
+    driverName,
+    coDriverName,
+    completionTime: isDNF ? 'DNF' : formatTime(stopwatchTime),
+    completionTimeMilliseconds: stopwatchTime,
+    performanceTimeDisplay,
+    bustingCount,
+    seatbeltCount,
+    groundTouchCount,
+    lateStartMode,
+    lateStartStatus,
+    lateStartPenaltyTime,
+    attemptCount,
+    taskSkippedCount,
+    isDNF,
+    isDNS: false,
+    wrongCourseSelected,
+    fourthAttemptSelected,
+    timeOverSelected,
+    dnfSelection,
+    dnfPoints,
+    bustingPenaltyTime,
+    seatbeltPenaltyTime,
+    groundTouchPenaltyTime,
+    attemptPenaltyTime,
+    taskSkippedPenaltyTime,
+    totalPenaltiesTime,
+    totalTimeMilliseconds,
+    totalTimeDisplay,
+  });
 
-      const rows = [[
-        data.trackName,
-        data.srNo || '',
-        data.stickerNumber,
-        data.driverName,
-        data.coDriverName,
-        data.bustingCount,
-        data.bustingPenaltyTime,
-        data.seatbeltCount,
-        data.seatbeltPenaltyTime,
-        data.groundTouchCount,
-        data.groundTouchPenaltyTime,
-        data.lateStartStatus,
-        data.lateStartPenaltyTime,
-        data.attemptCount,
-        data.attemptPenaltyTime,
-        data.taskSkippedCount,
-        data.taskSkippedPenaltyTime,
-        data.isDNF ? 'Yes' : 'No',
-        data.isDNS ? 'Yes' : 'No',
-        data.wrongCourseSelected ? 'Yes' : 'No',
-        data.fourthAttemptSelected ? 'Yes' : 'No',
-        data.timeOverSelected ? 'Yes' : 'No',
-        data.dnfPoints,
-        data.totalPenaltiesTime,
-        data.performanceTimeDisplay,
-        data.totalTimeDisplay,
-        new Date().toLocaleString(),
-      ]];
-
-      const fileName = `${data.category} - ${data.trackName}.csv`;
-      await CSVExporter.downloadFile(fileName, headers, rows);
-      return true;
-    } catch (error) {
-      Alert.alert('Error', 'Failed to generate file: ' + error.message);
-      console.error('File generation error:', error);
-      return false;
-    }
-  };
-
-  const handleSubmit = async () => {
+  const validateSubmission = () => {
     if (!trackName.trim()) {
       Alert.alert('Error', 'Please select Track Name');
-      return;
+      return false;
     }
     if (!driverName.trim() || !stickerNumber.trim() || !coDriverName.trim()) {
       Alert.alert('Error', 'Selected record details are incomplete');
-      return;
+      return false;
     }
     if (!hasTimerStopped && !isDNF) {
-      Alert.alert('Error', 'Stop the timer before submitting');
-      return;
+      Alert.alert('Error', 'Stop the timer before continuing');
+      return false;
     }
     if (isDNFPointsMissing) {
-      Alert.alert('Error', 'Please select DNF points before submitting');
+      Alert.alert('Error', 'Please select DNF points before continuing');
+      return false;
+    }
+    return true;
+  };
+
+  const handleSubmit = async () => {
+    if (!validateSubmission()) {
+      return;
+    }
+    const formData = buildFormData();
+    const didSubmit = await onSubmit(formData);
+    if (didSubmit) {
+      resetStopwatch();
+      resetForm();
+    }
+  };
+
+  const handleDispute = async () => {
+    if (!validateSubmission()) {
       return;
     }
 
-    const formData = {
-      trackName,
-      category: category?.name || '',
-      srNo,
-      stickerNumber,
-      driverName,
-      coDriverName,
-      completionTime: isDNF ? 'DNF' : formatTime(stopwatchTime),
-      completionTimeMilliseconds: stopwatchTime,
-      performanceTimeDisplay,
-      bustingCount,
-      seatbeltCount,
-      groundTouchCount,
-      lateStartMode,
-      lateStartStatus,
-      lateStartPenaltyTime,
-      attemptCount,
-      taskSkippedCount,
-      isDNF,
-      isDNS: false,
-      wrongCourseSelected,
-      fourthAttemptSelected,
-      timeOverSelected,
-      dnfSelection,
-      dnfPoints,
-      bustingPenaltyTime,
-      seatbeltPenaltyTime,
-      groundTouchPenaltyTime,
-      attemptPenaltyTime,
-      taskSkippedPenaltyTime,
-      totalPenaltiesTime,
-      totalTimeMilliseconds,
-      totalTimeDisplay,
-    };
-
-    const didDownload = await generateAndDownloadExcel(formData);
-
-    if (!didDownload) {
-      return;
+    const didHold = await onHoldForDispute(buildFormData());
+    if (didHold) {
+      resetStopwatch();
+      resetForm();
     }
-
-    await onSubmit(formData);
-    resetStopwatch();
-    resetForm();
   };
 
   const penaltyControlsDisabled = !hasTimerStarted || isDNF;
   const submitDisabled = (!hasTimerStopped && !isDNF) || isDNFPointsMissing;
+  const disputeDisabled = submitDisabled;
   const startButtonDisabled = hasTimerStopped || isDNF;
   const resetButtonDisabled = isStopwatchRunning || stopwatchTime === 0;
+  const showDisputeButton = initialRecord?.source !== 'dispute';
 
   return (
     <Modal
@@ -2011,6 +2256,21 @@ const RegistrationForm = ({
                 },
               ]}
             >
+              {showDisputeButton ? (
+                <TouchableOpacity
+                  style={[
+                    styles.disputeButton,
+                    disputeDisabled && styles.submitButtonDisabled,
+                    { paddingVertical: responsiveLayout.isSmallPhone ? 12 : 14, marginBottom: 10 },
+                  ]}
+                  onPress={handleDispute}
+                  disabled={disputeDisabled}
+                >
+                  <Text style={[styles.submitButtonText, { fontSize: responsiveLayout.isSmallPhone ? 14 : 15 }]}>
+                    Dispute
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
               <TouchableOpacity
                 style={[
                   styles.submitButton,
@@ -2021,7 +2281,7 @@ const RegistrationForm = ({
                 disabled={submitDisabled}
               >
                 <Text style={[styles.submitButtonText, { fontSize: responsiveLayout.isSmallPhone ? 14 : 15 }]}>
-                  Submit & Download CSV
+                  SUBMIT
                 </Text>
               </TouchableOpacity>
             </View>
@@ -2035,6 +2295,7 @@ const RegistrationForm = ({
 const CategoryRecordsModal = ({
   visible,
   category,
+  categoryTracks,
   records,
   onClose,
   onStart,
@@ -2050,10 +2311,10 @@ const CategoryRecordsModal = ({
   lateStartActionOrderByRecord,
   completedTracksByRecord,
   activeRecordKey,
+  theme = APP_THEMES.dark,
 }) => {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const responsiveLayout = getResponsiveLayout(screenWidth, screenHeight);
-  const categoryTracks = getCategoryTracks(category?.name);
   const orderedRecords = useMemo(
     () =>
       [...records].sort((a, b) => {
@@ -2117,6 +2378,7 @@ const CategoryRecordsModal = ({
         style={[
           styles.recordsPageContainer,
           {
+            backgroundColor: theme.background,
             paddingHorizontal: responsiveLayout.isTablet ? 24 : responsiveLayout.shellPadding,
             paddingTop: 60,
           },
@@ -2130,10 +2392,10 @@ const CategoryRecordsModal = ({
             flex: 1,
           }}
         >
-      <View style={styles.recordsHeader}>
+      <View style={[styles.recordsHeader, { borderBottomColor: theme.border }]}>
         <View>
-          <Text style={styles.recordsTitle}>{category?.name || 'Category Records'}</Text>
-          <Text style={styles.recordsSubtitle}>
+          <Text style={[styles.recordsTitle, { color: theme.textPrimary }]}>{category?.name || 'Category Records'}</Text>
+          <Text style={[styles.recordsSubtitle, { color: theme.textSecondary }]}>
             {selectedTrackFilter
               ? `${filteredRecords.length} ${filteredRecords.length === 1 ? 'vehicle' : 'vehicles'} on ${selectedTrackFilter}`
               : `${categoryTracks.length} ${categoryTracks.length === 1 ? 'track' : 'tracks'}`}
@@ -2145,22 +2407,31 @@ const CategoryRecordsModal = ({
       </View>
 
       {!selectedTrackFilter ? (
-        <View style={styles.trackCardsScreen}>
-          <Text style={styles.trackCardsTitle}>Select Track</Text>
-          <View style={styles.trackCardsGrid}>
-            {categoryTracks.map(track => (
-              <TouchableOpacity
-                key={track}
-                style={styles.trackCategoryCard}
-                onPress={() => onTrackCardSelect(track)}
-                activeOpacity={0.88}
-              >
-                <Text style={styles.trackCategoryCardLabel}>Track</Text>
-                <Text style={styles.trackCategoryCardTitle}>{track}</Text>
-              </TouchableOpacity>
-            ))}
+        categoryTracks.length > 0 ? (
+          <View style={styles.trackCardsScreen}>
+            <Text style={styles.trackCardsTitle}>Select Track</Text>
+            <View style={styles.trackCardsGrid}>
+              {categoryTracks.map(track => (
+                <TouchableOpacity
+                  key={track}
+                  style={styles.trackCategoryCard}
+                  onPress={() => onTrackCardSelect(track)}
+                  activeOpacity={0.88}
+                >
+                  <Text style={styles.trackCategoryCardLabel}>Track</Text>
+                  <Text style={styles.trackCategoryCardTitle}>{track}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
-        </View>
+        ) : (
+          <View style={styles.emptyStateCard}>
+            <Text style={styles.emptyStateTitle}>No active tracks</Text>
+            <Text style={styles.emptyStateText}>
+              No tracks are active for this category on the selected day.
+            </Text>
+          </View>
+        )
       ) : (
         <>
           <FlatList
@@ -2327,6 +2598,294 @@ const CategoryRecordsModal = ({
   );
 };
 
+const DisputeRecordsPanel = ({
+  disputes,
+  selectedDay,
+  categoryOptions,
+  loading,
+  onRefresh,
+  onEdit,
+  theme = APP_THEMES.dark,
+}) => {
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const responsiveLayout = getResponsiveLayout(screenWidth, screenHeight);
+  const [selectedCategoryKey, setSelectedCategoryKey] = useState('');
+  const [selectedTrackKey, setSelectedTrackKey] = useState('');
+
+  useEffect(() => {
+    setSelectedCategoryKey('');
+    setSelectedTrackKey('');
+  }, [selectedDay?.id]);
+
+  const normalizedDisputes = useMemo(
+    () => (disputes || []).map(parseRegistrationPayload),
+    [disputes]
+  );
+
+  const daySpecificDisputes = useMemo(
+    () => normalizedDisputes.filter(item => matchesStoredSelectedDay(item, selectedDay)),
+    [normalizedDisputes, selectedDay]
+  );
+
+  const categoryLabelMap = useMemo(
+    () =>
+      (categoryOptions || []).reduce((acc, item) => {
+        acc[item.key] = item.label;
+        return acc;
+      }, {}),
+    [categoryOptions]
+  );
+
+  const disputeCategoryCards = useMemo(() => {
+    const countsByCategory = daySpecificDisputes.reduce((acc, item) => {
+      const categoryKey = normalizeCategoryKey(item.category || 'Uncategorized');
+      acc[categoryKey] = (acc[categoryKey] || 0) + 1;
+      return acc;
+    }, {});
+
+    return Object.keys(countsByCategory)
+      .map(categoryKey => ({
+        key: categoryKey,
+        label: categoryLabelMap[categoryKey] || String(categoryKey || 'Category').replace(/_/g, ' '),
+        count: countsByCategory[categoryKey],
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [categoryLabelMap, daySpecificDisputes]);
+
+  const selectedCategoryDisputes = useMemo(
+    () =>
+      selectedCategoryKey
+        ? daySpecificDisputes.filter(item => normalizeCategoryKey(item.category || 'Uncategorized') === selectedCategoryKey)
+        : [],
+    [daySpecificDisputes, selectedCategoryKey]
+  );
+
+  const disputeTrackCards = useMemo(() => {
+    const countsByTrack = selectedCategoryDisputes.reduce((acc, item) => {
+      const trackName = String(item.track_name || item.trackName || '').trim();
+
+      if (!trackName) {
+        return acc;
+      }
+
+      acc[trackName] = (acc[trackName] || 0) + 1;
+      return acc;
+    }, {});
+
+    return Object.keys(countsByTrack)
+      .map(trackName => ({
+        key: trackName,
+        label: trackName,
+        count: countsByTrack[trackName],
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [selectedCategoryDisputes]);
+
+  const selectedTrackDisputes = useMemo(
+    () =>
+      selectedTrackKey
+        ? selectedCategoryDisputes
+            .filter(item => String(item.track_name || item.trackName || '').trim() === selectedTrackKey)
+            .sort((a, b) =>
+              String(a.sticker_number || a.stickerNumber || '').localeCompare(
+                String(b.sticker_number || b.stickerNumber || ''),
+                undefined,
+                { numeric: true }
+              )
+            )
+        : [],
+    [selectedCategoryDisputes, selectedTrackKey]
+  );
+
+  useEffect(() => {
+    if (selectedCategoryKey && !disputeCategoryCards.some(item => item.key === selectedCategoryKey)) {
+      setSelectedCategoryKey('');
+      setSelectedTrackKey('');
+    }
+  }, [disputeCategoryCards, selectedCategoryKey]);
+
+  useEffect(() => {
+    if (selectedTrackKey && !disputeTrackCards.some(item => item.key === selectedTrackKey)) {
+      setSelectedTrackKey('');
+    }
+  }, [disputeTrackCards, selectedTrackKey]);
+
+  if (!selectedDay?.id) {
+    return (
+      <View style={[styles.emptyStateCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+        <Text style={[styles.emptyStateTitle, { color: theme.textPrimary }]}>No day selected</Text>
+        <Text style={[styles.emptyStateText, { color: theme.textSecondary }]}>Choose a day first, then open Settings to review disputed records.</Text>
+      </View>
+    );
+  }
+
+  return (
+    <>
+      <View style={[styles.settingsInfoCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+        <Text style={[styles.settingsInfoTitle, { color: theme.accent }]}>Disputed Records</Text>
+        <Text style={[styles.settingsInfoText, { color: theme.textSecondary }]}>
+          {`${selectedDay.dayLabel} | ${selectedDay.dateLabel}. Open a disputed hold, review the stopwatch values, and submit when it is ready.`}
+        </Text>
+      </View>
+
+      <View style={styles.resultsHeaderActions}>
+        <TouchableOpacity
+          onPress={onRefresh}
+          style={[styles.resultsHeaderButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+          activeOpacity={0.85}
+        >
+          <Text style={[styles.resultsHeaderButtonText, { color: theme.accent }]}>{loading ? 'Refreshing...' : 'Refresh'}</Text>
+        </TouchableOpacity>
+      </View>
+
+      {!selectedCategoryKey ? (
+        <View style={styles.settingsMenuGrid}>
+          {disputeCategoryCards.length === 0 ? (
+            <View style={[styles.emptyStateCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Text style={[styles.emptyStateTitle, { color: theme.textPrimary }]}>No disputed records</Text>
+              <Text style={[styles.emptyStateText, { color: theme.textSecondary }]}>Hold a stopwatch result as a dispute and it will appear here for the selected day.</Text>
+            </View>
+          ) : (
+            disputeCategoryCards.map(item => (
+              <TouchableOpacity
+                key={item.key}
+                style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                onPress={() => {
+                  setSelectedCategoryKey(item.key);
+                  setSelectedTrackKey('');
+                }}
+                activeOpacity={0.88}
+              >
+                <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Vehicle Category</Text>
+                <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>{item.label}</Text>
+                <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
+                  {item.count} {item.count === 1 ? 'disputed record' : 'disputed records'}
+                </Text>
+              </TouchableOpacity>
+            ))
+          )}
+        </View>
+      ) : !selectedTrackKey ? (
+        <>
+          <TouchableOpacity
+            style={[styles.trackBackButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+            onPress={() => {
+              setSelectedCategoryKey('');
+              setSelectedTrackKey('');
+            }}
+            activeOpacity={0.85}
+          >
+            <Text style={[styles.trackBackButtonText, { color: theme.accent }]}>Back to Categories</Text>
+          </TouchableOpacity>
+
+          <View style={styles.settingsTrackList}>
+            {disputeTrackCards.length === 0 ? (
+              <View style={[styles.emptyStateCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                <Text style={[styles.emptyStateTitle, { color: theme.textPrimary }]}>No disputed tracks</Text>
+                <Text style={[styles.emptyStateText, { color: theme.textSecondary }]}>This category has no disputed tracks for the selected day.</Text>
+              </View>
+            ) : (
+              disputeTrackCards.map(item => (
+                <TouchableOpacity
+                  key={item.key}
+                  style={[styles.settingsTrackRow, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={() => setSelectedTrackKey(item.key)}
+                  activeOpacity={0.88}
+                >
+                  <View style={styles.settingsTrackInfo}>
+                    <View style={styles.settingsTrackNameRow}>
+                      <View style={[styles.settingsTrackMarker, styles.settingsTrackMarkerInactive]} />
+                      <Text style={[styles.settingsTrackName, styles.settingsTrackNameInactive, { color: theme.textPrimary }]}>{item.label}</Text>
+                    </View>
+                    <Text style={[styles.settingsTrackStatus, styles.settingsTrackStatusInactive]}>
+                      {item.count} {item.count === 1 ? 'disputed record' : 'disputed records'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
+        </>
+      ) : (
+        <>
+          <TouchableOpacity
+            style={[styles.trackBackButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+            onPress={() => setSelectedTrackKey('')}
+            activeOpacity={0.85}
+          >
+            <Text style={[styles.trackBackButtonText, { color: theme.accent }]}>Back to Tracks</Text>
+          </TouchableOpacity>
+
+          <View style={styles.recordsListContent}>
+            {selectedTrackDisputes.length === 0 ? (
+              <View style={[styles.emptyStateCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                <Text style={[styles.emptyStateTitle, { color: theme.textPrimary }]}>No disputed records in this track</Text>
+                <Text style={[styles.emptyStateText, { color: theme.textSecondary }]}>This track does not have disputed holds for the selected day.</Text>
+              </View>
+            ) : (
+              selectedTrackDisputes.map(item => {
+                const stickerNumber = item.sticker_number || item.stickerNumber || '--';
+                const driverName = item.driver_name || item.driverName || '--';
+                const coDriverName = item.codriver_name || item.coDriverName || '--';
+
+                return (
+                  <View key={`dispute-${item.id || stickerNumber}-${driverName}`} style={[styles.registrationCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                    <View style={styles.registrationCardHeader}>
+                      <View style={styles.registrationSrPill}>
+                        <Text style={styles.registrationSrLabel}>Sticker</Text>
+                        <Text style={styles.registrationSrValue}>#{stickerNumber}</Text>
+                      </View>
+                      <View style={styles.registrationTrackPill}>
+                        <Text style={styles.registrationTrackLabel}>Track</Text>
+                        <Text style={styles.registrationTrackValue}>{item.track_name || item.trackName || '--'}</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.registrationInfoGrid}>
+                      <View style={styles.registrationInfoCell}>
+                        <Text style={styles.registrationInfoLabel}>Driver Name</Text>
+                        <Text style={styles.registrationInfoValue}>{driverName}</Text>
+                      </View>
+                      <View style={styles.registrationInfoCell}>
+                        <Text style={styles.registrationInfoLabel}>Co-Driver Name</Text>
+                        <Text style={styles.registrationInfoValue}>{coDriverName}</Text>
+                      </View>
+                      <View style={styles.registrationInfoCell}>
+                        <Text style={styles.registrationInfoLabel}>Status</Text>
+                        <Text style={[styles.registrationInfoValue, styles.disputedStatusText, { color: theme.accent }]}>Disputed</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.registrationSection}>
+                      <Text style={styles.registrationSectionTitle}>Held Stopwatch Snapshot</Text>
+                      <Text style={styles.registrationSectionText}>
+                        Performance: {item.performance_time || item.performanceTimeDisplay || '--'}
+                      </Text>
+                      <Text style={styles.registrationSectionText}>
+                        Total: {item.total_time || item.totalTimeDisplay || '--'}
+                      </Text>
+                    </View>
+
+                    <View style={styles.disputeCardActions}>
+                      <TouchableOpacity
+                        style={[styles.resultsHeaderButton, styles.disputeCardButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
+                        onPress={() => onEdit({ ...item, disputeId: item.id, source: 'dispute' })}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={[styles.resultsHeaderButtonText, { color: theme.accent }]}>Resolve Hold</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })
+            )}
+          </View>
+        </>
+      )}
+    </>
+  );
+};
+
 const RegistrationResultsModal = ({
   visible,
   registrations,
@@ -2375,10 +2934,10 @@ const RegistrationResultsModal = ({
               <TouchableOpacity onPress={onRefresh} style={styles.resultsHeaderButton} activeOpacity={0.85}>
                 <Text style={styles.resultsHeaderButtonText}>Refresh</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={onClose}>
-                <Text style={styles.closeButton}>âœ•</Text>
-              </TouchableOpacity>
-            </View>
+        <TouchableOpacity onPress={onClose}>
+          <Text style={[styles.closeButton, { color: theme.textPrimary }]}>âœ•</Text>
+        </TouchableOpacity>
+      </View>
           </View>
 
           <FlatList
@@ -2508,16 +3067,94 @@ export default function App() {
   const [dbReady, setDbReady] = useState(false);
   const [teams, setTeams] = useState([]);
   const [categoriesWithCounts, setCategoriesWithCounts] = useState([]);
-  const [resultsVisible, setResultsVisible] = useState(false);
+  const [reportsVisible, setReportsVisible] = useState(false);
   const [reportMenuVisible, setReportMenuVisible] = useState(false);
   const [appStage, setAppStage] = useState('splash');
   const [selectedDay, setSelectedDay] = useState(null);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [settingsPassword, setSettingsPassword] = useState(DEFAULT_SETTINGS_PASSWORD);
+  const [themeMode, setThemeMode] = useState(DEFAULT_THEME_MODE);
+  const [trackActivationConfig, setTrackActivationConfig] = useState(() => buildDefaultTrackActivationConfig());
+  const [settingsPasswordModalVisible, setSettingsPasswordModalVisible] = useState(false);
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const [settingsView, setSettingsView] = useState('menu');
+  const [settingsPasswordInput, setSettingsPasswordInput] = useState('');
+  const [settingsConfigDayId, setSettingsConfigDayId] = useState(REPORT_DAYS[0]?.id || '');
+  const [settingsConfigCategoryKey, setSettingsConfigCategoryKey] = useState('EXTREME');
+  const [disputeRecords, setDisputeRecords] = useState([]);
+  const [disputesLoading, setDisputesLoading] = useState(false);
+  const [currentPasswordInput, setCurrentPasswordInput] = useState('');
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
   const splashLogoAnim = useRef(new Animated.Value(0)).current;
   const switchAnim = useRef(new Animated.Value(0)).current;
+  const glowPulseAnim = useRef(new Animated.Value(0)).current;
   const ignitionSoundRef = useRef(null);
   const splashStartTriggeredRef = useRef(false);
   const ignitionSequenceTimerRef = useRef(null);
   const lateStartActionCounterRef = useRef(0);
+  const theme = useMemo(() => APP_THEMES[normalizeThemeMode(themeMode)], [themeMode]);
+
+  useEffect(() => {
+    const pulseLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(glowPulseAnim, {
+          toValue: 1,
+          duration: 950,
+          useNativeDriver: true,
+        }),
+        Animated.timing(glowPulseAnim, {
+          toValue: 0,
+          duration: 950,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    pulseLoop.start();
+
+    return () => {
+      pulseLoop.stop();
+      glowPulseAnim.stopAnimation();
+    };
+  }, [glowPulseAnim]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const hydrateSettings = async () => {
+      const storedSettings = await loadStoredAppSettings();
+
+      if (!isMounted) {
+        return;
+      }
+
+      setSettingsPassword(storedSettings.password);
+      setTrackActivationConfig(storedSettings.trackActivationConfig);
+      setThemeMode(storedSettings.themeMode);
+      setSettingsLoaded(true);
+    };
+
+    hydrateSettings();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!settingsLoaded) {
+      return;
+    }
+
+    saveStoredAppSettings({
+      password: settingsPassword,
+      trackActivationConfig,
+      themeMode,
+    }).catch(error => {
+      console.warn('Unable to save admin settings:', error);
+    });
+  }, [settingsLoaded, settingsPassword, themeMode, trackActivationConfig]);
 
   useEffect(() => {
     if (appStage !== 'splash') {
@@ -2549,6 +3186,7 @@ export default function App() {
         clearTimeout(ignitionSequenceTimerRef.current);
         ignitionSequenceTimerRef.current = null;
       }
+      Vibration.cancel();
       if (ignitionSoundRef.current) {
         ignitionSoundRef.current.unloadAsync().catch(() => {});
         ignitionSoundRef.current = null;
@@ -2592,6 +3230,19 @@ export default function App() {
     }
   };
 
+  const playIgnitionVibration = () => {
+    if (Platform.OS === 'web') {
+      return;
+    }
+
+    try {
+      Vibration.cancel();
+      Vibration.vibrate(IGNITION_VIBRATION_PATTERN, false);
+    } catch (error) {
+      console.warn('Unable to trigger ignition vibration:', error);
+    }
+  };
+
   const handleIgnitionPress = async () => {
     if (splashStartTriggeredRef.current) {
       return;
@@ -2606,36 +3257,54 @@ export default function App() {
     switchAnim.stopAnimation();
     switchAnim.setValue(0);
 
+    playIgnitionVibration();
     await playIgnitionSound();
 
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(switchAnim, {
-          toValue: 1,
-          duration: 500,
-          useNativeDriver: true,
-        }),
-        Animated.timing(switchAnim, {
-          toValue: 0.18,
-          duration: 500,
-          useNativeDriver: true,
-        }),
-      ]),
-      { iterations: 3 }
-    ).start();
+    Animated.sequence([
+      Animated.timing(switchAnim, {
+        toValue: 0.38,
+        duration: 220,
+        useNativeDriver: true,
+      }),
+      Animated.timing(switchAnim, {
+        toValue: 0.72,
+        duration: 190,
+        useNativeDriver: true,
+      }),
+      Animated.timing(switchAnim, {
+        toValue: 1,
+        duration: 170,
+        useNativeDriver: true,
+      }),
+    ]).start();
 
     ignitionSequenceTimerRef.current = setTimeout(async () => {
       ignitionSequenceTimerRef.current = null;
       switchAnim.stopAnimation();
       switchAnim.setValue(0);
+      Vibration.cancel();
       await stopIgnitionSound();
       setAppStage('day');
     }, IGNITION_SOUND_DURATION_MS);
   };
 
-  const refreshCompletedTracks = async (teamRecords = teams) => {
-    const results = await ResultsService.getAllResults();
-    setCompletedTracksByRecord(buildCompletedTracksMap(teamRecords, results));
+  const refreshDisputes = async () => {
+    try {
+      setDisputesLoading(true);
+      const disputes = await DisputesService.getAllDisputes();
+      setDisputeRecords(disputes);
+      return disputes;
+    } finally {
+      setDisputesLoading(false);
+    }
+  };
+
+  const refreshCompletedTracks = async (teamRecords = teams, dayId = selectedDay?.id || '') => {
+    const [results, disputes] = await Promise.all([
+      ResultsService.getAllResults(),
+      DisputesService.getAllDisputes(),
+    ]);
+    setCompletedTracksByRecord(buildCompletedTracksMap(teamRecords, results, dayId, disputes));
   };
 
   // Initialize database on app startup
@@ -2665,6 +3334,7 @@ export default function App() {
 
         setTeams(teamsData);
         await refreshCompletedTracks(teamsData);
+        await refreshDisputes();
         
         console.log('🏆 Categories with counts:', categoriesWithTeamCounts);
         setCategoriesWithCounts(categoriesWithTeamCounts);
@@ -2763,15 +3433,96 @@ export default function App() {
     },
   ];
 
+  const settingsCategoryOptions = useMemo(() => {
+    const seen = new Set();
+
+    return categories.reduce((acc, category) => {
+      const categoryKey = normalizeCategoryKey(category.name);
+
+      if (seen.has(categoryKey) || !CATEGORY_TRACKS[categoryKey]) {
+        return acc;
+      }
+
+      seen.add(categoryKey);
+      acc.push({
+        key: categoryKey,
+        label: category.name,
+      });
+      return acc;
+    }, []);
+  }, [categories]);
+
+  const selectedCategoryTracks = useMemo(
+    () => getActiveTracksForDayCategory(trackActivationConfig, selectedDay?.id, selectedCategory?.name),
+    [selectedCategory?.name, selectedDay?.id, trackActivationConfig]
+  );
+
+  const dayScopedCategories = useMemo(() => {
+    const sourceCategories = categoriesWithCounts.length > 0 ? categoriesWithCounts : categories;
+
+    return sourceCategories
+      .map(category => {
+        const activeTracks = getActiveTracksForDayCategory(trackActivationConfig, selectedDay?.id, category.name);
+
+        return {
+          ...category,
+          trackCount: activeTracks.length,
+          activeTracks,
+        };
+      })
+      .filter(category => category.trackCount > 0);
+  }, [categories, categoriesWithCounts, selectedDay?.id, trackActivationConfig]);
+
+  const reportCategoryOptions = useMemo(
+    () =>
+      settingsCategoryOptions.map(category => ({
+        key: category.key,
+        label: category.label,
+        tracks: getActiveTracksForDayCategory(trackActivationConfig, selectedDay?.id, category.label),
+      })),
+    [selectedDay?.id, settingsCategoryOptions, trackActivationConfig]
+  );
+
+  const configurationTracks = useMemo(
+    () => CATEGORY_TRACKS[settingsConfigCategoryKey] || [],
+    [settingsConfigCategoryKey]
+  );
+
+  useEffect(() => {
+    if (!settingsCategoryOptions.length) {
+      return;
+    }
+
+    if (!settingsCategoryOptions.some(option => option.key === settingsConfigCategoryKey)) {
+      setSettingsConfigCategoryKey(settingsCategoryOptions[0].key);
+    }
+  }, [settingsCategoryOptions, settingsConfigCategoryKey]);
+
+  useEffect(() => {
+    if (!selectedCategoryTrack) {
+      return;
+    }
+
+    if (!selectedCategoryTracks.includes(selectedCategoryTrack)) {
+      setSelectedCategoryTrack('');
+      setActiveRecordKey('');
+    }
+  }, [selectedCategoryTrack, selectedCategoryTracks]);
+
+  useEffect(() => {
+    refreshCompletedTracks().catch(error => {
+      console.warn('Unable to refresh completed tracks for selected day:', error);
+    });
+  }, [selectedDay?.id]);
+
   // Filter categories based on search
   const filteredCategories = useMemo(() => {
     const normalizedSearch = searchText.toLowerCase();
-    const sourceCategories = categoriesWithCounts.length > 0 ? categoriesWithCounts : categories;
 
-    return sourceCategories.filter(cat =>
+    return dayScopedCategories.filter(cat =>
       cat.name.toLowerCase().includes(normalizedSearch)
     );
-  }, [categories, categoriesWithCounts, searchText]);
+  }, [dayScopedCategories, searchText]);
 
   /**
    * Handle card press - Opens registration form
@@ -2790,24 +3541,107 @@ export default function App() {
     setActiveRecordKey('');
     setFormVisible(false);
     setRecordsVisible(false);
+    setReportsVisible(false);
+    setReportMenuVisible(false);
+    setSettingsVisible(false);
+    setSettingsView('menu');
     setSelectedCategoryTrack('');
     setSearchText('');
-    setReportMenuVisible(false);
-    setResultsVisible(false);
     setAppStage('main');
   };
 
-  const handleBackToSplash = () => {
-    setSelectedDay(null);
+  const handleBackToDayPage = () => {
     setSearchText('');
-    setReportMenuVisible(false);
-    setResultsVisible(false);
     setRecordsVisible(false);
     setFormVisible(false);
+    setReportsVisible(false);
+    setReportMenuVisible(false);
+    setSettingsVisible(false);
+    setSettingsView('menu');
     setSelectedCategory(null);
+    setSelectedRecord(null);
     setSelectedCategoryTrack('');
     setActiveRecordKey('');
-    setAppStage('splash');
+    setAppStage('day');
+  };
+
+  const handleSettingsOpen = () => {
+    setReportMenuVisible(false);
+    setSettingsPasswordInput('');
+    setSettingsConfigDayId(selectedDay?.id || REPORT_DAYS[0]?.id || '');
+    setSettingsConfigCategoryKey(normalizeCategoryKey(selectedCategory?.name || 'Extreme'));
+    setSettingsPasswordModalVisible(true);
+  };
+
+  const handleOpenDisputes = async () => {
+    await refreshDisputes();
+    setSettingsView('disputes');
+  };
+
+  const handleThemeOpen = () => {
+    setReportMenuVisible(false);
+    setSettingsVisible(true);
+    setSettingsView('theme');
+  };
+
+  const handleSettingsPasswordSubmit = () => {
+    if (settingsPasswordInput !== settingsPassword) {
+      Alert.alert('Wrong Password', 'Wrong Password');
+      return;
+    }
+
+    setSettingsPasswordModalVisible(false);
+    setSettingsPasswordInput('');
+    setSettingsView('menu');
+    setSettingsVisible(true);
+  };
+
+  const handleOpenChangePassword = () => {
+    setCurrentPasswordInput('');
+    setNewPasswordInput('');
+    setConfirmPasswordInput('');
+    setSettingsView('password');
+  };
+
+  const handleChangePasswordSave = () => {
+    if (currentPasswordInput !== settingsPassword) {
+      Alert.alert('Incorrect Password', 'Current password does not match.');
+      return;
+    }
+
+    if (!newPasswordInput.trim()) {
+      Alert.alert('Invalid Password', 'Please enter a new password.');
+      return;
+    }
+
+    if (newPasswordInput !== confirmPasswordInput) {
+      Alert.alert('Mismatch', 'New password and confirm password do not match.');
+      return;
+    }
+
+    setSettingsPassword(newPasswordInput.trim());
+    setCurrentPasswordInput('');
+    setNewPasswordInput('');
+    setConfirmPasswordInput('');
+    setSettingsView('menu');
+    Alert.alert('Success', 'Password updated successfully.');
+  };
+
+  const handleTrackActivationToggle = (dayId, categoryKey, trackName) => {
+    setTrackActivationConfig(prev => {
+      const nextValue = !(prev?.[dayId]?.[categoryKey]?.[trackName] !== false);
+
+      return {
+        ...prev,
+        [dayId]: {
+          ...(prev?.[dayId] || {}),
+          [categoryKey]: {
+            ...(prev?.[dayId]?.[categoryKey] || {}),
+            [trackName]: nextValue,
+          },
+        },
+      };
+    });
   };
 
   const handleRecordStart = (record) => {
@@ -2897,6 +3731,14 @@ export default function App() {
   const handleDNSRecordSubmit = async record => {
     const nullValue = 'null';
     const fileName = `${selectedCategory?.name || 'Category'} - ${record.selectedTrack || 'Track'} - DNS.csv`;
+    const dayPayload = {
+      selected_day_id: selectedDay?.id || '',
+      selectedDayId: selectedDay?.id || '',
+      selected_day_label: selectedDay?.dayLabel || '',
+      selectedDayLabel: selectedDay?.dayLabel || '',
+      selected_day_date: selectedDay?.dateLabel || '',
+      selectedDayDate: selectedDay?.dateLabel || '',
+    };
     const dnsResultData = {
       track_name: record.selectedTrack || '',
       sticker_number: getTeamStickerNumber(record) || '',
@@ -2915,9 +3757,11 @@ export default function App() {
       total_penalties_time: 0,
       performance_time: '0',
       total_time: '0',
+      ...dayPayload,
       submission_json: JSON.stringify({
         ...record,
         category: selectedCategory?.name || '',
+        ...dayPayload,
         is_dns: true,
         bunting_count: 0,
         seatbelt_count: 0,
@@ -2973,7 +3817,7 @@ export default function App() {
       await CSVExporter.downloadFile(fileName, RECORD_EXPORT_HEADERS, row);
 
       await ResultsService.addResult(dnsResultData);
-      await refreshCompletedTracks();
+      await refreshCompletedTracks(teams, selectedDay?.id || '');
 
       const recordKey = record.recordKey || getRecordKey(record);
 
@@ -2997,7 +3841,6 @@ export default function App() {
               setSelectedRecord(null);
               setActiveRecordKey('');
               setRecordsVisible(true);
-              setResultsVisible(false);
             },
           },
         ]
@@ -3007,104 +3850,196 @@ export default function App() {
     }
   };
 
+const buildRegistrationData = formData => ({
+    sr_no: formData.srNo || null,
+    srNo: formData.srNo || null,
+    track_name: formData.trackName,
+    trackName: formData.trackName,
+    sticker_number: formData.stickerNumber,
+    stickerNumber: formData.stickerNumber,
+    driver_name: formData.driverName,
+    driverName: formData.driverName,
+    codriver_name: formData.coDriverName,
+    coDriverName: formData.coDriverName,
+    category: formData.category,
+    selected_day_id: formData.selectedDayId || '',
+    selectedDayId: formData.selectedDayId || '',
+    selected_day_label: formData.selectedDayLabel || '',
+    selectedDayLabel: formData.selectedDayLabel || '',
+    selected_day_date: formData.selectedDayDate || '',
+    selectedDayDate: formData.selectedDayDate || '',
+    bunting_count: formData.bustingCount || 0,
+    bustingCount: formData.bustingCount || 0,
+    seatbelt_count: formData.seatbeltCount || 0,
+    seatbeltCount: formData.seatbeltCount || 0,
+    ground_touch_count: formData.groundTouchCount || 0,
+    groundTouchCount: formData.groundTouchCount || 0,
+    late_start_count: formData.lateStartMode ? 1 : 0,
+    lateStartCount: formData.lateStartMode ? 1 : 0,
+    late_start_mode: formData.lateStartMode || null,
+    lateStartMode: formData.lateStartMode || null,
+    late_start_status: formData.lateStartStatus || 'No',
+    lateStartStatus: formData.lateStartStatus || 'No',
+    late_start_penalty_time: formData.lateStartPenaltyTime || 0,
+    lateStartPenaltyTime: formData.lateStartPenaltyTime || 0,
+    attempt_count: formData.attemptCount || 0,
+    attemptCount: formData.attemptCount || 0,
+    attempt_penalty_time: formData.attemptPenaltyTime || 0,
+    task_skipped_count: formData.taskSkippedCount || 0,
+    taskSkippedCount: formData.taskSkippedCount || 0,
+    task_skipped_penalty_time: formData.taskSkippedPenaltyTime || 0,
+    wrong_course_count: formData.wrongCourseSelected ? 1 : 0,
+    wrongCourseCount: formData.wrongCourseSelected ? 1 : 0,
+    wrong_course_selected: formData.wrongCourseSelected || false,
+    fourth_attempt_count: formData.fourthAttemptSelected ? 1 : 0,
+    fourthAttemptCount: formData.fourthAttemptSelected ? 1 : 0,
+    fourth_attempt_selected: formData.fourthAttemptSelected || false,
+    time_over_selected: formData.timeOverSelected || false,
+    is_dnf: formData.isDNF || false,
+    is_dns: formData.isDNS || false,
+    dnf_selection: formData.dnfSelection || null,
+    dnf_points: formData.dnfPoints || 0,
+    bunting_penalty_time: formData.bustingPenaltyTime || 0,
+    seatbelt_penalty_time: formData.seatbeltPenaltyTime || 0,
+    ground_touch_penalty_time: formData.groundTouchPenaltyTime || 0,
+    total_penalties_time: formData.totalPenaltiesTime || 0,
+    performance_time: formData.performanceTimeDisplay || null,
+    performanceTimeDisplay: formData.performanceTimeDisplay || null,
+    total_time: formData.totalTimeDisplay || null,
+    totalTimeDisplay: formData.totalTimeDisplay || null,
+    submission_json: JSON.stringify(formData),
+  });
+
+  const clearActiveRecordState = (recordKey, showDisputes = false) => {
+    if (recordKey) {
+      setSelectedLateStartByRecord(prev => ({
+        ...prev,
+        [recordKey]: '',
+      }));
+
+      setSelectedLateStartEnabledByRecord(prev => ({
+        ...prev,
+        [recordKey]: false,
+      }));
+    }
+
+    setFormVisible(false);
+    setSelectedRecord(null);
+    setActiveRecordKey('');
+    setRecordsVisible(!showDisputes);
+    if (showDisputes) {
+      setSettingsVisible(true);
+      setSettingsView('disputes');
+    }
+  };
+
+  const finalizeRecordSubmission = async formData => {
+    const completedTrack = formData.trackName;
+    const shouldReturnToDisputes = formData.source === 'dispute' || Boolean(formData.disputeId);
+    const recordKey = selectedRecord?.recordKey || getRecordKey(selectedRecord || {});
+    const registrationData = buildRegistrationData(formData);
+    const didDownload = await downloadResultCsv(formData).then(() => true).catch(error => {
+      Alert.alert('Error', 'Failed to generate file: ' + error.message);
+      console.error('File generation error:', error);
+      return false;
+    });
+
+    if (!didDownload) {
+      return false;
+    }
+
+    const isDuplicate = await ResultsService.isDuplicateResult(registrationData);
+    if (isDuplicate) {
+      Alert.alert('Duplicate Record', 'This result already exists for the same category, track, and sticker number.');
+      return false;
+    }
+
+    const savedId = await ResultsService.addResult(registrationData);
+
+    if (!savedId) {
+      Alert.alert('Error', 'Registration was not saved to the database');
+      return false;
+    }
+
+    if (formData.disputeId) {
+      await DisputesService.deleteDisputeById(formData.disputeId);
+      await refreshDisputes();
+    }
+
+    if (recordKey && completedTrack) {
+      clearActiveRecordState(recordKey, shouldReturnToDisputes);
+    } else {
+      clearActiveRecordState('', shouldReturnToDisputes);
+    }
+
+    await refreshCompletedTracks(teams, selectedDay?.id || '');
+    return true;
+  };
+
+  const holdRecordForDispute = async formData => {
+    try {
+      const disputePayload = {
+        id: formData.disputeId || undefined,
+        track_name: formData.trackName,
+        sticker_number: formData.stickerNumber,
+        driver_name: formData.driverName,
+        codriver_name: formData.coDriverName,
+        category: formData.category,
+        selected_day_id: formData.selectedDayId || '',
+        selectedDayId: formData.selectedDayId || '',
+        selected_day_label: formData.selectedDayLabel || '',
+        selectedDayLabel: formData.selectedDayLabel || '',
+        selected_day_date: formData.selectedDayDate || '',
+        selectedDayDate: formData.selectedDayDate || '',
+        total_penalties_time: formData.totalPenaltiesTime || 0,
+        performance_time: formData.performanceTimeDisplay || null,
+        total_time: formData.totalTimeDisplay || null,
+        submission_json: JSON.stringify(formData),
+      };
+
+      await DisputesService.saveDispute(disputePayload);
+      await refreshDisputes();
+      await refreshCompletedTracks(teams, selectedDay?.id || '');
+      clearActiveRecordState(selectedRecord?.recordKey || getRecordKey(selectedRecord || {}), false);
+      return true;
+    } catch (error) {
+      Alert.alert('Error', 'Record could not be moved to disputes');
+      return false;
+    }
+  };
+
+  const handleDisputeEdit = disputeRecord => {
+    const disputeCategory =
+      (categoriesWithCounts.length > 0 ? categoriesWithCounts : categories).find(
+        item => normalizeCategoryKey(item.name) === normalizeCategoryKey(disputeRecord.category || '')
+      ) || {
+        id: `dispute-${normalizeCategoryKey(disputeRecord.category || 'category')}`,
+        name: disputeRecord.category || 'Category',
+      };
+
+    setReportsVisible(false);
+    setReportMenuVisible(false);
+    setRecordsVisible(false);
+    setSelectedCategory(disputeCategory);
+    setSelectedRecord(disputeRecord);
+    setFormVisible(true);
+    setSettingsVisible(true);
+    setSettingsView('disputes');
+  };
+
   /**
    * Handle form submission
    */
   const handleFormSubmit = async (formData) => {
-    const completedTrack = formData.trackName;
-    const recordKey = selectedRecord?.recordKey || getRecordKey(selectedRecord || {});
-    const registrationData = {
-      sr_no: formData.srNo || null,
-      srNo: formData.srNo || null,
-      track_name: formData.trackName,
-      trackName: formData.trackName,
-      sticker_number: formData.stickerNumber,
-      stickerNumber: formData.stickerNumber,
-      driver_name: formData.driverName,
-      driverName: formData.driverName,
-      codriver_name: formData.coDriverName,
-      coDriverName: formData.coDriverName,
-      category: formData.category,
-      bunting_count: formData.bustingCount || 0,
-      bustingCount: formData.bustingCount || 0,
-      seatbelt_count: formData.seatbeltCount || 0,
-      seatbeltCount: formData.seatbeltCount || 0,
-      ground_touch_count: formData.groundTouchCount || 0,
-      groundTouchCount: formData.groundTouchCount || 0,
-      late_start_count: formData.lateStartMode ? 1 : 0,
-      lateStartCount: formData.lateStartMode ? 1 : 0,
-      late_start_mode: formData.lateStartMode || null,
-      lateStartMode: formData.lateStartMode || null,
-      late_start_status: formData.lateStartStatus || 'No',
-      lateStartStatus: formData.lateStartStatus || 'No',
-      late_start_penalty_time: formData.lateStartPenaltyTime || 0,
-      lateStartPenaltyTime: formData.lateStartPenaltyTime || 0,
-      attempt_count: formData.attemptCount || 0,
-      attemptCount: formData.attemptCount || 0,
-      attempt_penalty_time: formData.attemptPenaltyTime || 0,
-      task_skipped_count: formData.taskSkippedCount || 0,
-      taskSkippedCount: formData.taskSkippedCount || 0,
-      task_skipped_penalty_time: formData.taskSkippedPenaltyTime || 0,
-      wrong_course_count: formData.wrongCourseSelected ? 1 : 0,
-      wrongCourseCount: formData.wrongCourseSelected ? 1 : 0,
-      wrong_course_selected: formData.wrongCourseSelected || false,
-      fourth_attempt_count: formData.fourthAttemptSelected ? 1 : 0,
-      fourthAttemptCount: formData.fourthAttemptSelected ? 1 : 0,
-      fourth_attempt_selected: formData.fourthAttemptSelected || false,
-      time_over_selected: formData.timeOverSelected || false,
-      is_dnf: formData.isDNF || false,
-      is_dns: formData.isDNS || false,
-      dnf_selection: formData.dnfSelection || null,
-      dnf_points: formData.dnfPoints || 0,
-      bunting_penalty_time: formData.bustingPenaltyTime || 0,
-      seatbelt_penalty_time: formData.seatbeltPenaltyTime || 0,
-      ground_touch_penalty_time: formData.groundTouchPenaltyTime || 0,
-      total_penalties_time: formData.totalPenaltiesTime || 0,
-      performance_time: formData.performanceTimeDisplay || null,
-      performanceTimeDisplay: formData.performanceTimeDisplay || null,
-      total_time: formData.totalTimeDisplay || null,
-      totalTimeDisplay: formData.totalTimeDisplay || null,
-      submission_json: JSON.stringify(formData),
-    };
-
     try {
-      const isDuplicate = await ResultsService.isDuplicateResult(registrationData);
-      if (isDuplicate) {
-        Alert.alert('Duplicate Record', 'This result already exists for the same category, track, and sticker number.');
-        return;
-      }
-
-      const savedId = await ResultsService.addResult(registrationData);
-
-      if (!savedId) {
-        Alert.alert('Error', 'Registration was not saved to the database');
-        return;
-      }
-
-      if (recordKey && completedTrack) {
-        setSelectedLateStartByRecord(prev => ({
-          ...prev,
-          [recordKey]: '',
-        }));
-
-        setSelectedLateStartEnabledByRecord(prev => ({
-          ...prev,
-          [recordKey]: false,
-        }));
-      }
-
-      await refreshCompletedTracks();
-      setFormVisible(false);
-      setSelectedRecord(null);
-      setActiveRecordKey('');
-      setRecordsVisible(true);
-      setResultsVisible(false);
+      return await finalizeRecordSubmission(formData);
     } catch (error) {
       if (error?.code === 'DUPLICATE_RESULT') {
         Alert.alert('Duplicate Record', 'This result already exists for the same category, track, and sticker number.');
-        return;
+        return false;
       }
       Alert.alert('Error', 'Registration was not saved to the database');
+      return false;
     }
   };
 
@@ -3130,165 +4065,239 @@ export default function App() {
   if (appStage === 'splash') {
     return (
       <View style={styles.splashScreen}>
-        <Animated.View
-          style={[
-            styles.splashLogoGround,
-            {
-              opacity: splashLogoAnim,
-              transform: [
-                {
-                  scale: splashLogoAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0.72, 1],
-                  }),
-                },
-                {
-                  translateY: splashLogoAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [18, 0],
-                  }),
-                },
-              ],
-            },
-          ]}
-        >
-          <View style={styles.splashLogoSideGlowLeft} />
-          <View style={styles.splashLogoSideGlowRight} />
           <Animated.View
             style={[
-              styles.splashLogoAmberGlow,
+              styles.splashLogoGround,
               {
-                opacity: switchAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0.2, 0.8],
-                }),
+                opacity: splashLogoAnim,
                 transform: [
                   {
-                    scale: switchAnim.interpolate({
+                    scale: splashLogoAnim.interpolate({
                       inputRange: [0, 1],
-                      outputRange: [0.72, 1.06],
+                      outputRange: [0.72, 1],
+                    }),
+                  },
+                  {
+                    translateY: splashLogoAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [18, 0],
                     }),
                   },
                 ],
               },
             ]}
-          />
-          <Animated.Image
-            source={require('./assets/welcome-logo-transparent.png')}
-            style={styles.splashLogo}
-            resizeMode="contain"
-          />
-        </Animated.View>
-        <Text style={styles.splashTitle}>TKO - GROUND ZERO</Text>
-        <Animated.View
-          style={[
-            styles.splashSwitchRow,
-            {
-              opacity: splashLogoAnim,
-              transform: [
-                {
-                  translateY: splashLogoAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [18, 0],
-                  }),
-                },
-              ],
-            },
-          ]}
-        >
-          <TouchableOpacity
-            activeOpacity={0.92}
-            disabled={splashStartTriggeredRef.current}
-            onPress={handleIgnitionPress}
-            style={styles.ignitionButtonHitbox}
           >
+            <View style={styles.splashLogoSideGlowLeft} />
+            <View style={styles.splashLogoSideGlowRight} />
             <Animated.View
               style={[
-                styles.ignitionButton,
+                styles.splashLogoAmberGlow,
                 {
                   opacity: switchAnim.interpolate({
                     inputRange: [0, 1],
-                    outputRange: [1, 0.96],
+                    outputRange: [0.2, 0.8],
                   }),
                   transform: [
                     {
                       scale: switchAnim.interpolate({
                         inputRange: [0, 1],
-                        outputRange: [0.96, 1.08],
-                      }),
-                    },
-                    {
-                      translateY: switchAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [2, -5],
-                      }),
-                    },
-                    {
-                      rotate: switchAnim.interpolate({
-                        inputRange: [0, 0.5, 1],
-                        outputRange: ['0deg', '-2deg', '2deg'],
+                        outputRange: [0.72, 1.06],
                       }),
                     },
                   ],
                 },
               ]}
+            />
+            <Animated.Image
+              source={require('./assets/welcome-logo-transparent.png')}
+              style={[
+                styles.splashLogo,
+                {
+                  opacity: glowPulseAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.84, 1],
+                  }),
+                  transform: [
+                    {
+                      scale: glowPulseAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [1.03, 1.09],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+              resizeMode="contain"
+            />
+          </Animated.View>
+          <Text style={styles.splashTitle}>TKO - GROUND ZERO</Text>
+          <Animated.View
+            style={[
+              styles.splashSwitchRow,
+              {
+                opacity: splashLogoAnim,
+                transform: [
+                  {
+                    translateY: splashLogoAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [18, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <TouchableOpacity
+              activeOpacity={0.92}
+              disabled={splashStartTriggeredRef.current}
+              onPress={handleIgnitionPress}
+              style={styles.ignitionButtonHitbox}
             >
-              <View style={styles.ignitionButtonOuterRing} />
-              <View style={styles.ignitionButtonInnerRing} />
-              <View style={styles.ignitionButtonCenter}>
-                <Text style={styles.ignitionButtonTopText}>START</Text>
-                <Text style={styles.ignitionButtonMiddleText}>ENGINE</Text>
+              <View style={styles.ignitionPanel}>
+                <Text style={styles.ignitionPanelLabel}>IGNITION SWITCH</Text>
               </View>
-            </Animated.View>
-          </TouchableOpacity>
-        </Animated.View>
-        <Text style={styles.splashSubtitle}>Tap the button to start</Text>
+              <View style={styles.ignitionButton}>
+                <View style={styles.ignitionButtonOuterRing} />
+                <View style={styles.ignitionButtonInnerRing} />
+                <View style={styles.ignitionButtonCore} />
+                <View style={styles.ignitionAccentRingOuter} />
+                <View style={styles.ignitionAccentRingInner} />
+                <View style={styles.ignitionDialMarkers}>
+                  <View style={[styles.ignitionDialMark, styles.ignitionDialMarkOff]} />
+                  <View style={[styles.ignitionDialMark, styles.ignitionDialMarkAcc]} />
+                  <View style={[styles.ignitionDialMark, styles.ignitionDialMarkOn]} />
+                  <View style={[styles.ignitionDialMark, styles.ignitionDialMarkStart]} />
+                  <Text style={[styles.ignitionDialText, styles.ignitionDialOffText]}>OFF</Text>
+                  <Text style={[styles.ignitionDialText, styles.ignitionDialAccText]}>ACC</Text>
+                  <Text style={[styles.ignitionDialText, styles.ignitionDialOnText]}>ON</Text>
+                  <Text style={[styles.ignitionDialText, styles.ignitionDialStartText]}>START</Text>
+                </View>
+                <Animated.View
+                  style={[
+                    styles.ignitionButtonCenter,
+                    {
+                      transform: [
+                        {
+                          scale: switchAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [1, 1.02],
+                          }),
+                        },
+                        {
+                          rotate: switchAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: ['214deg', '360deg'],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
+                >
+                  <View style={styles.keyShadow} />
+                  <View style={styles.keyHandle}>
+                    <View style={styles.keyHandleGloss} />
+                  </View>
+                  <View style={styles.keyHub} />
+                </Animated.View>
+              </View>
+            </TouchableOpacity>
+          </Animated.View>
+          <Text style={styles.splashSubtitle}>Turn the key to fire up TKO Ground Zero</Text>
       </View>
     );
   }
 
   if (appStage === 'day') {
     return (
-      <View style={styles.dayScreen}>
-        <View style={styles.dayScreenHeader}>
-          <View style={styles.splashLogoGround}>
-            <View style={styles.splashLogoSideGlowLeft} />
-            <View style={styles.splashLogoSideGlowRight} />
-            <View style={[styles.splashLogoAmberGlow, styles.dayLogoAmberGlow]} />
-            <Image
-              source={require('./assets/welcome-logo-transparent.png')}
-              style={styles.splashLogo}
-              resizeMode="contain"
-            />
+      <View style={[styles.dayScreen, { backgroundColor: theme.background }]}>
+          <View style={[styles.dayScreenHeader, { backgroundColor: theme.background }]}>
+            <Animated.View
+              style={[
+                styles.splashLogoGround,
+                {
+                  opacity: glowPulseAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.88, 1],
+                  }),
+                  transform: [
+                    {
+                      scale: glowPulseAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [1, 1.04],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <View style={styles.splashLogoSideGlowLeft} />
+              <View style={styles.splashLogoSideGlowRight} />
+              <View style={[styles.splashLogoAmberGlow, styles.dayLogoAmberGlow]} />
+              <Image
+                source={require('./assets/welcome-logo-transparent.png')}
+                style={styles.splashLogo}
+                resizeMode="contain"
+              />
+            </Animated.View>
+            <Animated.View
+              style={[
+                styles.dayEventTitleShell,
+                {
+                  opacity: glowPulseAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.82, 1],
+                  }),
+                  transform: [
+                    {
+                      scale: glowPulseAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [1, 1.02],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
+              <View style={styles.dayEventTitleStack}>
+                <Text
+                  style={styles.dayEventTitle}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.72}
+                >
+                  KARAD OFFROAD SEASON 2 - 2026
+                </Text>
+              </View>
+            </Animated.View>
+          </View>
+
+          <View style={styles.dayList}>
+            {REPORT_DAYS.map(day => (
+              <TouchableOpacity
+                key={day.id}
+                style={styles.dayCard}
+                activeOpacity={0.88}
+                onPress={() => handleDaySelect(day)}
+              >
+                <View style={styles.dayCardTextBlock}>
+                  <Text style={styles.dayCardLabel}>{day.dayLabel}</Text>
+                  <Text style={styles.dayCardDate}>{day.dateLabel}</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
           </View>
         </View>
-
-        <View style={styles.dayList}>
-          {REPORT_DAYS.map(day => (
-            <TouchableOpacity
-              key={day.id}
-              style={styles.dayCard}
-              activeOpacity={0.88}
-              onPress={() => handleDaySelect(day)}
-            >
-              <View style={styles.dayCardTextBlock}>
-                <Text style={styles.dayCardLabel}>{day.dayLabel}</Text>
-                <Text style={styles.dayCardDate}>{day.dateLabel}</Text>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       {/* Top Header */}
       <View
         style={[
           styles.topHeader,
           {
+            backgroundColor: theme.backgroundStrong,
             paddingHorizontal: responsiveLayout.shellPadding,
             paddingTop: 60,
             paddingBottom: responsiveLayout.isTablet ? 18 : 16,
@@ -3296,20 +4305,37 @@ export default function App() {
         ]}
       >
         <View style={styles.topHeaderRow}>
-          <Text
-            style={[
-              styles.exploreTitle,
-              { fontSize: responsiveLayout.isTablet ? 32 : responsiveLayout.isSmallPhone ? 24 : 28 },
-            ]}
-          >
-            TKO - GROUND ZERO
-          </Text>
+          <View style={styles.topHeaderInfoBlock}>
+            <Text
+              style={[
+                styles.exploreTitle,
+                { color: theme.textPrimary },
+                { fontSize: responsiveLayout.isTablet ? 32 : responsiveLayout.isSmallPhone ? 24 : 28 },
+              ]}
+            >
+              TKO - GROUND ZERO
+            </Text>
+            {selectedDay ? (
+              <View style={styles.selectedDayRow}>
+                <Text style={[styles.selectedDayLabel, { color: theme.accent }]}>
+                  {selectedDay.dayLabel} • {selectedDay.dateLabel}
+                </Text>
+                <TouchableOpacity
+                  style={[
+                    styles.topHeaderButton,
+                    styles.backHeaderButton,
+                    { backgroundColor: theme.surface, borderColor: theme.border, shadowColor: theme.shadow },
+                  ]}
+                  onPress={handleBackToDayPage}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.backHeaderButtonIcon}>‹</Text>
+                  <Text style={styles.topHeaderButtonText}>Back</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </View>
         </View>
-        {selectedDay ? (
-          <Text style={styles.selectedDayLabel}>
-            {selectedDay.dayLabel} • {selectedDay.dateLabel}
-          </Text>
-        ) : null}
       </View>
 
       {/* Search Bar */}
@@ -3317,6 +4343,8 @@ export default function App() {
         style={[
           styles.searchContainer,
           {
+            backgroundColor: theme.surface,
+            borderColor: theme.border,
             alignSelf: 'center',
             width: Math.min(
               responsiveLayout.shellMaxWidth,
@@ -3332,10 +4360,11 @@ export default function App() {
         <TextInput
           style={[
             styles.searchInput,
+            { color: theme.textPrimary },
             { fontSize: responsiveLayout.isTablet ? 16 : 14 },
           ]}
           placeholder="Search Categories..."
-          placeholderTextColor="#bbb"
+          placeholderTextColor={theme.textTertiary}
           value={searchText}
           onChangeText={setSearchText}
         />
@@ -3356,7 +4385,7 @@ export default function App() {
         ]}
       >
         <View style={styles.sectionHeaderLeft}>
-          <Text style={[styles.sectionTitle, { fontSize: responsiveLayout.isTablet ? 20 : 18 }]}>
+          <Text style={[styles.sectionTitle, { fontSize: responsiveLayout.isTablet ? 20 : 18, color: theme.textPrimary }]}>
             Categories
           </Text>
         </View>
@@ -3366,6 +4395,7 @@ export default function App() {
               style={[
                 styles.topHeaderButton,
                 styles.reportDotsButton,
+                { backgroundColor: theme.surface, borderColor: theme.border, shadowColor: theme.shadow },
                 {
                   minWidth: responsiveLayout.isTablet ? 66 : 60,
                   minHeight: responsiveLayout.isTablet ? 66 : 60,
@@ -3374,20 +4404,38 @@ export default function App() {
               onPress={() => setReportMenuVisible(prev => !prev)}
               activeOpacity={0.85}
             >
-              <Text style={[styles.topHeaderButtonText, styles.reportDotsText]}>...</Text>
+              <View style={styles.menuBars}>
+                <View style={[styles.menuBar, { backgroundColor: theme.accent }]} />
+                <View style={[styles.menuBar, { backgroundColor: theme.accent }]} />
+                <View style={[styles.menuBar, { backgroundColor: theme.accent }]} />
+              </View>
             </TouchableOpacity>
 
             {reportMenuVisible ? (
-              <View style={styles.reportMenuDropdown}>
+              <View style={[styles.reportMenuDropdown, { backgroundColor: theme.surface, borderColor: theme.border, shadowColor: theme.shadow }]}>
                 <TouchableOpacity
-                  style={styles.reportMenuItem}
+                  style={[styles.reportMenuItem, { backgroundColor: theme.surface }]}
                   onPress={() => {
                     setReportMenuVisible(false);
-                    setResultsVisible(true);
+                    setReportsVisible(true);
                   }}
                   activeOpacity={0.85}
                 >
-                  <Text style={styles.reportMenuItemText}>Report</Text>
+                  <Text style={[styles.reportMenuItemText, { color: theme.textPrimary }]}>Reports</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.reportMenuItem, { backgroundColor: theme.surface }]}
+                  onPress={handleSettingsOpen}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.reportMenuItemText, { color: theme.textPrimary }]}>Settings</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.reportMenuItem, { backgroundColor: theme.surface }]}
+                  onPress={handleThemeOpen}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.reportMenuItemText, { color: theme.textPrimary }]}>Theme</Text>
                 </TouchableOpacity>
               </View>
             ) : null}
@@ -3421,6 +4469,7 @@ export default function App() {
       <CategoryRecordsModal
         visible={recordsVisible}
         category={selectedCategory}
+        categoryTracks={selectedCategoryTracks}
         records={selectedCategoryRecords}
         activeRecordKey={activeRecordKey}
         selectedTrackFilter={selectedCategoryTrack}
@@ -3441,25 +4490,450 @@ export default function App() {
         onLateStartToggle={handleLateStartToggle}
         onLateStartSelect={handleLateStartSelect}
         onStart={handleRecordStart}
+        theme={theme}
       />
 
       <ReportScreen
-        visible={resultsVisible}
-        onClose={() => setResultsVisible(false)}
+        visible={reportsVisible}
+        onClose={() => setReportsVisible(false)}
+        selectedDay={selectedDay}
+        categoryOptions={reportCategoryOptions}
+        theme={theme}
       />
+
+      <Modal
+        visible={settingsPasswordModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setSettingsPasswordModalVisible(false);
+          setSettingsPasswordInput('');
+        }}
+      >
+        <View style={[styles.settingsOverlay, { backgroundColor: theme.overlay }]}>
+          <View style={[styles.settingsPasswordCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <Text style={[styles.settingsPasswordTitle, { color: theme.textPrimary }]}>Settings Access</Text>
+            <Text style={[styles.settingsPasswordSubtitle, { color: theme.textSecondary }]}>
+              Enter password to open protected settings.
+            </Text>
+            <TextInput
+              value={settingsPasswordInput}
+              onChangeText={setSettingsPasswordInput}
+              style={[styles.settingsInput, { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary }]}
+              placeholder="Enter password"
+              placeholderTextColor={theme.textTertiary}
+              secureTextEntry
+            />
+            <View style={styles.settingsPasswordActions}>
+              <TouchableOpacity
+                style={[styles.settingsActionButton, styles.settingsSecondaryButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
+                onPress={() => {
+                  setSettingsPasswordModalVisible(false);
+                  setSettingsPasswordInput('');
+                }}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.settingsActionButtonText, styles.settingsSecondaryButtonText, { color: theme.textPrimary }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.settingsActionButton, styles.settingsPrimaryButton, { backgroundColor: theme.accent }]}
+                onPress={handleSettingsPasswordSubmit}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.settingsActionButtonText, { color: theme.accentText }]}>Open</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={settingsVisible}
+        transparent={false}
+        animationType="slide"
+        onRequestClose={() => {
+          if (settingsView === 'menu') {
+            setSettingsVisible(false);
+          } else {
+            setSettingsView('menu');
+          }
+        }}
+      >
+        <View style={[styles.fullPageContainer, { backgroundColor: theme.background }]}>
+          <View style={[styles.settingsPageHeader, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
+            <View style={styles.settingsPageHeaderLeft}>
+              <Text style={[styles.settingsPageTitle, { color: theme.textPrimary }]}>
+                {settingsView === 'menu'
+                  ? 'Settings'
+                  : settingsView === 'config'
+                    ? 'Configuration'
+                    : settingsView === 'disputes'
+                      ? 'Disputes'
+                      : settingsView === 'theme'
+                        ? 'Theme'
+                      : 'Change Password'}
+              </Text>
+              <Text style={[styles.settingsPageSubtitle, { color: theme.textSecondary }]}>
+                {settingsView === 'config'
+                  ? 'Control which tracks are visible for each day and category.'
+                  : settingsView === 'disputes'
+                    ? 'Review and resolve disputed stopwatch records for the selected day.'
+                    : settingsView === 'theme'
+                      ? 'Choose between a brighter day theme and the darker night theme.'
+                    : settingsView === 'password'
+                      ? 'Update the password used to open Settings.'
+                      : 'Protected tools for race-day configuration.'}
+              </Text>
+            </View>
+            {settingsView === 'menu' ? (
+              <TouchableOpacity
+                style={[styles.settingsCloseButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
+                onPress={() => setSettingsVisible(false)}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.settingsCloseButtonText, { color: theme.accent }]}>Close</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[styles.settingsCloseButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
+                onPress={() => setSettingsView('menu')}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.settingsCloseButtonText, { color: theme.accent }]}>Back</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <ScrollView
+            style={[styles.fullPageContent, { backgroundColor: theme.background }]}
+            contentContainerStyle={styles.settingsPageContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {settingsView === 'menu' ? (
+              <View style={styles.settingsMenuGrid}>
+                <TouchableOpacity
+                  style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={() => setSettingsView('config')}
+                  activeOpacity={0.88}
+                >
+                  <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Admin</Text>
+                  <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Configuration</Text>
+                  <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
+                    Activate or deactivate tracks for each day and category.
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={handleOpenDisputes}
+                  activeOpacity={0.88}
+                >
+                  <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Records</Text>
+                  <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Disputes</Text>
+                  <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
+                    Open disputed stopwatch holds by category and track for the selected day.
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={handleOpenChangePassword}
+                  activeOpacity={0.88}
+                >
+                  <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Security</Text>
+                  <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Change Password</Text>
+                  <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
+                    Update the password required to access Settings.
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={() => setSettingsView('theme')}
+                  activeOpacity={0.88}
+                >
+                  <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Appearance</Text>
+                  <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Theme</Text>
+                  <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
+                    Switch between light day mode and dark night mode.
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+
+            {settingsView === 'config' ? (
+              <>
+                <View style={styles.settingsInfoCard}>
+                  <Text style={[styles.settingsInfoTitle, { color: theme.accent }]}>Track Visibility Rules</Text>
+                  <Text style={[styles.settingsInfoText, { color: theme.textSecondary }]}>
+                    Only active tracks will appear on the track page for the selected day and category.
+                  </Text>
+                </View>
+
+                <View style={styles.settingsSection}>
+                  <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Select Day</Text>
+                  <View style={styles.settingsChipWrap}>
+                    {REPORT_DAYS.map(day => {
+                      const selected = settingsConfigDayId === day.id;
+
+                      return (
+                        <TouchableOpacity
+                          key={day.id}
+                          style={[
+                            styles.settingsChip,
+                            { backgroundColor: theme.surface, borderColor: theme.border },
+                            selected && [styles.settingsChipSelected, { backgroundColor: theme.accent, borderColor: theme.accent }],
+                          ]}
+                          onPress={() => setSettingsConfigDayId(day.id)}
+                          activeOpacity={0.85}
+                        >
+                          <Text
+                            style={[
+                              styles.settingsChipText,
+                              { color: theme.textPrimary },
+                              selected && [styles.settingsChipTextSelected, { color: theme.accentText }],
+                            ]}
+                          >
+                            {day.dayLabel}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                <View style={styles.settingsSection}>
+                  <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Select Category</Text>
+                  <View style={styles.settingsChipWrap}>
+                    {settingsCategoryOptions.map(option => {
+                      const selected = settingsConfigCategoryKey === option.key;
+
+                      return (
+                        <TouchableOpacity
+                          key={option.key}
+                          style={[
+                            styles.settingsChip,
+                            { backgroundColor: theme.surface, borderColor: theme.border },
+                            selected && [styles.settingsChipSelected, { backgroundColor: theme.accent, borderColor: theme.accent }],
+                          ]}
+                          onPress={() => setSettingsConfigCategoryKey(option.key)}
+                          activeOpacity={0.85}
+                        >
+                          <Text
+                            style={[
+                              styles.settingsChipText,
+                              { color: theme.textPrimary },
+                              selected && [styles.settingsChipTextSelected, { color: theme.accentText }],
+                            ]}
+                          >
+                            {option.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                <View style={styles.settingsSection}>
+                  <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Tracks</Text>
+                  <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                    {REPORT_DAYS.find(day => day.id === settingsConfigDayId)?.dayLabel || 'Selected Day'} ·{' '}
+                    {settingsCategoryOptions.find(option => option.key === settingsConfigCategoryKey)?.label || 'Category'}
+                  </Text>
+
+                  <View style={styles.settingsTrackList}>
+                    {configurationTracks.map(trackName => {
+                      const isActive =
+                        trackActivationConfig?.[settingsConfigDayId]?.[settingsConfigCategoryKey]?.[trackName] !== false;
+
+                      return (
+                        <View
+                          key={`${settingsConfigDayId}-${settingsConfigCategoryKey}-${trackName}`}
+                          style={[styles.settingsTrackRow, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                        >
+                          <View style={styles.settingsTrackInfo}>
+                            <View style={styles.settingsTrackNameRow}>
+                              <View
+                                style={[
+                                  styles.settingsTrackMarker,
+                                  isActive ? styles.settingsTrackMarkerActive : styles.settingsTrackMarkerInactive,
+                                ]}
+                              />
+                              <Text
+                                style={[
+                                  styles.settingsTrackName,
+                                  isActive ? styles.settingsTrackNameActive : styles.settingsTrackNameInactive,
+                                ]}
+                              >
+                                {trackName}
+                              </Text>
+                            </View>
+                            <Text
+                              style={[
+                                styles.settingsTrackStatus,
+                                isActive ? styles.settingsTrackStatusActive : styles.settingsTrackStatusInactive,
+                              ]}
+                            >
+                              {isActive ? 'Activated for selected day and category' : 'Deactivated for selected day and category'}
+                            </Text>
+                          </View>
+                          <TouchableOpacity
+                            style={styles.settingsToggleButton}
+                            onPress={() => handleTrackActivationToggle(settingsConfigDayId, settingsConfigCategoryKey, trackName)}
+                            activeOpacity={0.85}
+                          >
+                            <Text
+                              style={[
+                                styles.settingsToggleButtonLabel,
+                                isActive ? styles.settingsToggleButtonLabelActivated : styles.settingsToggleButtonLabelDeactivated,
+                              ]}
+                            >
+                              {isActive ? 'Activated' : 'Deactivated'}
+                            </Text>
+                            <View
+                              style={[
+                                styles.settingsToggleSwitch,
+                                isActive ? styles.settingsToggleSwitchActivated : styles.settingsToggleSwitchDeactivated,
+                              ]}
+                            >
+                              <View
+                                style={[
+                                  styles.settingsToggleKnob,
+                                  isActive ? styles.settingsToggleKnobActivated : styles.settingsToggleKnobDeactivated,
+                                ]}
+                              />
+                            </View>
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+              </>
+            ) : null}
+
+            {settingsView === 'disputes' ? (
+              <DisputeRecordsPanel
+                disputes={disputeRecords}
+                selectedDay={selectedDay}
+                categoryOptions={settingsCategoryOptions}
+                loading={disputesLoading}
+                onRefresh={refreshDisputes}
+                onEdit={handleDisputeEdit}
+                theme={theme}
+              />
+            ) : null}
+
+            {settingsView === 'theme' ? (
+              <View style={[styles.settingsFormCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Theme Mode</Text>
+                <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                  Pick the look you want for the app.
+                </Text>
+                <View style={styles.settingsChipWrap}>
+                  <TouchableOpacity
+                    style={[
+                      styles.settingsChip,
+                      { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
+                      themeMode === 'light' && [styles.settingsChipSelected, { backgroundColor: theme.accent, borderColor: theme.accent }],
+                    ]}
+                    onPress={() => setThemeMode('light')}
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.settingsChipText,
+                        { color: theme.textPrimary },
+                        themeMode === 'light' && [styles.settingsChipTextSelected, { color: theme.accentText }],
+                      ]}
+                    >
+                      Light
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.settingsChip,
+                      { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
+                      themeMode === 'dark' && [styles.settingsChipSelected, { backgroundColor: theme.accent, borderColor: theme.accent }],
+                    ]}
+                    onPress={() => setThemeMode('dark')}
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        styles.settingsChipText,
+                        { color: theme.textPrimary },
+                        themeMode === 'dark' && [styles.settingsChipTextSelected, { color: theme.accentText }],
+                      ]}
+                    >
+                      Dark
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : null}
+
+            {settingsView === 'password' ? (
+              <View style={[styles.settingsFormCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Update Password</Text>
+                <TextInput
+                  value={currentPasswordInput}
+                  onChangeText={setCurrentPasswordInput}
+                  style={[styles.settingsInput, { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary }]}
+                  placeholder="Current password"
+                  placeholderTextColor={theme.textTertiary}
+                  secureTextEntry
+                />
+                <TextInput
+                  value={newPasswordInput}
+                  onChangeText={setNewPasswordInput}
+                  style={[styles.settingsInput, { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary }]}
+                  placeholder="New password"
+                  placeholderTextColor={theme.textTertiary}
+                  secureTextEntry
+                />
+                <TextInput
+                  value={confirmPasswordInput}
+                  onChangeText={setConfirmPasswordInput}
+                  style={[styles.settingsInput, { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary }]}
+                  placeholder="Confirm new password"
+                  placeholderTextColor={theme.textTertiary}
+                  secureTextEntry
+                />
+                <TouchableOpacity
+                  style={[styles.settingsActionButton, styles.settingsPrimaryButton, styles.settingsFormSaveButton, { backgroundColor: theme.accent }]}
+                  onPress={handleChangePasswordSave}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.settingsActionButtonText, { color: theme.accentText }]}>Save Password</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </ScrollView>
+        </View>
+      </Modal>
 
       {/* Registration Form Modal */}
       <RegistrationForm
         visible={formVisible}
         category={selectedCategory}
         initialRecord={selectedRecord}
+        selectedDay={selectedDay}
         onClose={() => {
           setFormVisible(false);
           setSelectedRecord(null);
           setActiveRecordKey('');
-          setRecordsVisible(true);
+          if (selectedRecord?.source === 'dispute') {
+            setRecordsVisible(false);
+            setSettingsVisible(true);
+            setSettingsView('disputes');
+          } else {
+            setRecordsVisible(true);
+          }
         }}
         onSubmit={handleFormSubmit}
+        onHoldForDispute={holdRecordForDispute}
+        theme={theme}
       />
     </View>
   );
@@ -3484,92 +4958,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
 
-  splashIgnitionHalo: {
-    position: 'absolute',
-    width: 132,
-    height: 132,
-    borderRadius: 66,
-    borderWidth: 2,
-    borderColor: '#ff8a1f',
-    backgroundColor: '#080808',
-    top: '38%',
-    left: '50%',
-    marginLeft: -66,
-    marginTop: -66,
-    shadowColor: '#ff8a1f',
-    shadowOpacity: 0.42,
-    shadowRadius: 30,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 8,
-  },
-
-  splashIgnitionBar: {
-    position: 'absolute',
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#ff8a1f',
-    opacity: 0.16,
-    shadowColor: '#ff8a1f',
-    shadowOpacity: 0.72,
-    shadowRadius: 22,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 10,
-    top: '38%',
-    left: '50%',
-    marginLeft: -36,
-    marginTop: -36,
-  },
-
-  splashSparkLeft: {
-    position: 'absolute',
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: '#ffb15a',
-    shadowColor: '#ff8a1f',
-    shadowOpacity: 0.7,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 8,
-    top: '38%',
-    left: '50%',
-    marginLeft: -52,
-    marginTop: -44,
-  },
-
-  splashSparkRight: {
-    position: 'absolute',
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: '#ff8a1f',
-    shadowColor: '#ff8a1f',
-    shadowOpacity: 0.7,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 8,
-    top: '38%',
-    left: '50%',
-    marginLeft: 38,
-    marginTop: -44,
-  },
-
   splashLogoGround: {
-    width: 250,
-    height: 250,
-    borderRadius: 125,
+    width: 288,
+    height: 288,
+    borderRadius: 144,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#050505',
-    borderWidth: 1.5,
-    borderColor: '#8a6720',
+    borderWidth: 2,
+    borderColor: '#d4a441',
     shadowColor: '#f1b94d',
-    shadowOpacity: 0.34,
-    shadowRadius: 36,
+    shadowOpacity: 0.5,
+    shadowRadius: 46,
     shadowOffset: { width: 0, height: 12 },
-    elevation: 12,
-    marginBottom: 18,
+    elevation: 16,
+    marginBottom: 22,
     overflow: 'hidden',
   },
 
@@ -3609,17 +5012,17 @@ const styles = StyleSheet.create({
 
   splashLogoAmberGlow: {
     position: 'absolute',
-    width: 208,
-    height: 208,
-    borderRadius: 104,
-    backgroundColor: 'rgba(255, 193, 62, 0.34)',
-    borderWidth: 1.4,
-    borderColor: 'rgba(255, 232, 158, 0.34)',
+    width: 244,
+    height: 244,
+    borderRadius: 122,
+    backgroundColor: 'rgba(255, 193, 62, 0.38)',
+    borderWidth: 1.8,
+    borderColor: 'rgba(255, 232, 158, 0.52)',
     shadowColor: '#ffd05c',
-    shadowOpacity: 0.9,
-    shadowRadius: 42,
+    shadowOpacity: 1,
+    shadowRadius: 52,
     shadowOffset: { width: 0, height: 0 },
-    elevation: 14,
+    elevation: 18,
   },
 
   dayLogoAmberGlow: {
@@ -3628,8 +5031,8 @@ const styles = StyleSheet.create({
   },
 
   splashLogo: {
-    width: 238,
-    height: 238,
+    width: 272,
+    height: 272,
   },
 
   splashTitle: {
@@ -3656,73 +5059,222 @@ const styles = StyleSheet.create({
   },
 
   ignitionButtonHitbox: {
-    width: 192,
-    height: 192,
+    width: 260,
+    height: 228,
     alignItems: 'center',
     justifyContent: 'center',
   },
 
+  ignitionPanel: {
+    position: 'absolute',
+    top: 4,
+    alignItems: 'center',
+  },
+
+  ignitionPanelLabel: {
+    fontSize: 15,
+    color: '#ffd59a',
+    fontWeight: '800',
+    letterSpacing: 2.4,
+    fontFamily: TITLE_FONT,
+  },
+
   ignitionButton: {
-    width: 166,
-    height: 166,
-    borderRadius: 83,
+    width: 178,
+    height: 178,
+    borderRadius: 89,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f5aa19',
-    borderWidth: 4,
-    borderColor: '#7e3100',
-    shadowColor: '#ff8a1f',
-    shadowOpacity: 0.3,
+    backgroundColor: '#2e251d',
+    borderWidth: 2,
+    borderColor: '#8e6a36',
+    shadowColor: '#000000',
+    shadowOpacity: 0.24,
     shadowRadius: 16,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 6,
+    shadowOffset: { width: 10, height: 12 },
+    elevation: 10,
+    marginTop: 34,
   },
 
   ignitionButtonOuterRing: {
     position: 'absolute',
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    borderWidth: 3,
-    borderColor: '#fff2c7',
-    opacity: 0.9,
+    width: 168,
+    height: 168,
+    borderRadius: 84,
+    borderWidth: 2,
+    borderColor: '#4f3e2a',
+    backgroundColor: '#3a3026',
   },
 
   ignitionButtonInnerRing: {
     position: 'absolute',
-    width: 128,
-    height: 128,
-    borderRadius: 64,
-    borderWidth: 4,
-    borderColor: '#fff6df',
-    shadowColor: '#ffffff',
-    shadowOpacity: 0.15,
+    width: 132,
+    height: 132,
+    borderRadius: 66,
+    borderWidth: 2,
+    borderColor: '#6f5735',
+    backgroundColor: '#4a3d2d',
+    shadowColor: '#ffd7a0',
+    shadowOpacity: 0.08,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 0 },
   },
 
+  ignitionButtonCore: {
+    position: 'absolute',
+    width: 94,
+    height: 94,
+    borderRadius: 47,
+    backgroundColor: '#1f1a15',
+    borderWidth: 1.5,
+    borderColor: '#7c6037',
+  },
+
+  ignitionAccentRingOuter: {
+    position: 'absolute',
+    width: 152,
+    height: 152,
+    borderRadius: 76,
+    borderWidth: 2,
+    borderColor: '#ffbf63',
+    opacity: 0.62,
+  },
+
+  ignitionAccentRingInner: {
+    position: 'absolute',
+    width: 116,
+    height: 116,
+    borderRadius: 58,
+    borderWidth: 2,
+    borderColor: '#ffbf63',
+    opacity: 0.62,
+  },
+
+  ignitionDialMarkers: {
+    position: 'absolute',
+    width: '100%',
+    height: '100%',
+  },
+
+  ignitionDialMark: {
+    position: 'absolute',
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#ffba58',
+    shadowColor: '#ffad33',
+    shadowOpacity: 0.75,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 0 },
+  },
+
+  ignitionDialMarkOff: {
+    left: 26,
+    top: 51,
+  },
+
+  ignitionDialMarkAcc: {
+    left: 65,
+    top: 20,
+  },
+
+  ignitionDialMarkOn: {
+    left: 119,
+    top: 26,
+  },
+
+  ignitionDialMarkStart: {
+    left: 153,
+    top: 85,
+  },
+
+  ignitionDialText: {
+    position: 'absolute',
+    width: 44,
+    color: '#ffbf63',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.35,
+    fontFamily: BODY_FONT,
+    textShadowColor: 'rgba(255, 168, 44, 0.55)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 5,
+    textAlign: 'center',
+  },
+
+  ignitionDialOffText: {
+    left: 4,
+    top: 40,
+  },
+
+  ignitionDialAccText: {
+    left: 48,
+    top: 4,
+  },
+
+  ignitionDialOnText: {
+    left: 103,
+    top: 14,
+  },
+
+  ignitionDialStartText: {
+    left: 128,
+    top: 74,
+  },
+
   ignitionButtonCenter: {
-    width: 96,
-    height: 96,
+    position: 'absolute',
+    width: 150,
+    height: 34,
     alignItems: 'center',
     justifyContent: 'center',
+    top: 72,
   },
 
-  ignitionButtonTopText: {
-    fontSize: 20,
-    lineHeight: 22,
-    color: '#f7ecd2',
-    fontWeight: '700',
-    fontFamily: BODY_FONT,
+  keyShadow: {
+    position: 'absolute',
+    width: 154,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0, 0, 0, 0.32)',
+    shadowColor: '#000000',
+    shadowOpacity: 0.32,
+    shadowRadius: 8,
+    shadowOffset: { width: 18, height: 12 },
   },
 
-  ignitionButtonMiddleText: {
-    fontSize: 16,
-    lineHeight: 18,
-    color: '#f7ecd2',
-    fontWeight: '700',
-    fontFamily: BODY_FONT,
-    textAlign: 'center',
+  keyHandle: {
+    position: 'absolute',
+    width: 150,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#111111',
+    borderWidth: 1,
+    borderColor: '#3b2a16',
+    shadowColor: '#000000',
+    shadowOpacity: 0.45,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+  },
+
+  keyHandleGloss: {
+    position: 'absolute',
+    top: 2,
+    left: 10,
+    right: 10,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255, 198, 112, 0.2)',
+  },
+
+  keyHub: {
+    position: 'absolute',
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#171412',
+    borderWidth: 1,
+    borderColor: '#8f6937',
   },
 
   dayScreen: {
@@ -3735,7 +5287,45 @@ const styles = StyleSheet.create({
 
   dayScreenHeader: {
     alignItems: 'center',
-    marginBottom: 28,
+    marginBottom: 30,
+  },
+
+  dayEventTitleShell: {
+    marginTop: 14,
+    width: '96%',
+    maxWidth: 560,
+    minHeight: 88,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderRadius: 20,
+    borderWidth: 1.4,
+    borderColor: 'rgba(255, 149, 44, 0.95)',
+    backgroundColor: '#100302',
+    shadowColor: '#ff7a18',
+    shadowOpacity: 1,
+    shadowRadius: 30,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 18,
+    overflow: 'visible',
+  },
+
+  dayEventTitleStack: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+  },
+
+  dayEventTitle: {
+    width: '100%',
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    textAlign: 'center',
+    fontFamily: TITLE_FONT,
+    color: '#ffffff',
   },
 
   dayScreenLogo: {
@@ -3832,11 +5422,12 @@ const styles = StyleSheet.create({
 
   topHeaderRow: {
     width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
   },
+
+  topHeaderInfoBlock: {
+    width: '100%',
+  },
+
   exploreTitle: {
     fontSize: 30,
     fontWeight: '900',
@@ -3845,12 +5436,20 @@ const styles = StyleSheet.create({
   },
 
   selectedDayLabel: {
-    marginTop: 6,
     fontSize: 18,
     fontWeight: '800',
     color: '#ffb15a',
     letterSpacing: 0.3,
     fontFamily: BODY_FONT,
+    flex: 1,
+  },
+
+  selectedDayRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
   },
 
   topHeaderButton: {
@@ -3867,6 +5466,22 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
 
+  backHeaderButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 0,
+  },
+
+  backHeaderButtonIcon: {
+    fontSize: 20,
+    lineHeight: 20,
+    color: '#ffb15a',
+    fontWeight: '900',
+    marginTop: -1,
+    fontFamily: BODY_FONT,
+  },
+
   reportDotsButton: {
     width: 60,
     paddingHorizontal: 0,
@@ -3880,6 +5495,19 @@ const styles = StyleSheet.create({
     lineHeight: 26,
     marginTop: -2,
     color: '#ffb15a',
+  },
+
+  menuBars: {
+    gap: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  menuBar: {
+    width: 22,
+    height: 2.5,
+    borderRadius: 999,
+    backgroundColor: '#ffb15a',
   },
 
   topHeaderButtonText: {
@@ -3942,7 +5570,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#fff6ea',
+    color: '#ffffff',
     fontFamily: HEADING_FONT,
   },
 
@@ -3980,7 +5608,7 @@ const styles = StyleSheet.create({
   reportMenuItemText: {
     fontSize: 15,
     fontWeight: '800',
-    color: '#ffb15a',
+    color: '#ffffff',
   },
 
   viewAll: {
@@ -4270,6 +5898,10 @@ const styles = StyleSheet.create({
     fontFamily: BODY_FONT,
   },
 
+  disputedStatusText: {
+    color: '#ffb15a',
+  },
+
   registrationSection: {
     backgroundColor: '#111722',
     borderWidth: 1,
@@ -4381,6 +6013,24 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#ffb15a',
+  },
+
+  trackBackButton: {
+    alignSelf: 'flex-start',
+    marginBottom: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: '#111722',
+    borderWidth: 1,
+    borderColor: '#2a3441',
+  },
+
+  trackBackButtonText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#ffb15a',
+    fontFamily: BODY_FONT,
   },
 
   recordCard: {
@@ -4871,6 +6521,415 @@ const styles = StyleSheet.create({
     backgroundColor: '#1a2432',
   },
 
+  settingsOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.58)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+
+  settingsPasswordCard: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#2a3441',
+    backgroundColor: '#111722',
+    padding: 20,
+  },
+
+  settingsPasswordTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#fff6ea',
+    fontFamily: HEADING_FONT,
+  },
+
+  settingsPasswordSubtitle: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#cdbf9a',
+    fontFamily: BODY_FONT,
+  },
+
+  settingsPasswordActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+
+  settingsInput: {
+    marginTop: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#2a3441',
+    backgroundColor: '#0c111a',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    color: '#fff6ea',
+    fontSize: 14,
+    fontFamily: BODY_FONT,
+  },
+
+  settingsActionButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+    paddingHorizontal: 16,
+  },
+
+  settingsPrimaryButton: {
+    backgroundColor: '#ffb15a',
+  },
+
+  settingsSecondaryButton: {
+    borderWidth: 1,
+    borderColor: '#2a3441',
+    backgroundColor: '#182131',
+  },
+
+  settingsActionButtonText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#18120a',
+    fontFamily: BODY_FONT,
+  },
+
+  settingsSecondaryButtonText: {
+    color: '#fff6ea',
+  },
+
+  settingsPageHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingHorizontal: 20,
+    paddingTop: 58,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2a3441',
+    backgroundColor: '#111722',
+  },
+
+  settingsPageHeaderLeft: {
+    flex: 1,
+    paddingRight: 14,
+  },
+
+  settingsPageTitle: {
+    fontSize: 24,
+    fontWeight: '900',
+    color: '#fff6ea',
+    fontFamily: HEADING_FONT,
+  },
+
+  settingsPageSubtitle: {
+    marginTop: 6,
+    fontSize: 14,
+    color: '#cdbf9a',
+    fontFamily: BODY_FONT,
+  },
+
+  settingsCloseButton: {
+    minHeight: 42,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: '#182131',
+    borderWidth: 1,
+    borderColor: '#2a3441',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  settingsCloseButtonText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#ffb15a',
+    fontFamily: BODY_FONT,
+  },
+
+  settingsPageContent: {
+    padding: 20,
+    paddingBottom: 36,
+  },
+
+  settingsMenuGrid: {
+    gap: 14,
+  },
+
+  settingsMenuCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#2a3441',
+    backgroundColor: '#111722',
+    padding: 18,
+  },
+
+  settingsMenuCardEyebrow: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#ffb15a',
+    textTransform: 'uppercase',
+    fontFamily: BODY_FONT,
+  },
+
+  settingsMenuCardTitle: {
+    marginTop: 6,
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#fff6ea',
+    fontFamily: HEADING_FONT,
+  },
+
+  settingsMenuCardText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#cdbf9a',
+    lineHeight: 20,
+    fontFamily: BODY_FONT,
+  },
+
+  settingsInfoCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#6b4d20',
+    backgroundColor: '#1f1710',
+    padding: 18,
+    marginBottom: 18,
+  },
+
+  settingsInfoTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#ffd39a',
+    fontFamily: HEADING_FONT,
+  },
+
+  settingsInfoText: {
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#f2d5a6',
+    fontFamily: BODY_FONT,
+  },
+
+  settingsSection: {
+    marginBottom: 22,
+  },
+
+  settingsSectionTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#fff6ea',
+    fontFamily: HEADING_FONT,
+  },
+
+  settingsSectionHint: {
+    marginTop: 6,
+    fontSize: 13,
+    color: '#cdbf9a',
+    fontFamily: BODY_FONT,
+  },
+
+  settingsChipWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 14,
+  },
+
+  settingsChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#2a3441',
+    backgroundColor: '#111722',
+  },
+
+  settingsChipSelected: {
+    backgroundColor: '#ffb15a',
+    borderColor: '#ffb15a',
+  },
+
+  settingsChipText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#fff6ea',
+    fontFamily: BODY_FONT,
+  },
+
+  settingsChipTextSelected: {
+    color: '#18120a',
+  },
+
+  settingsTrackList: {
+    marginTop: 14,
+    gap: 12,
+  },
+
+  settingsTrackRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#2a3441',
+    backgroundColor: '#111722',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 12,
+  },
+
+  settingsTrackInfo: {
+    flex: 1,
+  },
+
+  settingsTrackNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+
+  settingsTrackMarker: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    marginRight: 10,
+  },
+
+  settingsTrackMarkerActive: {
+    backgroundColor: '#25c05a',
+    shadowColor: '#25c05a',
+    shadowOpacity: 0.5,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 4,
+  },
+
+  settingsTrackMarkerInactive: {
+    backgroundColor: '#d13f49',
+    shadowColor: '#d13f49',
+    shadowOpacity: 0.45,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 4,
+  },
+
+  settingsTrackName: {
+    fontSize: 16,
+    fontWeight: '900',
+    fontFamily: HEADING_FONT,
+  },
+
+  settingsTrackNameActive: {
+    color: '#7df0a2',
+  },
+
+  settingsTrackNameInactive: {
+    color: '#ff848c',
+  },
+
+  settingsTrackStatus: {
+    marginTop: 4,
+    fontSize: 13,
+    fontFamily: BODY_FONT,
+  },
+
+  settingsTrackStatusActive: {
+    color: '#9be5b2',
+  },
+
+  settingsTrackStatusInactive: {
+    color: '#ff9da4',
+  },
+
+  settingsToggleButton: {
+    minWidth: 120,
+    minHeight: 52,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: '#2a3441',
+    backgroundColor: '#0d131d',
+  },
+
+  settingsToggleButtonLabel: {
+    fontSize: 12,
+    fontWeight: '900',
+    fontFamily: BODY_FONT,
+    marginBottom: 6,
+  },
+
+  settingsToggleButtonLabelActivated: {
+    color: '#7df0a2',
+  },
+
+  settingsToggleButtonLabelDeactivated: {
+    color: '#ff8f96',
+  },
+
+  settingsToggleSwitch: {
+    width: 70,
+    height: 30,
+    borderRadius: 999,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    flexDirection: 'row',
+  },
+
+  settingsToggleSwitchActivated: {
+    justifyContent: 'flex-end',
+    backgroundColor: '#25c05a',
+  },
+
+  settingsToggleSwitchDeactivated: {
+    justifyContent: 'flex-start',
+    backgroundColor: '#b0333d',
+  },
+
+  settingsToggleKnob: {
+    width: 22,
+    height: 22,
+    borderRadius: 999,
+    color: '#fff6ea',
+    backgroundColor: '#fff6ea',
+  },
+
+  settingsToggleKnobActivated: {
+    shadowColor: '#167739',
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+
+  settingsToggleKnobDeactivated: {
+    shadowColor: '#6c1d25',
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+
+  settingsFormCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#2a3441',
+    backgroundColor: '#111722',
+    padding: 18,
+  },
+
+  settingsFormSaveButton: {
+    marginTop: 18,
+  },
+
   // Form header
   formHeader: {
     flexDirection: 'row',
@@ -5125,6 +7184,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#1a2432',
   },
 
+  disputeButton: {
+    backgroundColor: '#b45d16',
+    borderRadius: 16,
+    alignItems: 'center',
+    width: '100%',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+
   tabletFooterPanel: {
     marginTop: 10,
     width: '37%',
@@ -5195,6 +7266,22 @@ const styles = StyleSheet.create({
 
   submitButtonDisabled: {
     backgroundColor: '#b8c2cc',
+  },
+
+  disputeCardActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+  },
+
+  disputeCardButton: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  disputeCardSubmitButton: {
+    flex: 1,
   },
 
   // Penalty Row Styles
@@ -5582,3 +7669,4 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 8,
   },
 });
+

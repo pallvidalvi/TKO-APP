@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import { SEEDED_TEAMS } from '../data/seedTeams';
 
 const isWeb = Platform.OS === 'web';
 let SQLite = null;
@@ -8,111 +9,151 @@ if (!isWeb) {
 }
 
 const DB_NAME = 'tko_app.db';
+const REPORT_DAYS = [
+  {
+    id: 'day-1',
+    dayLabel: 'Day 1',
+    dateLabel: 'Friday, 29th May 2026',
+  },
+  {
+    id: 'day-2',
+    dayLabel: 'Day 2',
+    dateLabel: 'Saturday, 30th May 2026',
+  },
+  {
+    id: 'day-3',
+    dayLabel: 'Day 3',
+    dateLabel: 'Sunday, 31st May 2026',
+  },
+];
 
-const SEEDED_TEAMS = [
+const normalizeDayLookupValue = value =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/(\d+)(st|nd|rd|th)\b/g, '$1')
+    .replace(/,/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const mergeDayMetadataIntoSubmissionJson = (submissionJson, dayPayload) => {
+  if (!submissionJson) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(submissionJson);
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return submissionJson;
+    }
+
+    return JSON.stringify({
+      ...parsed,
+      ...dayPayload,
+    });
+  } catch (error) {
+    return submissionJson;
+  }
+};
+
+const resolveCanonicalReportDay = payload => {
+  const rawDayId = String(payload?.selected_day_id || payload?.selectedDayId || '').trim();
+  const rawDayLabel = String(payload?.selected_day_label || payload?.selectedDayLabel || '').trim();
+  const rawDayDate = String(payload?.selected_day_date || payload?.selectedDayDate || '').trim();
+  const lookupValues = [
+    normalizeDayLookupValue(rawDayId),
+    normalizeDayLookupValue(rawDayLabel),
+    normalizeDayLookupValue(rawDayDate),
+  ].filter(Boolean);
+
+  const matchedDay = REPORT_DAYS.find(day =>
+    lookupValues.some(
+      lookupValue =>
+        lookupValue === normalizeDayLookupValue(day.id) ||
+        lookupValue === normalizeDayLookupValue(day.dayLabel) ||
+        lookupValue === normalizeDayLookupValue(day.dateLabel)
+    )
+  );
+
+  if (matchedDay) {
+    return matchedDay;
+  }
+
+  return {
+    id: rawDayId,
+    dayLabel: rawDayLabel,
+    dateLabel: rawDayDate,
+  };
+};
+
+export const normalizeStoredDayPayload = payload => {
+  const safePayload = payload || {};
+  const resolvedDay = resolveCanonicalReportDay(safePayload);
+  const dayPayload = {
+    selected_day_id: resolvedDay.id || '',
+    selectedDayId: resolvedDay.id || '',
+    selected_day_label: resolvedDay.dayLabel || '',
+    selectedDayLabel: resolvedDay.dayLabel || '',
+    selected_day_date: resolvedDay.dateLabel || '',
+    selectedDayDate: resolvedDay.dateLabel || '',
+  };
+
+  return {
+    ...safePayload,
+    ...dayPayload,
+    submission_json: mergeDayMetadataIntoSubmissionJson(safePayload.submission_json, dayPayload),
+  };
+};
+
+const LEGACY_SEEDED_TEAMS = [
   {
     team_name: 'Team offroaders Pune ',
     driver_name: 'Ritesh Bire ',
-    driver_blood_group: 'O +ve',
     codriver_name: 'Shaurya Bire ',
-    codriver_blood_group: 'O +ve',
     car_number: '1',
-    category: 'PETROL_EXPERT',
-    vehicle_name: '',
-    vehicle_model: '',
-    socials: '7999',
-    status: 'CONFIRMED',
   },
   {
     team_name: 'Team satara offroad ',
     driver_name: 'Raj Santosh deshmukh ',
-    driver_blood_group: 'B +ve',
     codriver_name: 'Ajay misal',
-    codriver_blood_group: 'B +ve',
     car_number: '4',
-    category: 'PETROL_EXPERT',
-    vehicle_name: '',
-    vehicle_model: '',
-    socials: '7999',
-    status: 'CONFIRMED',
   },
   {
     team_name: 'Team motoRnation ',
     driver_name: 'Aniket shete',
-    driver_blood_group: 'A +ve',
     codriver_name: 'Anvita shete',
-    codriver_blood_group: 'AB +ve',
     car_number: '4',
-    category: 'JIMNY_SUV',
-    vehicle_name: '',
-    vehicle_model: '',
-    socials: '7999',
-    status: 'CONFIRMED',
   },
   {
     team_name: 'TEAM SATARA OFF ROADERS',
     driver_name: 'PRATAP D. SHINGATE',
-    driver_blood_group: 'A +ve',
     codriver_name: 'SURAJ GULUMKAR',
-    codriver_blood_group: 'AB +ve',
     car_number: '7',
-    category: 'PETROL_EXPERT',
-    vehicle_name: '',
-    vehicle_model: '',
-    socials: '7999',
-    status: 'CONFIRMED',
   },
   {
     team_name: 'Uzma',
     driver_name: 'Asif faras',
-    driver_blood_group: 'B +ve',
     codriver_name: 'Saeed shaikh',
-    codriver_blood_group: 'O +ve',
     car_number: '7',
-    category: 'DIESEL_EXPERT',
-    vehicle_name: '',
-    vehicle_model: '',
-    socials: '7999',
-    status: 'CONFIRMED',
   },
   {
     team_name: 'Minal ',
     driver_name: 'Minal shete',
-    driver_blood_group: 'A +ve',
     codriver_name: 'Amit shete',
-    codriver_blood_group: 'A +ve',
     car_number: '8',
-    category: 'LADIES',
-    vehicle_name: '',
-    vehicle_model: '',
-    socials: '0',
-    status: 'CONFIRMED',
   },
   {
     team_name: 'Team motoRnation ',
     driver_name: 'Anvita aniket shete',
-    driver_blood_group: 'AB -ve',
     codriver_name: 'Aniket shete',
-    codriver_blood_group: 'A +ve',
     car_number: '12',
-    category: 'LADIES',
-    vehicle_name: '',
-    vehicle_model: '',
-    socials: '',
-    status: 'CONFIRMED',
   },
   {
     team_name: 'BAAZ',
     driver_name: 'Malkit Singh Saini',
-    driver_blood_group: '',
     codriver_name: 'Gurdeep Singh Saini',
-    codriver_blood_group: 'B +ve',
     car_number: '27',
-    category: 'DIESEL_MODIFIED',
-    vehicle_name: '',
-    vehicle_model: '',
-    socials: '9999',
-    status: 'CONFIRMED',
   },
 ];
 
@@ -242,7 +283,112 @@ const initializeSchema = async database => {
       total_time TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS disputes (
+      id INTEGER PRIMARY KEY NOT NULL,
+      track_name TEXT NOT NULL,
+      sticker_number TEXT NOT NULL,
+      driver_name TEXT NOT NULL,
+      codriver_name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      total_penalties_time INTEGER DEFAULT 0,
+      performance_time TEXT,
+      total_time TEXT,
+      submission_json TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
   `);
+};
+
+const addColumnIfMissing = async (database, tableName, columnName, columnSql) => {
+  try {
+    const columns = await database.getAllAsync(`PRAGMA table_info(${tableName})`);
+    const hasColumn = columns.some(column => String(column.name) === String(columnName));
+
+    if (!hasColumn) {
+      await database.execAsync(`ALTER TABLE ${tableName} ADD COLUMN ${columnSql};`);
+    }
+  } catch (error) {
+    console.warn(`Unable to ensure column ${columnName} on ${tableName}:`, error);
+  }
+};
+
+const runDatabaseMigrations = async database => {
+  await addColumnIfMissing(database, 'results', 'selected_day_id', 'selected_day_id TEXT');
+  await addColumnIfMissing(database, 'results', 'selected_day_label', 'selected_day_label TEXT');
+  await addColumnIfMissing(database, 'results', 'selected_day_date', 'selected_day_date TEXT');
+  await addColumnIfMissing(database, 'results', 'submission_json', 'submission_json TEXT');
+  await addColumnIfMissing(database, 'disputes', 'selected_day_id', 'selected_day_id TEXT');
+  await addColumnIfMissing(database, 'disputes', 'selected_day_label', 'selected_day_label TEXT');
+  await addColumnIfMissing(database, 'disputes', 'selected_day_date', 'selected_day_date TEXT');
+
+  const syncStoredDayMetadata = async tableName => {
+    const rows = await database.getAllAsync(
+      `SELECT id, selected_day_id, selected_day_label, selected_day_date, submission_json FROM ${tableName}`
+    );
+
+    for (const row of rows) {
+      const normalizedRow = normalizeStoredDayPayload(row);
+      const hasChanged =
+        String(row.selected_day_id || '') !== String(normalizedRow.selected_day_id || '') ||
+        String(row.selected_day_label || '') !== String(normalizedRow.selected_day_label || '') ||
+        String(row.selected_day_date || '') !== String(normalizedRow.selected_day_date || '') ||
+        String(row.submission_json || '') !== String(normalizedRow.submission_json || '');
+
+      if (!hasChanged) {
+        continue;
+      }
+
+      await database.runAsync(
+        `UPDATE ${tableName}
+         SET selected_day_id = ?, selected_day_label = ?, selected_day_date = ?, submission_json = ?
+         WHERE id = ?`,
+        [
+          normalizedRow.selected_day_id || '',
+          normalizedRow.selected_day_label || '',
+          normalizedRow.selected_day_date || '',
+          normalizedRow.submission_json || null,
+          row.id,
+        ]
+      );
+    }
+  };
+
+  await syncStoredDayMetadata('results');
+  await syncStoredDayMetadata('disputes');
+};
+
+const removeLegacySeedData = async database => {
+  for (const legacyTeam of LEGACY_SEEDED_TEAMS) {
+    await database.runAsync(
+      `DELETE FROM teams
+       WHERE TRIM(team_name) = TRIM(?)
+         AND TRIM(driver_name) = TRIM(?)
+         AND TRIM(codriver_name) = TRIM(?)
+         AND car_number = ?`,
+      [
+        legacyTeam.team_name,
+        legacyTeam.driver_name,
+        legacyTeam.codriver_name,
+        legacyTeam.car_number,
+      ]
+    );
+
+    await database.runAsync(
+      `DELETE FROM players
+       WHERE TRIM(team) = TRIM(?)
+         AND (
+           (role = 'Driver' AND TRIM(name) = TRIM(?)) OR
+           (role = 'Co-driver' AND TRIM(name) = TRIM(?))
+         )`,
+      [
+        legacyTeam.team_name,
+        legacyTeam.driver_name,
+        legacyTeam.codriver_name,
+      ]
+    );
+  }
 };
 
 export const initializeDatabase = async () => {
@@ -253,6 +399,7 @@ export const initializeDatabase = async () => {
 
     const database = await getDatabase();
     await initializeSchema(database);
+    await runDatabaseMigrations(database);
     console.log('Database initialized successfully');
     return true;
   } catch (error) {
@@ -269,8 +416,11 @@ export const seedDatabase = async () => {
 
     const database = await getDatabase();
     await initializeSchema(database);
+    await runDatabaseMigrations(database);
 
     await database.withTransactionAsync(async () => {
+      await removeLegacySeedData(database);
+
       for (const team of SEEDED_TEAMS) {
         const existingTeam = await database.getFirstAsync(
           `SELECT id FROM teams
@@ -598,17 +748,20 @@ export const getAllRegistrations = async () => {
 
 export const addResult = async resultData => {
   try {
+    const normalizedResultData = normalizeStoredDayPayload(resultData);
     const database = await getDatabase();
     const existingResult = await database.getFirstAsync(
       `SELECT id FROM results
        WHERE LOWER(TRIM(category)) = LOWER(TRIM(?))
          AND LOWER(TRIM(track_name)) = LOWER(TRIM(?))
          AND LOWER(TRIM(sticker_number)) = LOWER(TRIM(?))
-       LIMIT 1`,
+         AND LOWER(TRIM(COALESCE(selected_day_id, ''))) = LOWER(TRIM(?))
+      LIMIT 1`,
       [
-        resultData.category || '',
-        resultData.track_name || '',
-        resultData.sticker_number || '',
+        normalizedResultData.category || '',
+        normalizedResultData.track_name || '',
+        normalizedResultData.sticker_number || '',
+        normalizedResultData.selected_day_id || normalizedResultData.selectedDayId || '',
       ]
     );
 
@@ -623,26 +776,31 @@ export const addResult = async resultData => {
         track_name, sticker_number, driver_name, codriver_name, category,
         bunting_count, seatbelt_count, ground_touch_count, late_start_count,
         attempt_count, task_skipped_count, wrong_course_count, fourth_attempt_count,
-        is_dns, total_penalties_time, performance_time, total_time
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        is_dns, total_penalties_time, performance_time, total_time,
+        selected_day_id, selected_day_label, selected_day_date, submission_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        resultData.track_name,
-        resultData.sticker_number,
-        resultData.driver_name,
-        resultData.codriver_name,
-        resultData.category,
-        resultData.bunting_count || 0,
-        resultData.seatbelt_count || 0,
-        resultData.ground_touch_count || 0,
-        resultData.late_start_count || 0,
-        resultData.attempt_count || 0,
-        resultData.task_skipped_count || 0,
-        resultData.wrong_course_count || 0,
-        resultData.fourth_attempt_count || 0,
-        resultData.is_dns ? 1 : 0,
-        resultData.total_penalties_time || 0,
-        resultData.performance_time || null,
-        resultData.total_time || null,
+        normalizedResultData.track_name,
+        normalizedResultData.sticker_number,
+        normalizedResultData.driver_name,
+        normalizedResultData.codriver_name,
+        normalizedResultData.category,
+        normalizedResultData.bunting_count || 0,
+        normalizedResultData.seatbelt_count || 0,
+        normalizedResultData.ground_touch_count || 0,
+        normalizedResultData.late_start_count || 0,
+        normalizedResultData.attempt_count || 0,
+        normalizedResultData.task_skipped_count || 0,
+        normalizedResultData.wrong_course_count || 0,
+        normalizedResultData.fourth_attempt_count || 0,
+        normalizedResultData.is_dns ? 1 : 0,
+        normalizedResultData.total_penalties_time || 0,
+        normalizedResultData.performance_time || null,
+        normalizedResultData.total_time || null,
+        normalizedResultData.selected_day_id || normalizedResultData.selectedDayId || '',
+        normalizedResultData.selected_day_label || normalizedResultData.selectedDayLabel || '',
+        normalizedResultData.selected_day_date || normalizedResultData.selectedDayDate || '',
+        normalizedResultData.submission_json || null,
       ]
     );
     return result.lastInsertRowId;
@@ -662,6 +820,110 @@ export const getAllResults = async () => {
   } catch (error) {
     console.error('Error fetching results:', error);
     return [];
+  }
+};
+
+export const saveDispute = async disputeData => {
+  try {
+    const normalizedDisputeData = normalizeStoredDayPayload(disputeData);
+    const database = await getDatabase();
+    const existingDispute = await database.getFirstAsync(
+      `SELECT id FROM disputes
+       WHERE LOWER(TRIM(category)) = LOWER(TRIM(?))
+         AND LOWER(TRIM(track_name)) = LOWER(TRIM(?))
+         AND LOWER(TRIM(sticker_number)) = LOWER(TRIM(?))
+         AND LOWER(TRIM(COALESCE(selected_day_id, ''))) = LOWER(TRIM(?))
+      LIMIT 1`,
+      [
+        normalizedDisputeData.category || '',
+        normalizedDisputeData.track_name || '',
+        normalizedDisputeData.sticker_number || '',
+        normalizedDisputeData.selected_day_id || normalizedDisputeData.selectedDayId || '',
+      ]
+    );
+
+    if (existingDispute) {
+      await database.runAsync(
+        `UPDATE disputes SET
+          track_name = ?,
+          sticker_number = ?,
+          driver_name = ?,
+          codriver_name = ?,
+          category = ?,
+          selected_day_id = ?,
+          selected_day_label = ?,
+          selected_day_date = ?,
+          total_penalties_time = ?,
+          performance_time = ?,
+          total_time = ?,
+          submission_json = ?,
+          updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [
+          normalizedDisputeData.track_name || '',
+          normalizedDisputeData.sticker_number || '',
+          normalizedDisputeData.driver_name || '',
+          normalizedDisputeData.codriver_name || '',
+          normalizedDisputeData.category || '',
+          normalizedDisputeData.selected_day_id || normalizedDisputeData.selectedDayId || '',
+          normalizedDisputeData.selected_day_label || normalizedDisputeData.selectedDayLabel || '',
+          normalizedDisputeData.selected_day_date || normalizedDisputeData.selectedDayDate || '',
+          normalizedDisputeData.total_penalties_time || 0,
+          normalizedDisputeData.performance_time || null,
+          normalizedDisputeData.total_time || null,
+          normalizedDisputeData.submission_json || null,
+          existingDispute.id,
+        ]
+      );
+      return existingDispute.id;
+    }
+
+    const result = await database.runAsync(
+      `INSERT INTO disputes (
+        track_name, sticker_number, driver_name, codriver_name, category,
+        selected_day_id, selected_day_label, selected_day_date,
+        total_penalties_time, performance_time, total_time, submission_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        normalizedDisputeData.track_name || '',
+        normalizedDisputeData.sticker_number || '',
+        normalizedDisputeData.driver_name || '',
+        normalizedDisputeData.codriver_name || '',
+        normalizedDisputeData.category || '',
+        normalizedDisputeData.selected_day_id || normalizedDisputeData.selectedDayId || '',
+        normalizedDisputeData.selected_day_label || normalizedDisputeData.selectedDayLabel || '',
+        normalizedDisputeData.selected_day_date || normalizedDisputeData.selectedDayDate || '',
+        normalizedDisputeData.total_penalties_time || 0,
+        normalizedDisputeData.performance_time || null,
+        normalizedDisputeData.total_time || null,
+        normalizedDisputeData.submission_json || null,
+      ]
+    );
+    return result.lastInsertRowId;
+  } catch (error) {
+    console.error('Error saving dispute:', error);
+    throw error;
+  }
+};
+
+export const getAllDisputes = async () => {
+  try {
+    const database = await getDatabase();
+    return await database.getAllAsync('SELECT * FROM disputes ORDER BY updated_at DESC, id DESC');
+  } catch (error) {
+    console.error('Error fetching disputes:', error);
+    return [];
+  }
+};
+
+export const deleteDisputeById = async id => {
+  try {
+    const database = await getDatabase();
+    await database.runAsync('DELETE FROM disputes WHERE id = ?', [id]);
+    return true;
+  } catch (error) {
+    console.error('Error deleting dispute:', error);
+    throw error;
   }
 };
 

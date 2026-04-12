@@ -11,7 +11,7 @@ import {
   Alert,
   Platform,
 } from 'react-native';
-import { ResultsService } from '../services/dataService';
+import { ResultsService, DisputesService } from '../services/dataService';
 
 const HEADING_FONT = Platform.select({
   ios: 'monospace',
@@ -27,35 +27,15 @@ const BODY_FONT = Platform.select({
   default: 'monospace',
 });
 
-const RECORD_EXPORT_HEADERS = [
-  'Track Name',
-  'Sr.No.',
-  'Sticker No.',
-  'Driver Name',
-  'Co-Driver Name',
-  'Bunting & Pole (Count)',
-  'Bunting & Pole (Time)',
-  'Seatbelt (Count)',
-  'Seatbelt (Time)',
-  'Ground Touch (Count)',
-  'Ground Touch (Time)',
-  'Late Start Status',
-  'Late Start Penalty (sec)',
-  'Attempt (Count)',
-  'Attempt (Time)',
-  'Task Skipped (Count)',
-  'Task Skipped (Time)',
-  'DNF',
-  'DNS',
-  'Wrong Course',
-  '4th Attempt',
-  'Time Over',
-  'DNF Points',
-  'Total Penalties Time (sec)',
-  'Performance Time (MM:SS:MS)',
-  'Total Time (MM:SS:MS)',
-  'Submission Date',
-];
+const DEFAULT_THEME = {
+  background: '#080b10',
+  surface: '#111722',
+  border: '#2a3441',
+  textPrimary: '#fff6ea',
+  textSecondary: '#cdbf9a',
+  accent: '#ffb15a',
+  primaryButton: '#2f6fed',
+};
 
 const getResponsiveLayout = (screenWidth, screenHeight) => {
   const shortestSide = Math.min(screenWidth, screenHeight);
@@ -81,26 +61,78 @@ const parseRegistrationPayload = registration => {
       ...JSON.parse(registration.submission_json),
     };
   } catch (error) {
-    return registration;
+    return registration || {};
   }
 };
 
-const formatBoolValue = value => (value ? 'Yes' : 'No');
-
-const toTitleCase = value =>
-  String(value || '')
-    .replace(/_/g, ' ')
-    .split(' ')
-    .filter(Boolean)
-    .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-    .join(' ');
-
 const normalizeValue = value => String(value || '').trim().toLowerCase();
+const normalizeDateValue = value =>
+  normalizeValue(value)
+    .replace(/(\d+)(st|nd|rd|th)\b/g, '$1')
+    .replace(/,/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const normalizeCategoryKey = value => {
+  const normalized = String(value || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '_');
+
+  if (normalized === 'LADIES' || normalized === 'LADIES_CATEGORY') {
+    return 'LADIES_CATEGORY';
+  }
+
+  return normalized;
+};
+
+const getDayIdentity = item => ({
+  dayId: normalizeValue(item.selected_day_id || item.selectedDayId || item.day_id || item.dayId || ''),
+  dayLabel: normalizeValue(
+    item.selected_day_label || item.selectedDayLabel || item.day_label || item.dayLabel || ''
+  ),
+  dayDate: normalizeDateValue(
+    item.selected_day_date || item.selectedDayDate || item.day_date || item.dayDate || ''
+  ),
+});
+
+const matchesSelectedDay = (item, selectedDay) => {
+  if (!selectedDay?.id) {
+    return false;
+  }
+
+  const itemDay = getDayIdentity(item);
+  const selectedDayId = normalizeValue(selectedDay.id);
+  const selectedDayLabel = normalizeValue(selectedDay.dayLabel);
+  const selectedDayDate = normalizeDateValue(selectedDay.dateLabel);
+
+  return (
+    itemDay.dayId === selectedDayId ||
+    itemDay.dayLabel === selectedDayLabel ||
+    itemDay.dayDate === selectedDayDate
+  );
+};
+
+const getResultIdentityKey = item => {
+  const dayIdentity = getDayIdentity(item);
+
+  return [
+    normalizeCategoryKey(item.category),
+    normalizeValue(item.track_name || item.trackName),
+    normalizeValue(item.sticker_number || item.stickerNumber),
+    normalizeValue(item.driver_name || item.driverName),
+    dayIdentity.dayId || dayIdentity.dayLabel || dayIdentity.dayDate,
+  ].join('|');
+};
 
 const parseTimeForSort = value => {
   const rawValue = String(value || '').trim();
 
   if (!rawValue || rawValue === '--' || rawValue.toUpperCase() === 'DNS') {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  if (rawValue.toUpperCase() === 'DISPUTED') {
     return Number.POSITIVE_INFINITY;
   }
 
@@ -126,6 +158,16 @@ const parseTimeForSort = value => {
 const compareResultsByRank = (a, b) => {
   const aIsDns = Boolean(a.is_dns || a.isDns);
   const bIsDns = Boolean(b.is_dns || b.isDns);
+  const aIsDisputed = Boolean(a.isDisputed);
+  const bIsDisputed = Boolean(b.isDisputed);
+
+  if (aIsDisputed !== bIsDisputed) {
+    if (aIsDns || bIsDns) {
+      return aIsDns ? 1 : -1;
+    }
+
+    return aIsDisputed ? 1 : -1;
+  }
 
   if (aIsDns !== bIsDns) {
     return aIsDns ? 1 : -1;
@@ -145,20 +187,24 @@ const compareResultsByRank = (a, b) => {
   );
 };
 
-const ReportScreen = ({ visible, onClose }) => {
+const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], theme = DEFAULT_THEME }) => {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const responsiveLayout = getResponsiveLayout(screenWidth, screenHeight);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState([]);
+  const [disputes, setDisputes] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedTrack, setSelectedTrack] = useState('');
-  const [selectedRecord, setSelectedRecord] = useState(null);
 
   const loadResults = async () => {
     try {
       setLoading(true);
-      const rows = await ResultsService.getAllResults();
+      const [rows, disputeRows] = await Promise.all([
+        ResultsService.getAllResults(),
+        DisputesService.getAllDisputes(),
+      ]);
       setResults(rows);
+      setDisputes(disputeRows);
     } catch (error) {
       console.error('Error loading report data:', error);
       Alert.alert('Report Error', 'Unable to load report data');
@@ -173,66 +219,139 @@ const ReportScreen = ({ visible, onClose }) => {
     } else {
       setSelectedCategory('');
       setSelectedTrack('');
-      setSelectedRecord(null);
     }
   }, [visible]);
+
+  useEffect(() => {
+    setSelectedCategory('');
+    setSelectedTrack('');
+  }, [selectedDay?.id]);
 
   const normalizedResults = useMemo(
     () => results.map(parseRegistrationPayload),
     [results]
   );
-  const categoryCards = useMemo(() => {
-    const categoryBuckets = normalizedResults.reduce((acc, item) => {
-      const categoryKey = normalizeValue(item.category || 'Uncategorized');
 
-      if (!acc[categoryKey]) {
-        acc[categoryKey] = {
-          key: categoryKey,
-          label: toTitleCase(item.category || 'Uncategorized'),
-          count: 0,
-        };
-      }
-
-      acc[categoryKey].count += 1;
-      return acc;
-    }, {});
-
-    return Object.values(categoryBuckets).sort((a, b) => a.label.localeCompare(b.label));
-  }, [normalizedResults]);
-  const selectedCategoryResults = useMemo(
-    () => (selectedCategory
-      ? normalizedResults.filter(item => normalizeValue(item.category) === selectedCategory)
-      : []),
-    [normalizedResults, selectedCategory]
+  const normalizedDisputes = useMemo(
+    () =>
+      disputes.map(dispute => ({
+        ...parseRegistrationPayload(dispute),
+        isDisputed: true,
+      })),
+    [disputes]
   );
-  const trackCards = useMemo(() => {
-    const trackBuckets = selectedCategoryResults.reduce((acc, item) => {
-      const trackKey = normalizeValue(item.track_name || item.trackName || 'Track');
-      if (!acc[trackKey]) {
-        acc[trackKey] = {
-          key: trackKey,
-          label: item.track_name || item.trackName || 'Track',
-          count: 0,
-        };
+
+  const uniqueResults = useMemo(() => {
+    const seen = new Set();
+
+    return [...normalizedResults, ...normalizedDisputes].filter(item => {
+      const identityKey = getResultIdentityKey(item);
+
+      if (seen.has(identityKey)) {
+        return false;
       }
-      acc[trackKey].count += 1;
+
+      seen.add(identityKey);
+      return true;
+    });
+  }, [normalizedDisputes, normalizedResults]);
+
+  const allowedCategoryMap = useMemo(
+    () =>
+      categoryOptions.reduce((acc, item) => {
+        acc[item.key] = item;
+        return acc;
+      }, {}),
+    [categoryOptions]
+  );
+
+  const daySpecificResults = useMemo(
+    () =>
+      uniqueResults.filter(item => {
+        if (!matchesSelectedDay(item, selectedDay)) {
+          return false;
+        }
+
+        const categoryKey = normalizeCategoryKey(item.category || 'Uncategorized');
+        const categoryConfig = allowedCategoryMap[categoryKey];
+
+        if (!categoryConfig) {
+          return false;
+        }
+
+        const trackName = item.track_name || item.trackName || '';
+        return categoryConfig.tracks.some(track => normalizeValue(track) === normalizeValue(trackName));
+      }),
+    [allowedCategoryMap, selectedDay?.dateLabel, selectedDay?.dayLabel, selectedDay?.id, uniqueResults]
+  );
+
+  const categoryCards = useMemo(() => {
+    const countsByCategory = daySpecificResults.reduce((acc, item) => {
+      const categoryKey = normalizeCategoryKey(item.category || 'Uncategorized');
+      acc[categoryKey] = (acc[categoryKey] || 0) + 1;
       return acc;
     }, {});
 
-    return Object.values(trackBuckets).sort((a, b) => a.label.localeCompare(b.label));
-  }, [selectedCategoryResults]);
+    return categoryOptions
+      .map(item => ({
+        key: item.key,
+        label: item.label,
+        count: countsByCategory[item.key] || 0,
+        tracks: item.tracks || [],
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [categoryOptions, daySpecificResults]);
+
+  const selectedCategoryConfig = categoryCards.find(item => item.key === selectedCategory) || null;
+
+  const selectedCategoryResults = useMemo(
+    () =>
+      selectedCategory
+        ? daySpecificResults.filter(item => normalizeCategoryKey(item.category || 'Uncategorized') === selectedCategory)
+        : [],
+    [daySpecificResults, selectedCategory]
+  );
+
+  const trackCards = useMemo(() => {
+    if (!selectedCategoryConfig) {
+      return [];
+    }
+
+    const countsByTrack = selectedCategoryResults.reduce((acc, item) => {
+      const trackKey = normalizeValue(item.track_name || item.trackName || '');
+      acc[trackKey] = (acc[trackKey] || 0) + 1;
+      return acc;
+    }, {});
+
+    return selectedCategoryConfig.tracks.map(track => ({
+      key: normalizeValue(track),
+      label: track,
+      count: countsByTrack[normalizeValue(track)] || 0,
+    }));
+  }, [selectedCategoryConfig, selectedCategoryResults]);
+
   const selectedTrackResults = useMemo(
-    () => (selectedTrack
-      ? selectedCategoryResults
-          .filter(item => normalizeValue(item.track_name || item.trackName) === selectedTrack)
-          .sort(compareResultsByRank)
-      : []),
+    () =>
+      selectedTrack
+        ? selectedCategoryResults
+            .filter(item => normalizeValue(item.track_name || item.trackName || '') === selectedTrack)
+            .sort(compareResultsByRank)
+        : [],
     [selectedCategoryResults, selectedTrack]
   );
-  const selectedCategoryLabel =
-    categoryCards.find(item => item.key === selectedCategory)?.label || 'Report';
-  const selectedTrackLabel =
-    trackCards.find(item => item.key === selectedTrack)?.label || 'Select a Track';
+
+  useEffect(() => {
+    if (selectedCategory && !categoryCards.some(item => item.key === selectedCategory)) {
+      setSelectedCategory('');
+      setSelectedTrack('');
+    }
+  }, [categoryCards, selectedCategory]);
+
+  useEffect(() => {
+    if (selectedTrack && !trackCards.some(item => item.key === selectedTrack)) {
+      setSelectedTrack('');
+    }
+  }, [selectedTrack, trackCards]);
 
   return (
     <Modal visible={visible} transparent={false} animationType="slide" onRequestClose={onClose}>
@@ -240,6 +359,7 @@ const ReportScreen = ({ visible, onClose }) => {
         style={[
           styles.container,
           {
+            backgroundColor: theme.background,
             paddingHorizontal: responsiveLayout.shellPadding,
             paddingTop: 60,
             paddingBottom: responsiveLayout.isTablet ? 28 : 20,
@@ -249,259 +369,180 @@ const ReportScreen = ({ visible, onClose }) => {
         <View style={[styles.shell, { maxWidth: responsiveLayout.shellMaxWidth }]}>
           <View style={styles.header}>
             <View style={styles.headerTextBlock}>
-              <Text style={styles.title}>Report</Text>
-              <Text style={styles.subtitle}>
+              <Text style={[styles.title, { color: theme.textPrimary }]}>Reports</Text>
+              <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
                 {loading
                   ? 'Loading saved results...'
-                  : selectedCategory
-                    ? selectedTrack
-                      ? `${selectedCategoryLabel} > ${selectedTrackLabel}`
-                      : `${selectedCategoryLabel} tracks available`
-                    : `${categoryCards.length} category reports available`}
+                  : `${selectedDay?.dayLabel || 'Selected Day'} | ${selectedDay?.dateLabel || 'No date selected'}`}
               </Text>
             </View>
             <View style={styles.actions}>
-              <TouchableOpacity style={styles.actionButton} onPress={loadResults} activeOpacity={0.85}>
-                <Text style={styles.actionButtonText}>Refresh</Text>
+              <TouchableOpacity
+                style={[styles.actionButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                onPress={loadResults}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.actionButtonText, { color: theme.accent }]}>Refresh</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={onClose} activeOpacity={0.85}>
-                <Text style={styles.closeButton}>X</Text>
+                <Text style={[styles.closeButton, { color: theme.textPrimary }]}>X</Text>
               </TouchableOpacity>
             </View>
           </View>
 
           {loading ? (
             <View style={styles.loadingState}>
-              <ActivityIndicator size="large" color="#2f6fed" />
-              <Text style={styles.loadingText}>Fetching report data...</Text>
+              <ActivityIndicator size="large" color={theme.primaryButton} />
+              <Text style={[styles.loadingText, { color: theme.textSecondary }]}>Fetching saved records...</Text>
             </View>
           ) : null}
 
           {!selectedCategory ? (
-            <View style={styles.categoryStage}>
-              <FlatList
-                data={categoryCards}
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                keyExtractor={item => item.key}
-                contentContainerStyle={styles.categoryRow}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={styles.categoryCard}
-                    onPress={() => {
-                      setSelectedCategory(item.key);
-                      setSelectedTrack('');
-                      setSelectedRecord(null);
-                    }}
-                    activeOpacity={0.88}
-                  >
-                    <Text style={styles.categoryCardLabel}>Report</Text>
-                    <Text style={styles.categoryCardTitle}>{item.label}</Text>
-                    <Text style={styles.categoryCardCount}>
-                      {item.count} {item.count === 1 ? 'Result' : 'Results'}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-                ListEmptyComponent={
-                  <View style={styles.emptyState}>
-                    <Text style={styles.emptyTitle}>No saved submissions yet</Text>
-                    <Text style={styles.emptyText}>Submit a result and the category cards will appear here.</Text>
-                  </View>
-                }
-              />
-            </View>
+            <FlatList
+              data={categoryCards}
+              keyExtractor={item => item.key}
+              contentContainerStyle={styles.categoryRow}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[styles.categoryCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={() => {
+                    setSelectedCategory(item.key);
+                    setSelectedTrack('');
+                  }}
+                  activeOpacity={0.88}
+                >
+                  <Text style={[styles.categoryCardLabel, { color: theme.textSecondary }]}>Category</Text>
+                  <Text style={[styles.categoryCardTitle, { color: theme.textPrimary }]}>{item.label}</Text>
+                  <Text style={[styles.categoryCardCount, { color: theme.textSecondary }]}>
+                    {item.count} {item.count === 1 ? 'Record' : 'Records'}
+                  </Text>
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={
+                <View style={[styles.emptyState, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                  <Text style={[styles.emptyTitle, { color: theme.textPrimary }]}>No reports for this day</Text>
+                  <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
+                    Saved results will appear here only for the selected day.
+                  </Text>
+                </View>
+              }
+            />
           ) : (
             <View style={styles.resultsStage}>
               <View style={styles.stageHeader}>
                 <View style={styles.stageHeaderText}>
-                  <Text style={styles.stageTitle}>{selectedCategoryLabel} Report</Text>
-                  <Text style={styles.stageSubtitle}>
-                    {selectedTrack
-                      ? `${selectedTrackLabel} | ${selectedTrackResults.length} ${
-                          selectedTrackResults.length === 1 ? 'result' : 'results'
-                        }`
-                      : `${trackCards.length} tracks available. Select a track to view results.`}
+                  <Text style={[styles.stageTitle, { color: theme.textPrimary }]}>{selectedCategoryConfig?.label || 'Reports'}</Text>
+                  <Text style={[styles.stageSubtitle, { color: theme.textSecondary }]}>
+                    {!selectedTrack
+                      ? 'Select an active track for this day.'
+                      : `${selectedTrackResults.length} ${selectedTrackResults.length === 1 ? 'record' : 'records'} in ${trackCards.find(item => item.key === selectedTrack)?.label || ''}`}
                   </Text>
                 </View>
                 <TouchableOpacity
-                  style={styles.backButton}
+                  style={[styles.backButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
                   onPress={() => {
                     setSelectedCategory('');
                     setSelectedTrack('');
                   }}
                   activeOpacity={0.85}
                 >
-                  <Text style={styles.backButtonText}>Back to Categories</Text>
+                  <Text style={[styles.backButtonText, { color: theme.accent }]}>Back to Categories</Text>
                 </TouchableOpacity>
               </View>
 
               {!selectedTrack ? (
-                <>
-                  <FlatList
-                    data={trackCards}
-                    keyExtractor={item => item.key}
-                    contentContainerStyle={styles.trackRow}
-                    renderItem={({ item }) => (
-                      <TouchableOpacity
-                        style={styles.trackCard}
-                        onPress={() => setSelectedTrack(item.key)}
-                        activeOpacity={0.88}
-                      >
-                        <Text style={styles.trackCardLabel}>Track</Text>
-                        <Text style={styles.trackCardTitle}>{item.label}</Text>
-                        <Text style={styles.trackCardCount}>
-                          {item.count} {item.count === 1 ? 'Result' : 'Results'}
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-                  />
-                </>
+                <FlatList
+                  data={trackCards}
+                  keyExtractor={item => item.key}
+                  contentContainerStyle={styles.trackRow}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={[styles.trackCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                      onPress={() => setSelectedTrack(item.key)}
+                      activeOpacity={0.88}
+                    >
+                      <Text style={[styles.trackCardLabel, { color: theme.textSecondary }]}>Active Track</Text>
+                      <Text style={[styles.trackCardTitle, { color: theme.textPrimary }]}>{item.label}</Text>
+                      <Text style={[styles.trackCardCount, { color: theme.textSecondary }]}>
+                        {item.count} {item.count === 1 ? 'Record' : 'Records'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                  ListEmptyComponent={
+                    <View style={[styles.emptyState, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                      <Text style={[styles.emptyTitle, { color: theme.textPrimary }]}>No active tracks</Text>
+                      <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
+                        This category has no active tracks for the selected day.
+                      </Text>
+                    </View>
+                  }
+                />
               ) : (
                 <>
                   <TouchableOpacity
-                    style={styles.trackBackButton}
-                    onPress={() => {
-                      setSelectedTrack('');
-                      setSelectedRecord(null);
-                    }}
+                    style={[styles.trackBackButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                    onPress={() => setSelectedTrack('')}
                     activeOpacity={0.85}
                   >
-                    <Text style={styles.trackBackButtonText}>Back to Tracks</Text>
+                    <Text style={[styles.trackBackButtonText, { color: theme.accent }]}>Back to Tracks</Text>
                   </TouchableOpacity>
 
                   <FlatList
                     data={selectedTrackResults}
-                    keyExtractor={(item, index) => String(item.id || index)}
+                    keyExtractor={(item, index) => `${item.id || 'result'}-${getResultIdentityKey(item)}-${index}`}
                     showsVerticalScrollIndicator={false}
                     contentContainerStyle={styles.listContent}
+                    ListHeaderComponent={
+                      <View style={[styles.tableHeader, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                        <Text style={[styles.tableHeaderCell, styles.stickerCell, { color: theme.textSecondary }]}>Sticker No.</Text>
+                        <Text style={[styles.tableHeaderCell, styles.driverCell, { color: theme.textSecondary }]}>Driver Name</Text>
+                        <Text style={[styles.tableHeaderCell, styles.codriverCell, { color: theme.textSecondary }]}>Co-Driver Name</Text>
+                        <Text style={[styles.tableHeaderCell, styles.totalCell, { color: theme.textSecondary }]}>Total Timing</Text>
+                      </View>
+                    }
                     ListEmptyComponent={
-                      <View style={styles.emptyState}>
-                        <Text style={styles.emptyTitle}>No results in this track</Text>
-                        <Text style={styles.emptyText}>
-                          Try another track, or submit a new result.
+                      <View style={[styles.emptyState, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                        <Text style={[styles.emptyTitle, { color: theme.textPrimary }]}>No records in this track</Text>
+                        <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
+                          Submit a result for this active track and it will appear here.
                         </Text>
                       </View>
                     }
-                    ListHeaderComponent={
-                      <View style={styles.tableHeader}>
-                        <Text style={[styles.tableHeaderCell, styles.srCell]}>Sr.No.</Text>
-                        <Text style={[styles.tableHeaderCell, styles.stickerCell]}>Sticker No.</Text>
-                        <Text style={[styles.tableHeaderCell, styles.driverCell]}>Driver Name</Text>
-                        <Text style={[styles.tableHeaderCell, styles.actionCell]}>Action</Text>
-                      </View>
-                    }
-                    renderItem={({ item, index }) => {
-                      const srNo = index + 1;
-                      const trackName = item.track_name || item.trackName || '--';
-                      const driverName = item.driver_name || item.driverName || '--';
+                    renderItem={({ item }) => {
                       const stickerNumber = item.sticker_number || item.stickerNumber || '--';
-                      const buntingCount = item.bunting_count ?? item.bustingCount ?? 0;
-                      const seatbeltCount = item.seatbelt_count ?? item.seatbeltCount ?? 0;
-                      const groundTouchCount = item.ground_touch_count ?? item.groundTouchCount ?? 0;
-                      const lateStartCount = item.late_start_count ?? item.lateStartCount ?? 0;
-                      const lateStartStatus = item.late_start_status || item.lateStartStatus || 'No';
-                      const attemptCount = item.attempt_count ?? item.attemptCount ?? 0;
-                      const taskSkippedCount = item.task_skipped_count ?? item.taskSkippedCount ?? 0;
-                      const wrongCourseCount = item.wrong_course_count ?? item.wrongCourseCount ?? 0;
-                      const fourthAttemptCount = item.fourth_attempt_count ?? item.fourthAttemptCount ?? 0;
-                      const totalPenaltiesTime = item.total_penalties_time ?? item.totalPenaltiesTime ?? 0;
-                      const performanceTime = item.performance_time || item.performanceTimeDisplay || '--';
-                      const totalTime = item.total_time || item.totalTimeDisplay || '--';
-                      const isDns = Boolean(item.is_dns || item.isDns);
+                      const driverName = item.driver_name || item.driverName || '--';
+                      const coDriverName = item.codriver_name || item.coDriverName || '--';
+                      const totalTime = item.isDisputed
+                        ? 'Disputed'
+                        : item.is_dns || item.isDns
+                        ? 'DNS'
+                        : item.total_time || item.totalTimeDisplay || '--';
 
                       return (
-                        <View style={styles.tableRow}>
-                          <Text style={[styles.tableCell, styles.srCell]}>{String(srNo).padStart(2, '0')}</Text>
-                          <Text style={[styles.tableCell, styles.stickerCell]}>#{stickerNumber}</Text>
-                          <Text style={[styles.tableCell, styles.driverCell]} numberOfLines={1}>
+                        <View style={[styles.tableRow, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                          <Text style={[styles.tableCell, styles.stickerCell, { color: theme.textPrimary }]}>#{stickerNumber}</Text>
+                          <Text style={[styles.tableCell, styles.driverCell, { color: theme.textPrimary }]} numberOfLines={1}>
                             {driverName}
                           </Text>
-                          <TouchableOpacity
-                            style={styles.detailButton}
-                            onPress={() =>
-                              setSelectedRecord({
-                                ...item,
-                                srNo,
-                                trackName,
-                                driverName,
-                                stickerNumber,
-                                buntingCount,
-                                seatbeltCount,
-                                groundTouchCount,
-                                lateStartCount,
-                                lateStartStatus,
-                                attemptCount,
-                                taskSkippedCount,
-                                wrongCourseCount,
-                                fourthAttemptCount,
-                                totalPenaltiesTime,
-                                performanceTime,
-                                totalTime,
-                                isDns,
-                              })
-                            }
-                            activeOpacity={0.85}
+                          <Text style={[styles.tableCell, styles.codriverCell, { color: theme.textPrimary }]} numberOfLines={1}>
+                            {coDriverName}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.tableCell,
+                              styles.totalCell,
+                              { color: item.isDisputed ? theme.accent : theme.textPrimary },
+                              item.isDisputed && styles.disputedValue,
+                            ]}
                           >
-                            <Text style={styles.detailButtonIcon}>i</Text>
-                            <Text style={styles.detailButtonText}>View</Text>
-                          </TouchableOpacity>
+                            {totalTime}
+                          </Text>
                         </View>
                       );
                     }}
                   />
                 </>
               )}
-
-              <Modal
-                visible={Boolean(selectedRecord)}
-                transparent
-                animationType="fade"
-                onRequestClose={() => setSelectedRecord(null)}
-              >
-                <View style={styles.detailOverlay}>
-                  <View style={styles.detailModal}>
-                    <View style={styles.detailHeader}>
-                      <Text style={styles.detailTitle}>Result Details</Text>
-                      <TouchableOpacity onPress={() => setSelectedRecord(null)} activeOpacity={0.85}>
-                        <Text style={styles.closeButton}>X</Text>
-                      </TouchableOpacity>
-                    </View>
-
-                    {selectedRecord ? (
-                      <FlatList
-                        data={[
-                          ['Sr. No.', String(selectedRecord.srNo).padStart(2, '0')],
-                          ['Track Name', selectedRecord.trackName || '--'],
-                          ['Sticker Number', `#${selectedRecord.stickerNumber || '--'}`],
-                          ['Driver Name', selectedRecord.driverName || '--'],
-                          ['Co-Driver Name', selectedRecord.codriver_name || selectedRecord.coDriverName || '--'],
-                          ['Category', selectedRecord.category || '--'],
-                          ['Bunting Count', String(selectedRecord.buntingCount ?? 0)],
-                          ['Seatbelt Count', String(selectedRecord.seatbeltCount ?? 0)],
-                          ['Ground Touch Count', String(selectedRecord.groundTouchCount ?? 0)],
-                          ['Late Start Count', String(selectedRecord.lateStartCount ?? 0)],
-                          ['Late Start Status', selectedRecord.lateStartStatus || 'No'],
-                          ['Attempt Count', String(selectedRecord.attemptCount ?? 0)],
-                          ['Task Skipped Count', String(selectedRecord.taskSkippedCount ?? 0)],
-                          ['Wrong Course Count', String(selectedRecord.wrongCourseCount ?? 0)],
-                          ['4th Attempt Count', String(selectedRecord.fourthAttemptCount ?? 0)],
-                          ['Total Penalty Time', String(selectedRecord.totalPenaltiesTime ?? 0)],
-                          ['Performance Time', selectedRecord.performanceTime || '--'],
-                          ['Total Time', selectedRecord.totalTime || '--'],
-                          ['DNS', formatBoolValue(selectedRecord.isDns)],
-                        ]}
-                        keyExtractor={(_, index) => String(index)}
-                        renderItem={({ item }) => (
-                          <View style={styles.detailRow}>
-                            <Text style={styles.detailKey}>{item[0]}</Text>
-                            <Text style={styles.detailValue}>{item[1]}</Text>
-                          </View>
-                        )}
-                      />
-                    ) : null}
-                  </View>
-                </View>
-              </Modal>
             </View>
           )}
         </View>
@@ -579,11 +620,43 @@ const styles = StyleSheet.create({
     color: '#cdbf9a',
     fontFamily: BODY_FONT,
   },
-  categoryStage: {
-    marginBottom: 12,
-  },
   resultsStage: {
     flex: 1,
+  },
+  categoryRow: {
+    paddingBottom: 8,
+    gap: 12,
+  },
+  categoryCard: {
+    width: '100%',
+    minHeight: 124,
+    backgroundColor: '#111722',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#2a3441',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    justifyContent: 'space-between',
+  },
+  categoryCardLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#cdbf9a',
+    textTransform: 'uppercase',
+    fontFamily: BODY_FONT,
+  },
+  categoryCardTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#fff6ea',
+    lineHeight: 21,
+    fontFamily: HEADING_FONT,
+  },
+  categoryCardCount: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#cdbf9a',
+    fontFamily: BODY_FONT,
   },
   stageHeader: {
     flexDirection: 'row',
@@ -621,41 +694,6 @@ const styles = StyleSheet.create({
     color: '#ffb15a',
     fontFamily: BODY_FONT,
   },
-  categoryRow: {
-    paddingBottom: 8,
-    gap: 12,
-  },
-  categoryCard: {
-    width: 170,
-    minHeight: 120,
-    backgroundColor: '#111722',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#2a3441',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    justifyContent: 'space-between',
-  },
-  categoryCardLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#cdbf9a',
-    textTransform: 'uppercase',
-    fontFamily: BODY_FONT,
-  },
-  categoryCardTitle: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: '#fff6ea',
-    lineHeight: 21,
-    fontFamily: HEADING_FONT,
-  },
-  categoryCardCount: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#cdbf9a',
-    fontFamily: BODY_FONT,
-  },
   trackRow: {
     paddingBottom: 8,
     gap: 10,
@@ -670,10 +708,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     justifyContent: 'flex-start',
-  },
-  trackCardSelected: {
-    borderColor: '#ff8a1f',
-    backgroundColor: '#171d27',
   },
   trackCardLabel: {
     fontSize: 11,
@@ -710,6 +744,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#ffb15a',
+    fontFamily: BODY_FONT,
   },
   tableHeader: {
     flexDirection: 'row',
@@ -719,7 +754,7 @@ const styles = StyleSheet.create({
     borderColor: '#2a3441',
     borderRadius: 14,
     paddingVertical: 10,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     marginBottom: 10,
   },
   tableHeaderCell: {
@@ -737,7 +772,7 @@ const styles = StyleSheet.create({
     borderColor: '#2a3441',
     borderRadius: 14,
     paddingVertical: 12,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     marginBottom: 10,
   },
   tableCell: {
@@ -746,100 +781,27 @@ const styles = StyleSheet.create({
     color: '#fff6ea',
     fontFamily: BODY_FONT,
   },
-  srCell: {
-    width: 64,
-    paddingRight: 6,
-  },
   stickerCell: {
-    width: 110,
-    paddingRight: 6,
+    width: 100,
+    paddingRight: 8,
   },
   driverCell: {
     flex: 1,
-    paddingRight: 6,
+    paddingRight: 8,
   },
-  actionCell: {
-    width: 86,
-    textAlign: 'center',
+  codriverCell: {
+    flex: 1,
+    paddingRight: 8,
   },
-  detailButton: {
-    width: 86,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 8,
-    borderRadius: 12,
-    backgroundColor: '#ff8a1f',
-    borderWidth: 1,
-    borderColor: '#ffb15a',
+  totalCell: {
+    width: 110,
+    textAlign: 'right',
   },
-  detailButtonIcon: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: '#161616',
-    lineHeight: 16,
-  },
-  detailButtonText: {
-    marginTop: 2,
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#161616',
-    fontFamily: BODY_FONT,
+  disputedValue: {
+    color: '#ffb15a',
   },
   listContent: {
     paddingBottom: 24,
-  },
-  detailOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-    justifyContent: 'center',
-    padding: 16,
-  },
-  detailModal: {
-    backgroundColor: '#111722',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#2a3441',
-    paddingHorizontal: 18,
-    paddingVertical: 18,
-    maxHeight: '80%',
-  },
-  detailHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 14,
-  },
-  detailTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#fff6ea',
-    fontFamily: HEADING_FONT,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
-    paddingVertical: 10,
-    paddingRight: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#2a3441',
-  },
-  detailKey: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#cdbf9a',
-    paddingRight: 12,
-    fontFamily: BODY_FONT,
-  },
-  detailValue: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#fff6ea',
-    textAlign: 'right',
-    paddingRight: 4,
-    fontFamily: BODY_FONT,
   },
   emptyState: {
     backgroundColor: '#111722',

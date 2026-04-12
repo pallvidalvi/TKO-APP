@@ -6,6 +6,7 @@
 
 import axios from 'axios';
 import { Platform } from 'react-native';
+import { SEEDED_TEAMS } from '../data/seedTeams';
 import {
   getAllTeams as getTeamsDB,
   getTeamsByCategory as getTeamsByCategoryDB,
@@ -20,136 +21,55 @@ import {
   addRegistration as addRegistrationDB,
   getAllResults as getResultsDB,
   addResult as addResultDB,
+  getAllDisputes as getDisputesDB,
+  saveDispute as saveDisputeDB,
+  deleteDisputeById as deleteDisputeByIdDB,
   deleteResultById as deleteResultByIdDB,
   clearAllResults as clearAllResultsDB,
+  normalizeStoredDayPayload,
 } from '../db/database';
 
 const API_BASE_URL = 'https://www.teamkaradoffroaders.online/api';
 const isWeb = Platform.OS === 'web';
 const WEB_RESULTS_KEY = 'tko_app_results';
+const WEB_DISPUTES_KEY = 'tko_app_disputes';
 const normalizeResultKey = value => String(value || '').trim().toLowerCase();
-const isDuplicateResult = (existingResults, resultData) => {
-  const nextCategory = normalizeResultKey(resultData.category);
-  const nextTrack = normalizeResultKey(resultData.track_name);
-  const nextSticker = normalizeResultKey(resultData.sticker_number);
+const getNormalizedResultIdentity = item => {
+  const normalizedItem = normalizeStoredDayPayload(item);
 
-  return existingResults.some(item =>
-    normalizeResultKey(item.category) === nextCategory &&
-    normalizeResultKey(item.track_name) === nextTrack &&
-    normalizeResultKey(item.sticker_number) === nextSticker
-  );
+  return {
+    category: normalizeResultKey(normalizedItem.category),
+    trackName: normalizeResultKey(normalizedItem.track_name),
+    stickerNumber: normalizeResultKey(normalizedItem.sticker_number),
+    dayId: normalizeResultKey(normalizedItem.selected_day_id || normalizedItem.selectedDayId),
+  };
 };
-const getResultDuplicateKey = item => [
-  normalizeResultKey(item.category),
-  normalizeResultKey(item.track_name),
-  normalizeResultKey(item.sticker_number),
-].join('|');
-const WEB_FALLBACK_TEAMS = [
-  {
-    team_name: 'Team offroaders Pune ',
-    driver_name: 'Ritesh Bire ',
-    driver_blood_group: 'O +ve',
-    codriver_name: 'Shaurya Bire ',
-    codriver_blood_group: 'O +ve',
-    car_number: '1',
-    category: 'PETROL_EXPERT',
-    vehicle_name: '',
-    vehicle_model: '',
-    socials: '7999',
-    status: 'CONFIRMED',
-  },
-  {
-    team_name: 'Team satara offroad ',
-    driver_name: 'Raj Santosh deshmukh ',
-    driver_blood_group: 'B +ve',
-    codriver_name: 'Ajay misal',
-    codriver_blood_group: 'B +ve',
-    car_number: '4',
-    category: 'PETROL_EXPERT',
-    vehicle_name: '',
-    vehicle_model: '',
-    socials: '7999',
-    status: 'CONFIRMED',
-  },
-  {
-    team_name: 'Team motoRnation ',
-    driver_name: 'Aniket shete',
-    driver_blood_group: 'A +ve',
-    codriver_name: 'Anvita shete',
-    codriver_blood_group: 'AB +ve',
-    car_number: '4',
-    category: 'JIMNY_SUV',
-    vehicle_name: '',
-    vehicle_model: '',
-    socials: '7999',
-    status: 'CONFIRMED',
-  },
-  {
-    team_name: 'TEAM SATARA OFF ROADERS',
-    driver_name: 'PRATAP D. SHINGATE',
-    driver_blood_group: 'A +ve',
-    codriver_name: 'SURAJ GULUMKAR',
-    codriver_blood_group: 'AB +ve',
-    car_number: '7',
-    category: 'PETROL_EXPERT',
-    vehicle_name: '',
-    vehicle_model: '',
-    socials: '7999',
-    status: 'CONFIRMED',
-  },
-  {
-    team_name: 'Uzma',
-    driver_name: 'Asif faras',
-    driver_blood_group: 'B +ve',
-    codriver_name: 'Saeed shaikh',
-    codriver_blood_group: 'O +ve',
-    car_number: '7',
-    category: 'DIESEL_EXPERT',
-    vehicle_name: '',
-    vehicle_model: '',
-    socials: '7999',
-    status: 'CONFIRMED',
-  },
-  {
-    team_name: 'Minal ',
-    driver_name: 'Minal shete',
-    driver_blood_group: 'A +ve',
-    codriver_name: 'Amit shete',
-    codriver_blood_group: 'A +ve',
-    car_number: '8',
-    category: 'LADIES',
-    vehicle_name: '',
-    vehicle_model: '',
-    socials: '0',
-    status: 'CONFIRMED',
-  },
-  {
-    team_name: 'Team motoRnation ',
-    driver_name: 'Anvita aniket shete',
-    driver_blood_group: 'AB -ve',
-    codriver_name: 'Aniket shete',
-    codriver_blood_group: 'A +ve',
-    car_number: '12',
-    category: 'LADIES',
-    vehicle_name: '',
-    vehicle_model: '',
-    socials: '',
-    status: 'CONFIRMED',
-  },
-  {
-    team_name: 'BAAZ',
-    driver_name: 'Malkit Singh Saini',
-    driver_blood_group: '',
-    codriver_name: 'Gurdeep Singh Saini',
-    codriver_blood_group: 'B +ve',
-    car_number: '27',
-    category: 'DIESEL_MODIFIED',
-    vehicle_name: '',
-    vehicle_model: '',
-    socials: '9999',
-    status: 'CONFIRMED',
-  },
-];
+
+const isDuplicateResult = (existingResults, resultData) => {
+  const nextIdentity = getNormalizedResultIdentity(resultData);
+
+  return existingResults.some(item => {
+    const existingIdentity = getNormalizedResultIdentity(item);
+
+    return (
+      existingIdentity.category === nextIdentity.category &&
+      existingIdentity.trackName === nextIdentity.trackName &&
+      existingIdentity.stickerNumber === nextIdentity.stickerNumber &&
+      existingIdentity.dayId === nextIdentity.dayId
+    );
+  });
+};
+const getResultDuplicateKey = item => {
+  const identity = getNormalizedResultIdentity(item);
+
+  return [identity.category, identity.trackName, identity.stickerNumber, identity.dayId].join('|');
+};
+const getDisputeDraftKey = item => {
+  const identity = getNormalizedResultIdentity(item);
+
+  return [identity.category, identity.trackName, identity.stickerNumber, identity.dayId].join('|');
+};
+const WEB_FALLBACK_TEAMS = SEEDED_TEAMS;
 
 const logAxiosError = (label, error) => {
   const status = error?.response?.status;
@@ -561,9 +481,10 @@ export const ResultsService = {
 
   addResult: async resultData => {
     try {
+      const normalizedResultData = normalizeStoredDayPayload(resultData);
       if (isWeb) {
         const existingResults = JSON.parse(window.localStorage.getItem(WEB_RESULTS_KEY) || '[]');
-        if (isDuplicateResult(existingResults, resultData)) {
+        if (isDuplicateResult(existingResults, normalizedResultData)) {
           const duplicateError = new Error('Duplicate result already exists');
           duplicateError.code = 'DUPLICATE_RESULT';
           throw duplicateError;
@@ -571,7 +492,7 @@ export const ResultsService = {
 
         const nextResults = [
           {
-            ...resultData,
+            ...normalizedResultData,
             id: Date.now(),
             created_at: new Date().toISOString(),
           },
@@ -581,7 +502,7 @@ export const ResultsService = {
         return nextResults[0].id;
       }
 
-      const localId = await addResultDB(resultData);
+      const localId = await addResultDB(normalizedResultData);
       console.log('💾 Result saved to local database, ID:', localId);
 
       return localId;
@@ -624,10 +545,74 @@ export const ResultsService = {
   },
 };
 
+export const DisputesService = {
+  saveDispute: async disputeData => {
+    try {
+      const normalizedDisputeData = normalizeStoredDayPayload(disputeData);
+      if (isWeb) {
+        const existingDisputes = JSON.parse(window.localStorage.getItem(WEB_DISPUTES_KEY) || '[]');
+        const draftKey = getDisputeDraftKey(normalizedDisputeData);
+        const existingIndex = existingDisputes.findIndex(item => getDisputeDraftKey(item) === draftKey);
+        const nextDispute = {
+          ...normalizedDisputeData,
+          id: existingIndex >= 0 ? existingDisputes[existingIndex].id : Date.now(),
+          updated_at: new Date().toISOString(),
+          created_at: existingIndex >= 0 ? existingDisputes[existingIndex].created_at : new Date().toISOString(),
+        };
+
+        const nextDisputes =
+          existingIndex >= 0
+            ? existingDisputes.map((item, index) => (index === existingIndex ? nextDispute : item))
+            : [nextDispute, ...existingDisputes];
+
+        window.localStorage.setItem(WEB_DISPUTES_KEY, JSON.stringify(nextDisputes));
+        return nextDispute.id;
+      }
+
+      return await saveDisputeDB(normalizedDisputeData);
+    } catch (error) {
+      console.error('Error saving dispute:', error);
+      throw error;
+    }
+  },
+
+  getAllDisputes: async () => {
+    try {
+      if (isWeb) {
+        return JSON.parse(window.localStorage.getItem(WEB_DISPUTES_KEY) || '[]');
+      }
+
+      return await getDisputesDB();
+    } catch (error) {
+      console.error('Error fetching disputes:', error);
+      return [];
+    }
+  },
+
+  deleteDisputeById: async id => {
+    try {
+      if (isWeb) {
+        const existingDisputes = JSON.parse(window.localStorage.getItem(WEB_DISPUTES_KEY) || '[]');
+        window.localStorage.setItem(
+          WEB_DISPUTES_KEY,
+          JSON.stringify(existingDisputes.filter(item => String(item.id) !== String(id)))
+        );
+        return true;
+      }
+
+      return await deleteDisputeByIdDB(id);
+    } catch (error) {
+      console.error('Error deleting dispute:', error);
+      throw error;
+    }
+  },
+};
+
 export default {
   TeamsService,
   PlayersService,
   CategoriesService,
   RegistrationsService,
   ResultsService,
+  DisputesService,
 };
