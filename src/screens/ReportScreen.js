@@ -12,6 +12,10 @@ import {
   Platform,
 } from 'react-native';
 import { ResultsService, DisputesService } from '../services/dataService';
+import {
+  isDnsResult,
+  rankTrackResults,
+} from '../utils/scoring';
 
 const HEADING_FONT = Platform.select({
   ios: 'monospace',
@@ -125,67 +129,36 @@ const getResultIdentityKey = item => {
   ].join('|');
 };
 
-const parseTimeForSort = value => {
-  const rawValue = String(value || '').trim();
+const getNormalizedDisputeDetailEntries = source => {
+  const rawDetails = source?.disputeDetails ?? source?.dispute_details ?? [];
 
-  if (!rawValue || rawValue === '--' || rawValue.toUpperCase() === 'DNS') {
-    return Number.POSITIVE_INFINITY;
+  if (!Array.isArray(rawDetails)) {
+    return [];
   }
 
-  if (rawValue.toUpperCase() === 'DISPUTED') {
-    return Number.POSITIVE_INFINITY;
-  }
+  return rawDetails
+    .map(entry => {
+      const key = String(entry?.key || '').trim();
+      const label = String(entry?.label || '').trim();
+      const detail = String(entry?.detail || '').trim();
 
-  const parts = rawValue.split(':').map(part => Number(part));
+      if (!key || !label || !detail) {
+        return null;
+      }
 
-  if (parts.some(part => Number.isNaN(part))) {
-    return Number.POSITIVE_INFINITY;
-  }
-
-  if (parts.length === 3) {
-    const [minutes, seconds, centiseconds] = parts;
-    return minutes * 60000 + seconds * 1000 + centiseconds * 10;
-  }
-
-  if (parts.length === 2) {
-    const [minutes, seconds] = parts;
-    return minutes * 60000 + seconds * 1000;
-  }
-
-  return Number.POSITIVE_INFINITY;
+      return {
+        key,
+        label,
+        detail,
+      };
+    })
+    .filter(Boolean);
 };
 
-const compareResultsByRank = (a, b) => {
-  const aIsDns = Boolean(a.is_dns || a.isDns);
-  const bIsDns = Boolean(b.is_dns || b.isDns);
-  const aIsDisputed = Boolean(a.isDisputed);
-  const bIsDisputed = Boolean(b.isDisputed);
-
-  if (aIsDisputed !== bIsDisputed) {
-    if (aIsDns || bIsDns) {
-      return aIsDns ? 1 : -1;
-    }
-
-    return aIsDisputed ? 1 : -1;
-  }
-
-  if (aIsDns !== bIsDns) {
-    return aIsDns ? 1 : -1;
-  }
-
-  const aTime = parseTimeForSort(a.total_time || a.totalTimeDisplay || a.performance_time || a.performanceTimeDisplay);
-  const bTime = parseTimeForSort(b.total_time || b.totalTimeDisplay || b.performance_time || b.performanceTimeDisplay);
-
-  if (aTime !== bTime) {
-    return aTime - bTime;
-  }
-
-  return String(a.sticker_number || a.stickerNumber || '').localeCompare(
-    String(b.sticker_number || b.stickerNumber || ''),
-    undefined,
-    { numeric: true }
-  );
-};
+const formatDisputeEntriesInline = source =>
+  getNormalizedDisputeDetailEntries(source)
+    .map(entry => `${entry.label}: ${entry.detail}`)
+    .join(' • ');
 
 const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], theme = DEFAULT_THEME }) => {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -330,15 +303,15 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], the
     }));
   }, [selectedCategoryConfig, selectedCategoryResults]);
 
-  const selectedTrackResults = useMemo(
-    () =>
-      selectedTrack
-        ? selectedCategoryResults
-            .filter(item => normalizeValue(item.track_name || item.trackName || '') === selectedTrack)
-            .sort(compareResultsByRank)
-        : [],
-    [selectedCategoryResults, selectedTrack]
-  );
+  const selectedTrackResults = useMemo(() => {
+    if (!selectedTrack) {
+      return [];
+    }
+
+    return rankTrackResults(
+      selectedCategoryResults.filter(item => normalizeValue(item.track_name || item.trackName || '') === selectedTrack)
+    );
+  }, [selectedCategoryResults, selectedTrack]);
 
   useEffect(() => {
     if (selectedCategory && !categoryCards.some(item => item.key === selectedCategory)) {
@@ -435,7 +408,7 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], the
                   <Text style={[styles.stageSubtitle, { color: theme.textSecondary }]}>
                     {!selectedTrack
                       ? 'Select an active track for this day.'
-                      : `${selectedTrackResults.length} ${selectedTrackResults.length === 1 ? 'record' : 'records'} in ${trackCards.find(item => item.key === selectedTrack)?.label || ''}`}
+                      : `${selectedTrackResults.length} ${selectedTrackResults.length === 1 ? 'record' : 'records'} in ${trackCards.find(item => item.key === selectedTrack)?.label || ''} | Points are calculated for this track only.`}
                   </Text>
                 </View>
                 <TouchableOpacity
@@ -497,7 +470,7 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], the
                         <Text style={[styles.tableHeaderCell, styles.stickerCell, { color: theme.textSecondary }]}>Sticker No.</Text>
                         <Text style={[styles.tableHeaderCell, styles.driverCell, { color: theme.textSecondary }]}>Driver Name</Text>
                         <Text style={[styles.tableHeaderCell, styles.codriverCell, { color: theme.textSecondary }]}>Co-Driver Name</Text>
-                        <Text style={[styles.tableHeaderCell, styles.totalCell, { color: theme.textSecondary }]}>Total Timing</Text>
+                        <Text style={[styles.tableHeaderCell, styles.totalHeaderCell, { color: theme.textSecondary }]}>Timing / Points</Text>
                       </View>
                     }
                     ListEmptyComponent={
@@ -512,11 +485,49 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], the
                       const stickerNumber = item.sticker_number || item.stickerNumber || '--';
                       const driverName = item.driver_name || item.driverName || '--';
                       const coDriverName = item.codriver_name || item.coDriverName || '--';
+                      const disputeDetailSummary = item.isDisputed ? formatDisputeEntriesInline(item) : '';
                       const totalTime = item.isDisputed
                         ? 'Disputed'
-                        : item.is_dns || item.isDns
+                        : isDnsResult(item)
                         ? 'DNS'
                         : item.total_time || item.totalTimeDisplay || '--';
+                      const pointsLabel =
+                        item.reportPoints === null || item.reportPoints === undefined ? '--' : `${item.reportPoints}`;
+                      const resultMetaLabel = item.reportRankLabel ? `${item.reportRankLabel} | ${pointsLabel} pts` : `${pointsLabel} pts`;
+
+                      if (item.isDisputed && disputeDetailSummary) {
+                        return (
+                          <View style={[styles.tableRowGroup, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                            <View style={styles.tableRowMain}>
+                              <Text style={[styles.tableCell, styles.stickerCell, { color: theme.textPrimary }]}>#{stickerNumber}</Text>
+                              <Text style={[styles.tableCell, styles.driverCell, { color: theme.textPrimary }]} numberOfLines={1}>
+                                {driverName}
+                              </Text>
+                              <Text style={[styles.tableCell, styles.codriverCell, { color: theme.textPrimary }]} numberOfLines={1}>
+                                {coDriverName}
+                              </Text>
+                              <View style={styles.totalCell}>
+                                <Text
+                                  style={[
+                                    styles.tableCell,
+                                    styles.totalValueText,
+                                    { color: theme.accent },
+                                    styles.disputedValue,
+                                  ]}
+                                >
+                                  {totalTime}
+                                </Text>
+                                <Text style={[styles.pointsMetaText, { color: theme.textSecondary }]}>
+                                  {resultMetaLabel}
+                                </Text>
+                              </View>
+                            </View>
+                            <Text style={[styles.disputeDetailText, { color: theme.textSecondary }]}>
+                              {disputeDetailSummary}
+                            </Text>
+                          </View>
+                        );
+                      }
 
                       return (
                         <View style={[styles.tableRow, { backgroundColor: theme.surface, borderColor: theme.border }]}>
@@ -527,16 +538,21 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], the
                           <Text style={[styles.tableCell, styles.codriverCell, { color: theme.textPrimary }]} numberOfLines={1}>
                             {coDriverName}
                           </Text>
-                          <Text
-                            style={[
-                              styles.tableCell,
-                              styles.totalCell,
-                              { color: item.isDisputed ? theme.accent : theme.textPrimary },
-                              item.isDisputed && styles.disputedValue,
-                            ]}
-                          >
-                            {totalTime}
-                          </Text>
+                          <View style={styles.totalCell}>
+                            <Text
+                              style={[
+                                styles.tableCell,
+                                styles.totalValueText,
+                                { color: item.isDisputed ? theme.accent : theme.textPrimary },
+                                item.isDisputed && styles.disputedValue,
+                              ]}
+                            >
+                              {totalTime}
+                            </Text>
+                            <Text style={[styles.pointsMetaText, { color: theme.textSecondary }]}>
+                              {resultMetaLabel}
+                            </Text>
+                          </View>
                         </View>
                       );
                     }}
@@ -775,6 +791,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     marginBottom: 10,
   },
+  tableRowGroup: {
+    backgroundColor: '#111722',
+    borderWidth: 1,
+    borderColor: '#2a3441',
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+  },
+  tableRowMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   tableCell: {
     fontSize: 13,
     fontWeight: '700',
@@ -793,12 +822,34 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingRight: 8,
   },
-  totalCell: {
-    width: 110,
+  totalHeaderCell: {
+    width: 124,
     textAlign: 'right',
+  },
+  totalCell: {
+    width: 124,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  totalValueText: {
+    textAlign: 'right',
+  },
+  pointsMetaText: {
+    marginTop: 3,
+    fontSize: 11,
+    fontWeight: '700',
+    textAlign: 'right',
+    fontFamily: BODY_FONT,
   },
   disputedValue: {
     color: '#ffb15a',
+  },
+  disputeDetailText: {
+    marginTop: 8,
+    fontSize: 12,
+    lineHeight: 17,
+    color: '#cdbf9a',
+    fontFamily: BODY_FONT,
   },
   listContent: {
     paddingBottom: 24,
