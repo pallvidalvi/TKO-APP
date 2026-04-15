@@ -13,10 +13,13 @@ import {
   Alert,
   Platform,
   Image,
+  ActivityIndicator,
   Vibration,
   useWindowDimensions,
 } from 'react-native';
 import { Audio } from 'expo-av';
+import * as ImagePicker from 'expo-image-picker';
+import { detectFaces } from 'react-native-vision-camera-face-detector';
 import { initializeDatabase, seedDatabase } from './src/db/database';
 import { TeamsService, CategoriesService, ResultsService, DisputesService } from './src/services/dataService';
 import ReportScreen from './src/screens/ReportScreen';
@@ -128,25 +131,22 @@ const CSVExporter = {
   },
 };
 
-// Get device dimensions for responsive design
-const { width, height } = Dimensions.get('window');
-const IS_TABLET = width >= 768;
-const IS_SMALL_PHONE = width < 390;
-const USE_SPLIT_LAYOUT = width >= 900;
-const USE_TWO_COLUMN_PENALTIES = width >= 360;
-const CARD_WIDTH = width >= 600 ? (width - 76) / 2 : (width - 44) / 2;
+const MIN_TOUCH_TARGET = 48;
+const TOUCH_HIT_SLOP = { top: 8, right: 8, bottom: 8, left: 8 };
 
 const getResponsiveLayout = (screenWidth, screenHeight) => {
   const shortestSide = Math.min(screenWidth, screenHeight);
   const isTablet = shortestSide >= 600;
+  const isLargeTablet = shortestSide >= 720;
   const isSmallPhone = screenWidth < 390;
   const isLandscape = screenWidth > screenHeight;
-  const categoryColumns = screenWidth >= 1220 ? 4 : screenWidth >= 820 ? 3 : 2;
-  const penaltyColumns = screenWidth >= 1180 ? 3 : screenWidth >= 520 ? 2 : 1;
-  const useSplitLayout = screenWidth >= 960;
-  const shellMaxWidth = isTablet ? Math.min(screenWidth - 32, 1180) : screenWidth;
-  const shellPadding = isTablet ? 24 : isSmallPhone ? 12 : 16;
-  const gridGap = isTablet ? 16 : 12;
+  const isTabletLandscape = isTablet && isLandscape;
+  const categoryColumns = screenWidth >= 1280 ? 4 : screenWidth >= 920 ? 3 : 2;
+  const penaltyColumns = screenWidth >= 980 ? 3 : screenWidth >= 600 ? 2 : 1;
+  const useSplitLayout = isTabletLandscape && screenWidth >= 960;
+  const shellMaxWidth = isTablet ? Math.min(screenWidth - 24, 1320) : screenWidth;
+  const shellPadding = isLargeTablet ? 28 : isTablet ? 24 : isSmallPhone ? 12 : 16;
+  const gridGap = isLargeTablet ? 18 : isTablet ? 16 : 12;
   const usableWidth = Math.max(shellMaxWidth - shellPadding * 2, 0);
   const categoryCardWidth =
     usableWidth > 0
@@ -157,8 +157,10 @@ const getResponsiveLayout = (screenWidth, screenHeight) => {
     screenWidth,
     screenHeight,
     isTablet,
+    isLargeTablet,
     isSmallPhone,
     isLandscape,
+    isTabletLandscape,
     categoryColumns,
     penaltyColumns,
     useSplitLayout,
@@ -168,6 +170,13 @@ const getResponsiveLayout = (screenWidth, screenHeight) => {
     categoryCardWidth,
   };
 };
+
+const INITIAL_LAYOUT = getResponsiveLayout(Dimensions.get('window').width, Dimensions.get('window').height);
+const IS_TABLET = INITIAL_LAYOUT.isTablet;
+const IS_SMALL_PHONE = INITIAL_LAYOUT.isSmallPhone;
+const USE_SPLIT_LAYOUT = INITIAL_LAYOUT.useSplitLayout;
+const USE_TWO_COLUMN_PENALTIES = INITIAL_LAYOUT.penaltyColumns > 1;
+const CARD_WIDTH = INITIAL_LAYOUT.categoryCardWidth;
 
 const CATEGORY_TRACKS = {
   EXTREME: ['CHANDOLI', 'TADOBA', 'SUNDARBAN', 'RANTHAMBORE', 'KANHA'],
@@ -494,6 +503,17 @@ const DEFAULT_SETTINGS_PASSWORD = 'Pritisangam@MH50';
 const APP_SETTINGS_STORAGE_KEY = 'tko_admin_settings_v1';
 const APP_SETTINGS_FILE_NAME = 'tko-admin-settings.json';
 const DEFAULT_THEME_MODE = 'dark';
+const MAX_ENROLLED_FACES = 5;
+const FACE_IMAGE_DIRECTORY_NAME = 'face-recognition';
+const FACE_MATCH_DEFAULT_THRESHOLD = 0.24;
+const FACE_DETECTION_OPTIONS = Object.freeze({
+  performanceMode: 'accurate',
+  landmarkMode: 'all',
+  classificationMode: 'none',
+  contourMode: 'none',
+  minFaceSize: 0.2,
+});
+const REQUIRED_FACE_LANDMARK_KEYS = ['LEFT_EYE', 'RIGHT_EYE', 'NOSE_BASE', 'MOUTH_LEFT', 'MOUTH_RIGHT'];
 
 const APP_THEMES = {
   dark: {
@@ -557,6 +577,176 @@ const isStrongPassword = value => {
     /\d/.test(password) &&
     /[^A-Za-z0-9]/.test(password)
   );
+};
+
+const getPointDistance = (firstPoint, secondPoint) => {
+  if (!firstPoint || !secondPoint) {
+    return 0;
+  }
+
+  const deltaX = Number(secondPoint.x || 0) - Number(firstPoint.x || 0);
+  const deltaY = Number(secondPoint.y || 0) - Number(firstPoint.y || 0);
+  return Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+};
+
+const getPointMidpoint = (firstPoint, secondPoint) => ({
+  x: (Number(firstPoint?.x || 0) + Number(secondPoint?.x || 0)) / 2,
+  y: (Number(firstPoint?.y || 0) + Number(secondPoint?.y || 0)) / 2,
+});
+
+const resolveRequiredFaceLandmarks = face => {
+  const landmarks = face?.landmarks || {};
+  const resolved = {};
+
+  for (const key of REQUIRED_FACE_LANDMARK_KEYS) {
+    if (!landmarks[key]) {
+      return null;
+    }
+
+    resolved[key] = landmarks[key];
+  }
+
+  return resolved;
+};
+
+const getNormalizedFeaturePoint = (point, leftEye, rightEye, eyeDistance) => {
+  const eyeMidpoint = getPointMidpoint(leftEye, rightEye);
+  const eyeAngle = Math.atan2(
+    Number(rightEye?.y || 0) - Number(leftEye?.y || 0),
+    Number(rightEye?.x || 0) - Number(leftEye?.x || 0)
+  );
+  const relativeX = Number(point?.x || 0) - eyeMidpoint.x;
+  const relativeY = Number(point?.y || 0) - eyeMidpoint.y;
+  const cosValue = Math.cos(-eyeAngle);
+  const sinValue = Math.sin(-eyeAngle);
+
+  return {
+    x: (relativeX * cosValue - relativeY * sinValue) / eyeDistance,
+    y: (relativeX * sinValue + relativeY * cosValue) / eyeDistance,
+  };
+};
+
+const buildFaceTemplate = face => {
+  const landmarks = resolveRequiredFaceLandmarks(face);
+
+  if (!landmarks) {
+    return null;
+  }
+
+  const leftEye = landmarks.LEFT_EYE;
+  const rightEye = landmarks.RIGHT_EYE;
+  const eyeDistance = getPointDistance(leftEye, rightEye);
+
+  if (!eyeDistance || eyeDistance < 1) {
+    return null;
+  }
+
+  const orderedPoints = [
+    leftEye,
+    rightEye,
+    landmarks.NOSE_BASE,
+    landmarks.MOUTH_LEFT,
+    landmarks.MOUTH_RIGHT,
+  ];
+  const vector = [];
+
+  for (let currentIndex = 0; currentIndex < orderedPoints.length; currentIndex += 1) {
+    for (let compareIndex = currentIndex + 1; compareIndex < orderedPoints.length; compareIndex += 1) {
+      vector.push(getPointDistance(orderedPoints[currentIndex], orderedPoints[compareIndex]) / eyeDistance);
+    }
+  }
+
+  [landmarks.NOSE_BASE, landmarks.MOUTH_LEFT, landmarks.MOUTH_RIGHT].forEach(point => {
+    const normalizedPoint = getNormalizedFeaturePoint(point, leftEye, rightEye, eyeDistance);
+    vector.push(normalizedPoint.x, normalizedPoint.y);
+  });
+
+  vector.push(Number(face?.yawAngle || 0) / 45);
+  vector.push(Number(face?.rollAngle || 0) / 45);
+  vector.push(Number(face?.pitchAngle || 0) / 45);
+
+  return {
+    version: 1,
+    vector,
+  };
+};
+
+const getFaceTemplateDistance = (firstTemplate, secondTemplate) => {
+  if (!firstTemplate?.vector || !secondTemplate?.vector) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const featureCount = Math.min(firstTemplate.vector.length, secondTemplate.vector.length);
+
+  if (!featureCount) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  let sum = 0;
+
+  for (let index = 0; index < featureCount; index += 1) {
+    const delta = Number(firstTemplate.vector[index] || 0) - Number(secondTemplate.vector[index] || 0);
+    sum += delta * delta;
+  }
+
+  return Math.sqrt(sum / featureCount);
+};
+
+const getDynamicFaceMatchThreshold = enrolledFaces => {
+  const templates = (enrolledFaces || [])
+    .map(face => face?.template)
+    .filter(template => Array.isArray(template?.vector) && template.vector.length);
+
+  if (templates.length < 2) {
+    return FACE_MATCH_DEFAULT_THRESHOLD;
+  }
+
+  const distances = [];
+
+  for (let firstIndex = 0; firstIndex < templates.length; firstIndex += 1) {
+    for (let secondIndex = firstIndex + 1; secondIndex < templates.length; secondIndex += 1) {
+      const distance = getFaceTemplateDistance(templates[firstIndex], templates[secondIndex]);
+
+      if (Number.isFinite(distance)) {
+        distances.push(distance);
+      }
+    }
+  }
+
+  if (!distances.length) {
+    return FACE_MATCH_DEFAULT_THRESHOLD;
+  }
+
+  const maxDistance = Math.max(...distances);
+  const averageDistance = distances.reduce((sum, distance) => sum + distance, 0) / distances.length;
+
+  return Math.min(0.42, Math.max(FACE_MATCH_DEFAULT_THRESHOLD, maxDistance * 1.18, averageDistance * 1.4));
+};
+
+const getFaceMatchResult = (enrolledFaces, candidateTemplate) => {
+  const threshold = getDynamicFaceMatchThreshold(enrolledFaces);
+  let bestMatch = null;
+
+  (enrolledFaces || []).forEach(face => {
+    const distance = getFaceTemplateDistance(face?.template, candidateTemplate);
+
+    if (!Number.isFinite(distance)) {
+      return;
+    }
+
+    if (!bestMatch || distance < bestMatch.distance) {
+      bestMatch = {
+        face,
+        distance,
+      };
+    }
+  });
+
+  return {
+    matched: Boolean(bestMatch && bestMatch.distance <= threshold),
+    threshold,
+    bestMatch,
+  };
 };
 
 const normalizeCategoryKey = (value = '') => {
@@ -760,6 +950,15 @@ const buildDefaultTrackActivationConfig = () =>
     return dayAcc;
   }, {});
 
+const buildDefaultCategoryActivationConfig = () =>
+  REPORT_DAYS.reduce((dayAcc, day) => {
+    dayAcc[day.id] = Object.keys(CATEGORY_TRACKS).reduce((categoryAcc, categoryKey) => {
+      categoryAcc[categoryKey] = true;
+      return categoryAcc;
+    }, {});
+    return dayAcc;
+  }, {});
+
 const normalizeTrackActivationConfig = storedConfig => {
   const fallback = buildDefaultTrackActivationConfig();
 
@@ -774,6 +973,33 @@ const normalizeTrackActivationConfig = storedConfig => {
     }, {});
     return dayAcc;
   }, fallback);
+};
+
+const normalizeCategoryActivationConfig = storedConfig => {
+  const fallback = buildDefaultCategoryActivationConfig();
+
+  return REPORT_DAYS.reduce((dayAcc, day) => {
+    dayAcc[day.id] = Object.keys(CATEGORY_TRACKS).reduce((categoryAcc, categoryKey) => {
+      const storedValue = storedConfig?.[day.id]?.[categoryKey];
+      categoryAcc[categoryKey] = typeof storedValue === 'boolean' ? storedValue : true;
+      return categoryAcc;
+    }, {});
+    return dayAcc;
+  }, fallback);
+};
+
+const isCategoryActiveForDay = (categoryActivationConfig, dayId, categoryName) => {
+  const categoryKey = normalizeCategoryKey(categoryName || '');
+
+  if (!categoryKey) {
+    return true;
+  }
+
+  if (!dayId) {
+    return true;
+  }
+
+  return categoryActivationConfig?.[dayId]?.[categoryKey] !== false;
 };
 
 const getActiveTracksForDayCategory = (trackActivationConfig, dayId, categoryName) => {
@@ -793,11 +1019,35 @@ const getActiveTracksForDayCategory = (trackActivationConfig, dayId, categoryNam
   return allTracks.filter(trackName => dayConfig[trackName] !== false);
 };
 
+const normalizeEnrolledFaceRecords = storedFaces =>
+  (Array.isArray(storedFaces) ? storedFaces : [])
+    .map((face, index) => ({
+      id: String(face?.id || `face-${index + 1}`),
+      label: String(face?.label || `Face ${index + 1}`),
+      uri: String(face?.uri || ''),
+      createdAt: String(face?.createdAt || new Date().toISOString()),
+      template: {
+        version: Number(face?.template?.version || 1),
+        vector: Array.isArray(face?.template?.vector)
+          ? face.template.vector
+              .map(value => Number(value))
+              .filter(value => Number.isFinite(value))
+          : [],
+      },
+    }))
+    .filter(face => face.uri && face.template.vector.length);
+
+const getDefaultFaceRecognitionSettings = () => ({
+  enrolledFaces: [],
+});
+
 const loadStoredAppSettings = async () => {
   const fallback = {
     password: DEFAULT_SETTINGS_PASSWORD,
+    categoryActivationConfig: buildDefaultCategoryActivationConfig(),
     trackActivationConfig: buildDefaultTrackActivationConfig(),
     themeMode: DEFAULT_THEME_MODE,
+    faceRecognition: getDefaultFaceRecognitionSettings(),
   };
 
   try {
@@ -811,8 +1061,12 @@ const loadStoredAppSettings = async () => {
       const parsed = JSON.parse(raw);
       return {
         password: parsed?.password || DEFAULT_SETTINGS_PASSWORD,
+        categoryActivationConfig: normalizeCategoryActivationConfig(parsed?.categoryActivationConfig),
         trackActivationConfig: normalizeTrackActivationConfig(parsed?.trackActivationConfig),
         themeMode: normalizeThemeMode(parsed?.themeMode),
+        faceRecognition: {
+          enrolledFaces: normalizeEnrolledFaceRecords(parsed?.faceRecognition?.enrolledFaces),
+        },
       };
     }
 
@@ -828,8 +1082,12 @@ const loadStoredAppSettings = async () => {
       const parsed = JSON.parse(raw);
       return {
         password: parsed?.password || DEFAULT_SETTINGS_PASSWORD,
+        categoryActivationConfig: normalizeCategoryActivationConfig(parsed?.categoryActivationConfig),
         trackActivationConfig: normalizeTrackActivationConfig(parsed?.trackActivationConfig),
         themeMode: normalizeThemeMode(parsed?.themeMode),
+        faceRecognition: {
+          enrolledFaces: normalizeEnrolledFaceRecords(parsed?.faceRecognition?.enrolledFaces),
+        },
       };
     }
   } catch (error) {
@@ -842,8 +1100,12 @@ const loadStoredAppSettings = async () => {
 const saveStoredAppSettings = async settings => {
   const payload = JSON.stringify({
     password: settings.password || DEFAULT_SETTINGS_PASSWORD,
+    categoryActivationConfig: normalizeCategoryActivationConfig(settings.categoryActivationConfig),
     trackActivationConfig: normalizeTrackActivationConfig(settings.trackActivationConfig),
     themeMode: normalizeThemeMode(settings.themeMode),
+    faceRecognition: {
+      enrolledFaces: normalizeEnrolledFaceRecords(settings.faceRecognition?.enrolledFaces),
+    },
   });
 
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -1241,6 +1503,8 @@ const CustomDropdown = ({ label, value, options, onValueChange }) => {
       <TouchableOpacity
         style={styles.dropdownButton}
         onPress={() => setIsOpen(!isOpen)}
+        activeOpacity={0.85}
+        hitSlop={TOUCH_HIT_SLOP}
       >
         <Text style={styles.dropdownButtonText}>{value}</Text>
         <Text style={styles.dropdownArrow}>{isOpen ? '▲' : '▼'}</Text>
@@ -1255,6 +1519,8 @@ const CustomDropdown = ({ label, value, options, onValueChange }) => {
                 onValueChange(option);
                 setIsOpen(false);
               }}
+              activeOpacity={0.85}
+              hitSlop={TOUCH_HIT_SLOP}
             >
               <Text
                 style={[
@@ -1322,6 +1588,7 @@ const DNFSelector = ({
         onPress={handleToggle}
         disabled={disabled}
         activeOpacity={0.85}
+        hitSlop={TOUCH_HIT_SLOP}
       >
         <Text style={[styles.dnfToggleButtonText, hasSelection && styles.dnfToggleButtonTextActive]}>
           {hasSelection ? 'DNF Selected' : 'DNF'}
@@ -1337,6 +1604,7 @@ const DNFSelector = ({
             style={styles.dnfCheckboxRow}
             onPress={() => onWrongCourseChange(!wrongCourseSelected)}
             activeOpacity={0.85}
+            hitSlop={TOUCH_HIT_SLOP}
           >
             <View style={[styles.dnfCheckbox, wrongCourseSelected && styles.dnfCheckboxSelected]}>
               <Text style={styles.dnfCheckboxTick}>{wrongCourseSelected ? '✓' : ''}</Text>
@@ -1348,6 +1616,7 @@ const DNFSelector = ({
             style={styles.dnfCheckboxRow}
             onPress={() => onFourthAttemptChange(!fourthAttemptSelected)}
             activeOpacity={0.85}
+            hitSlop={TOUCH_HIT_SLOP}
           >
             <View style={[styles.dnfCheckbox, fourthAttemptSelected && styles.dnfCheckboxSelected]}>
               <Text style={styles.dnfCheckboxTick}>{fourthAttemptSelected ? '✓' : ''}</Text>
@@ -1359,6 +1628,7 @@ const DNFSelector = ({
             style={styles.dnfCheckboxRow}
             onPress={() => onTimeOverChange(!timeOverSelected)}
             activeOpacity={0.85}
+            hitSlop={TOUCH_HIT_SLOP}
           >
             <View style={[styles.dnfCheckbox, timeOverSelected && styles.dnfCheckboxSelected]}>
               <Text style={styles.dnfCheckboxTick}>{timeOverSelected ? '✓' : ''}</Text>
@@ -1378,6 +1648,7 @@ const DNFSelector = ({
               onPress={() => handleSelect(option)}
               disabled={!hasSelection}
               activeOpacity={0.85}
+              hitSlop={TOUCH_HIT_SLOP}
             >
               <Text
                 style={[
@@ -1402,6 +1673,7 @@ const DNFSelector = ({
                 setIsOpen(false);
               }}
               activeOpacity={0.85}
+              hitSlop={TOUCH_HIT_SLOP}
             >
               <Text style={styles.dnfClearButtonText}>Clear DNF</Text>
             </TouchableOpacity>
@@ -1449,6 +1721,7 @@ const LateStartSelector = ({
         onPress={handleToggle}
         disabled={disabled}
         activeOpacity={0.85}
+        hitSlop={TOUCH_HIT_SLOP}
       >
         <Text
           style={[
@@ -1476,6 +1749,7 @@ const LateStartSelector = ({
               style={styles.lateStartSelectorItem}
               onPress={() => handleSelect(option.value)}
               activeOpacity={0.85}
+              hitSlop={TOUCH_HIT_SLOP}
             >
               <Text
                 style={[
@@ -1492,6 +1766,7 @@ const LateStartSelector = ({
               style={[styles.lateStartSelectorItem, styles.lateStartSelectorClearItem]}
               onPress={() => handleSelect('')}
               activeOpacity={0.85}
+              hitSlop={TOUCH_HIT_SLOP}
             >
               <Text style={styles.lateStartSelectorClearText}>Clear Late Start</Text>
             </TouchableOpacity>
@@ -1516,6 +1791,7 @@ const LateStartCheckbox = ({
     }}
     disabled={disabled}
     activeOpacity={0.85}
+    hitSlop={TOUCH_HIT_SLOP}
   >
     <View style={[styles.lateStartCheckbox, checked && styles.lateStartCheckboxChecked]}>
       <Text style={styles.lateStartCheckboxTick}>{checked ? '✓' : ''}</Text>
@@ -1584,13 +1860,14 @@ const PenaltyCounter = ({
             styles.counterButton,
             disabled && styles.counterButtonDisabled,
             {
-              width: responsiveLayout.isTablet ? 40 : responsiveLayout.isSmallPhone ? 32 : 36,
-              height: responsiveLayout.isTablet ? 40 : responsiveLayout.isSmallPhone ? 32 : 36,
+              width: responsiveLayout.isTablet ? 54 : MIN_TOUCH_TARGET,
+              height: responsiveLayout.isTablet ? 54 : MIN_TOUCH_TARGET,
             },
           ]}
           onPress={handleDecrement}
           disabled={disabled}
           activeOpacity={0.8}
+          hitSlop={TOUCH_HIT_SLOP}
         >
           <Text
             style={[
@@ -1605,8 +1882,8 @@ const PenaltyCounter = ({
           style={[
             styles.counterInput,
             {
-              width: responsiveLayout.isTablet ? 56 : responsiveLayout.isSmallPhone ? 36 : 42,
-              height: responsiveLayout.isTablet ? 40 : responsiveLayout.isSmallPhone ? 32 : 36,
+              width: responsiveLayout.isTablet ? 60 : 54,
+              height: responsiveLayout.isTablet ? 54 : MIN_TOUCH_TARGET,
               fontSize: responsiveLayout.isTablet ? 22 : responsiveLayout.isSmallPhone ? 15 : 16,
             },
           ]}
@@ -1622,13 +1899,14 @@ const PenaltyCounter = ({
             styles.counterButton,
             disabled && styles.counterButtonDisabled,
             {
-              width: responsiveLayout.isTablet ? 40 : responsiveLayout.isSmallPhone ? 32 : 36,
-              height: responsiveLayout.isTablet ? 40 : responsiveLayout.isSmallPhone ? 32 : 36,
+              width: responsiveLayout.isTablet ? 54 : MIN_TOUCH_TARGET,
+              height: responsiveLayout.isTablet ? 54 : MIN_TOUCH_TARGET,
             },
           ]}
           onPress={handleIncrement}
           disabled={disabled}
           activeOpacity={0.8}
+          hitSlop={TOUCH_HIT_SLOP}
         >
           <Text
             style={[
@@ -1671,6 +1949,8 @@ const RegistrationForm = ({
   onClose,
   onSubmit,
   onHoldForDispute,
+  onVerifyFace,
+  enrolledFaceCount = 0,
   theme = APP_THEMES.dark,
 }) => {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -1697,6 +1977,7 @@ const RegistrationForm = ({
   const [hasTimerStopped, setHasTimerStopped] = useState(false);
   const [disputeModalVisible, setDisputeModalVisible] = useState(false);
   const [disputeFormState, setDisputeFormState] = useState(() => createEmptyDisputeFormState());
+  const [isFaceVerificationInProgress, setIsFaceVerificationInProgress] = useState(false);
 
   const PENALTY_VALUES = {
     busting: 20,
@@ -1962,10 +2243,30 @@ const RegistrationForm = ({
     return true;
   };
 
+  const runFaceVerification = async actionLabel => {
+    if (typeof onVerifyFace !== 'function') {
+      return true;
+    }
+
+    try {
+      setIsFaceVerificationInProgress(true);
+      return await onVerifyFace(actionLabel);
+    } finally {
+      setIsFaceVerificationInProgress(false);
+    }
+  };
+
   const handleSubmit = async () => {
     if (!validateSubmission()) {
       return;
     }
+
+    const didVerifyFace = await runFaceVerification('submit this stopwatch record');
+
+    if (!didVerifyFace) {
+      return;
+    }
+
     const formData = buildFormData();
     const didSubmit = await onSubmit(formData);
     if (didSubmit) {
@@ -1976,6 +2277,12 @@ const RegistrationForm = ({
 
   const handleDispute = async () => {
     if (!validateSubmission()) {
+      return;
+    }
+
+    const didVerifyFace = await runFaceVerification('open this stopwatch dispute');
+
+    if (!didVerifyFace) {
       return;
     }
 
@@ -2043,6 +2350,7 @@ const RegistrationForm = ({
   const startButtonDisabled = hasTimerStopped || isDNF;
   const resetButtonDisabled = isStopwatchRunning || stopwatchTime === 0;
   const showDisputeButton = initialRecord?.source !== 'dispute';
+  const faceEnrollmentIncomplete = enrolledFaceCount < MAX_ENROLLED_FACES;
 
   return (
     <>
@@ -2082,7 +2390,7 @@ const RegistrationForm = ({
                 {category.name}
               </Text>
               {!hasTimerStarted ? (
-                <TouchableOpacity onPress={handleClose}>
+                <TouchableOpacity onPress={handleClose} hitSlop={TOUCH_HIT_SLOP}>
                   <Text style={styles.closeButton}>✕</Text>
                 </TouchableOpacity>
               ) : null}
@@ -2116,6 +2424,7 @@ const RegistrationForm = ({
                       style={styles.detailsAccordionHeader}
                       onPress={() => setDetailsExpanded(prev => !prev)}
                       activeOpacity={0.85}
+                      hitSlop={TOUCH_HIT_SLOP}
                     >
                       <View style={styles.detailsTrackPill}>
                         <Text style={styles.detailsTrackPillText}>
@@ -2191,6 +2500,7 @@ const RegistrationForm = ({
                         ]}
                         onPress={toggleStopwatch}
                         disabled={startButtonDisabled}
+                        hitSlop={TOUCH_HIT_SLOP}
                       >
                         <Text
                           style={[
@@ -2211,6 +2521,7 @@ const RegistrationForm = ({
                         ]}
                         onPress={resetStopwatch}
                         disabled={resetButtonDisabled}
+                        hitSlop={TOUCH_HIT_SLOP}
                       >
                         <Text
                           style={[
@@ -2234,6 +2545,8 @@ const RegistrationForm = ({
                     },
                   ]}
                   contentContainerStyle={styles.dashboardRightPanelContent}
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled
                   showsVerticalScrollIndicator={false}
                 >
                   {initialRecord?.source === 'dispute' && currentDisputeEntries.length ? (
@@ -2515,6 +2828,24 @@ const RegistrationForm = ({
                 },
               ]}
             >
+              {faceEnrollmentIncomplete ? (
+                <View
+                  style={[
+                    styles.faceVerificationNotice,
+                    {
+                      backgroundColor: theme.surfaceAlt,
+                      borderColor: theme.border,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.faceVerificationNoticeTitle, { color: theme.accent }]}>
+                    Face Verification Required
+                  </Text>
+                  <Text style={[styles.faceVerificationNoticeText, { color: theme.textSecondary }]}>
+                    Enroll all {MAX_ENROLLED_FACES} faces in Settings before a stopwatch record can be saved.
+                  </Text>
+                </View>
+              ) : null}
               {showDisputeButton ? (
                 <TouchableOpacity
                   style={[
@@ -2525,9 +2856,13 @@ const RegistrationForm = ({
                   onPress={handleDispute}
                   disabled={disputeDisabled}
                 >
-                  <Text style={[styles.submitButtonText, { fontSize: responsiveLayout.isSmallPhone ? 14 : 15 }]}>
-                    Dispute
-                  </Text>
+                  {isFaceVerificationInProgress ? (
+                    <ActivityIndicator color={theme.primaryButtonText} />
+                  ) : (
+                    <Text style={[styles.submitButtonText, { fontSize: responsiveLayout.isSmallPhone ? 14 : 15 }]}>
+                      Dispute
+                    </Text>
+                  )}
                 </TouchableOpacity>
               ) : null}
               <TouchableOpacity
@@ -2539,9 +2874,13 @@ const RegistrationForm = ({
                 onPress={handleSubmit}
                 disabled={submitDisabled}
               >
-                <Text style={[styles.submitButtonText, { fontSize: responsiveLayout.isSmallPhone ? 14 : 15 }]}>
-                  SUBMIT
-                </Text>
+                {isFaceVerificationInProgress ? (
+                  <ActivityIndicator color={theme.primaryButtonText} />
+                ) : (
+                  <Text style={[styles.submitButtonText, { fontSize: responsiveLayout.isSmallPhone ? 14 : 15 }]}>
+                    SUBMIT
+                  </Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -2565,6 +2904,8 @@ const RegistrationForm = ({
             <ScrollView
               style={styles.disputeModalScroll}
               contentContainerStyle={styles.disputeModalContent}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
               showsVerticalScrollIndicator={false}
             >
               {DISPUTE_DETAIL_GROUPS.map(group => (
@@ -2579,6 +2920,7 @@ const RegistrationForm = ({
                           style={styles.disputeModalOptionHeader}
                           onPress={() => handleDisputeFieldToggle(item.key)}
                           activeOpacity={0.85}
+                          hitSlop={TOUCH_HIT_SLOP}
                         >
                           <View
                             style={[
@@ -2612,6 +2954,7 @@ const RegistrationForm = ({
                 style={[styles.settingsActionButton, styles.settingsSecondaryButton, styles.disputeModalActionButton]}
                 onPress={handleDisputeModalClose}
                 activeOpacity={0.85}
+                hitSlop={TOUCH_HIT_SLOP}
               >
                 <Text style={[styles.settingsActionButtonText, styles.settingsSecondaryButtonText]}>Cancel</Text>
               </TouchableOpacity>
@@ -2619,6 +2962,7 @@ const RegistrationForm = ({
                 style={[styles.settingsActionButton, styles.settingsPrimaryButton, styles.disputeModalActionButton]}
                 onPress={handleConfirmDispute}
                 activeOpacity={0.85}
+                hitSlop={TOUCH_HIT_SLOP}
               >
                 <Text style={styles.settingsActionButtonText}>Confirm Dispute</Text>
               </TouchableOpacity>
@@ -2779,6 +3123,8 @@ const CategoryRecordsModal = ({
               styles.recordsListContent,
               { paddingBottom: responsiveLayout.isTablet ? 36 : 24 },
             ]}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled
             showsVerticalScrollIndicator={false}
             ListEmptyComponent={
               <View style={styles.emptyStateCard}>
@@ -2851,6 +3197,7 @@ const CategoryRecordsModal = ({
                         onPress={() => (isActiveRecord ? onDNSPress({ ...item, srNo: index + 1, selectedTrack, recordKey }) : null)}
                         disabled={!isActiveRecord}
                         activeOpacity={0.85}
+                        hitSlop={TOUCH_HIT_SLOP}
                       >
                         <Text style={styles.dnsButtonText}>DNS</Text>
                       </TouchableOpacity>
@@ -2867,6 +3214,7 @@ const CategoryRecordsModal = ({
                           canStart ? onStart({ ...item, srNo: index + 1, selectedTrack, recordKey }) : null
                         }
                         disabled={!canStart}
+                        hitSlop={TOUCH_HIT_SLOP}
                       >
                         <Text style={styles.startButtonText}>Start</Text>
                       </TouchableOpacity>
@@ -2925,7 +3273,7 @@ const CategoryRecordsModal = ({
               );
             }}
           />
-          <TouchableOpacity style={styles.trackCardsBackButton} onPress={onTrackCardBack} activeOpacity={0.85}>
+          <TouchableOpacity style={styles.trackCardsBackButton} onPress={onTrackCardBack} activeOpacity={0.85} hitSlop={TOUCH_HIT_SLOP}>
             <Text style={styles.trackCardsBackButtonText}>Change Track</Text>
           </TouchableOpacity>
         </>
@@ -3297,6 +3645,8 @@ const RegistrationResultsModal = ({
               styles.recordsListContent,
               { paddingBottom: responsiveLayout.isTablet ? 36 : 24 },
             ]}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled
             showsVerticalScrollIndicator={false}
             refreshing={loading}
             onRefresh={onRefresh}
@@ -3425,11 +3775,14 @@ export default function App() {
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [settingsPassword, setSettingsPassword] = useState(DEFAULT_SETTINGS_PASSWORD);
   const [themeMode, setThemeMode] = useState(DEFAULT_THEME_MODE);
+  const [categoryActivationConfig, setCategoryActivationConfig] = useState(() => buildDefaultCategoryActivationConfig());
   const [trackActivationConfig, setTrackActivationConfig] = useState(() => buildDefaultTrackActivationConfig());
+  const [enrolledFaces, setEnrolledFaces] = useState([]);
   const [settingsPasswordModalVisible, setSettingsPasswordModalVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [settingsView, setSettingsView] = useState('menu');
   const [themeVisible, setThemeVisible] = useState(false);
+  const [faceSettingsBusy, setFaceSettingsBusy] = useState(false);
   const [settingsPasswordInput, setSettingsPasswordInput] = useState('');
   const [settingsPasswordError, setSettingsPasswordError] = useState('');
   const [settingsConfigDayId, setSettingsConfigDayId] = useState(REPORT_DAYS[0]?.id || '');
@@ -3491,8 +3844,10 @@ export default function App() {
       }
 
       setSettingsPassword(storedSettings.password);
+      setCategoryActivationConfig(storedSettings.categoryActivationConfig);
       setTrackActivationConfig(storedSettings.trackActivationConfig);
       setThemeMode(storedSettings.themeMode);
+      setEnrolledFaces(storedSettings.faceRecognition?.enrolledFaces || []);
       setSettingsLoaded(true);
     };
 
@@ -3510,12 +3865,16 @@ export default function App() {
 
     saveStoredAppSettings({
       password: settingsPassword,
+      categoryActivationConfig,
       trackActivationConfig,
       themeMode,
+      faceRecognition: {
+        enrolledFaces,
+      },
     }).catch(error => {
       console.warn('Unable to save admin settings:', error);
     });
-  }, [settingsLoaded, settingsPassword, themeMode, trackActivationConfig]);
+  }, [categoryActivationConfig, enrolledFaces, settingsLoaded, settingsPassword, themeMode, trackActivationConfig]);
 
   useEffect(() => {
     if (appStage !== 'splash') {
@@ -3814,8 +4173,11 @@ export default function App() {
   }, [categories]);
 
   const selectedCategoryTracks = useMemo(
-    () => getActiveTracksForDayCategory(trackActivationConfig, selectedDay?.id, selectedCategory?.name),
-    [selectedCategory?.name, selectedDay?.id, trackActivationConfig]
+    () =>
+      isCategoryActiveForDay(categoryActivationConfig, selectedDay?.id, selectedCategory?.name)
+        ? getActiveTracksForDayCategory(trackActivationConfig, selectedDay?.id, selectedCategory?.name)
+        : [],
+    [categoryActivationConfig, selectedCategory?.name, selectedDay?.id, trackActivationConfig]
   );
 
   const dayScopedCategories = useMemo(() => {
@@ -3824,34 +4186,44 @@ export default function App() {
     return sourceCategories
       .map(category => {
         const activeTracks = getActiveTracksForDayCategory(trackActivationConfig, selectedDay?.id, category.name);
+        const isCategoryActive = isCategoryActiveForDay(categoryActivationConfig, selectedDay?.id, category.name);
 
         return {
           ...category,
+          isCategoryActive,
           trackCount: activeTracks.length,
           activeTracks,
         };
       })
-      .filter(category => category.trackCount > 0);
-  }, [categories, categoriesWithCounts, selectedDay?.id, trackActivationConfig]);
+      .filter(category => category.isCategoryActive && category.trackCount > 0);
+  }, [categories, categoriesWithCounts, categoryActivationConfig, selectedDay?.id, trackActivationConfig]);
+
+  const activeSettingsCategoryOptions = useMemo(
+    () =>
+      settingsCategoryOptions.filter(category =>
+        isCategoryActiveForDay(categoryActivationConfig, selectedDay?.id, category.key)
+      ),
+    [categoryActivationConfig, selectedDay?.id, settingsCategoryOptions]
+  );
 
   const reportCategoryOptions = useMemo(
     () =>
-      settingsCategoryOptions.map(category => ({
+      activeSettingsCategoryOptions.map(category => ({
         key: category.key,
         label: category.label,
         tracks: getActiveTracksForDayCategory(trackActivationConfig, selectedDay?.id, category.label),
       })),
-    [selectedDay?.id, settingsCategoryOptions, trackActivationConfig]
+    [activeSettingsCategoryOptions, selectedDay?.id, trackActivationConfig]
   );
 
   const leaderboardCategoryOptions = useMemo(
     () =>
-      settingsCategoryOptions.map(category => ({
+      activeSettingsCategoryOptions.map(category => ({
         key: category.key,
         label: category.label,
         tracks: CATEGORY_TRACKS[category.key] || [],
       })),
-    [settingsCategoryOptions]
+    [activeSettingsCategoryOptions]
   );
 
   const configurationTracks = useMemo(
@@ -3879,6 +4251,19 @@ export default function App() {
       setActiveRecordKey('');
     }
   }, [selectedCategoryTrack, selectedCategoryTracks]);
+
+  useEffect(() => {
+    if (!selectedCategory || isCategoryActiveForDay(categoryActivationConfig, selectedDay?.id, selectedCategory.name)) {
+      return;
+    }
+
+    setSelectedCategory(null);
+    setSelectedRecord(null);
+    setSelectedCategoryTrack('');
+    setActiveRecordKey('');
+    setRecordsVisible(false);
+    setFormVisible(false);
+  }, [categoryActivationConfig, selectedCategory, selectedDay?.id]);
 
   useEffect(() => {
     refreshCompletedTracks().catch(error => {
@@ -3985,6 +4370,213 @@ export default function App() {
     setSettingsView('password');
   };
 
+  const relabelEnrolledFaces = faces =>
+    (faces || []).map((face, index) => ({
+      ...face,
+      label: `Face ${index + 1}`,
+    }));
+
+  const ensureFaceImageDirectoryAsync = async () => {
+    if (!FileSystem?.documentDirectory) {
+      return null;
+    }
+
+    const directoryPath = `${FileSystem.documentDirectory}${FACE_IMAGE_DIRECTORY_NAME}`;
+    await FileSystem.makeDirectoryAsync(directoryPath, { intermediates: true }).catch(() => {});
+    return directoryPath;
+  };
+
+  const deleteFaceImageAsync = async imageUri => {
+    if (!imageUri || !FileSystem) {
+      return;
+    }
+
+    await FileSystem.deleteAsync(imageUri, { idempotent: true }).catch(() => {});
+  };
+
+  const persistCapturedFaceAsync = async sourceUri => {
+    if (!sourceUri || !FileSystem?.documentDirectory) {
+      return sourceUri;
+    }
+
+    const directoryPath = await ensureFaceImageDirectoryAsync();
+    const extensionMatch = String(sourceUri).match(/\.(jpg|jpeg|png|webp)(\?.*)?$/i);
+    const extension = extensionMatch?.[1] ? `.${extensionMatch[1].toLowerCase()}` : '.jpg';
+    const targetUri = `${directoryPath}/face-${Date.now()}${extension}`;
+    await FileSystem.copyAsync({
+      from: sourceUri,
+      to: targetUri,
+    });
+    return targetUri;
+  };
+
+  const requestCameraAccessAsync = async () => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+
+    if (!permission.granted) {
+      Alert.alert('Camera Permission', 'Camera permission is required for face recognition.');
+      return false;
+    }
+
+    return true;
+  };
+
+  const captureFaceTemplateAsync = async ({ persistImage = false, purpose = 'verify this record' } = {}) => {
+    const hasPermission = await requestCameraAccessAsync();
+
+    if (!hasPermission) {
+      return null;
+    }
+
+    const captureResult = await ImagePicker.launchCameraAsync({
+      allowsEditing: false,
+      quality: 0.8,
+      mediaTypes: ['images'],
+      cameraType: ImagePicker.CameraType.front,
+      exif: false,
+    });
+
+    if (captureResult.canceled) {
+      return null;
+    }
+
+    const capturedAsset = captureResult.assets?.[0];
+
+    if (!capturedAsset?.uri) {
+      Alert.alert('Face Recognition', 'Could not read the captured face image. Please try again.');
+      return null;
+    }
+
+    const detectedFaces = await detectFaces({
+      image: capturedAsset.uri,
+      options: FACE_DETECTION_OPTIONS,
+    }).catch(error => {
+      console.warn('Unable to detect faces in captured image:', error);
+      return [];
+    });
+
+    if (detectedFaces.length !== 1) {
+      Alert.alert(
+        'Face Recognition',
+        detectedFaces.length > 1
+          ? 'Multiple faces were detected. Please try again with only one face in the frame.'
+          : `No face was detected to ${purpose}. Please try again.`
+      );
+      return null;
+    }
+
+    const template = buildFaceTemplate(detectedFaces[0]);
+
+    if (!template) {
+      Alert.alert('Face Recognition', 'The face could not be processed clearly. Please try again facing the camera.');
+      return null;
+    }
+
+    const storedUri = persistImage ? await persistCapturedFaceAsync(capturedAsset.uri) : capturedAsset.uri;
+
+    return {
+      uri: storedUri,
+      template,
+    };
+  };
+
+  const handleOpenFaceRecognition = () => {
+    setSettingsView('face');
+  };
+
+  const handleEnrollFace = async () => {
+    if (faceSettingsBusy) {
+      return;
+    }
+
+    if (enrolledFaces.length >= MAX_ENROLLED_FACES) {
+      Alert.alert('Face Recognition', `Only ${MAX_ENROLLED_FACES} enrolled faces are allowed.`);
+      return;
+    }
+
+    try {
+      setFaceSettingsBusy(true);
+      const capturedFace = await captureFaceTemplateAsync({
+        persistImage: true,
+        purpose: 'enroll a face',
+      });
+
+      if (!capturedFace) {
+        return;
+      }
+
+      setEnrolledFaces(prev =>
+        relabelEnrolledFaces([
+          ...prev,
+          {
+            id: `face-${Date.now()}`,
+            label: `Face ${prev.length + 1}`,
+            uri: capturedFace.uri,
+            createdAt: new Date().toISOString(),
+            template: capturedFace.template,
+          },
+        ])
+      );
+      Alert.alert('Face Recognition', 'Face enrolled successfully.');
+    } finally {
+      setFaceSettingsBusy(false);
+    }
+  };
+
+  const handleRemoveEnrolledFace = async faceId => {
+    const faceToRemove = enrolledFaces.find(face => face.id === faceId);
+
+    if (!faceToRemove) {
+      return;
+    }
+
+    try {
+      setFaceSettingsBusy(true);
+      await deleteFaceImageAsync(faceToRemove.uri);
+      setEnrolledFaces(prev => relabelEnrolledFaces(prev.filter(face => face.id !== faceId)));
+    } finally {
+      setFaceSettingsBusy(false);
+    }
+  };
+
+  const handleClearEnrolledFaces = async () => {
+    try {
+      setFaceSettingsBusy(true);
+      await Promise.all(enrolledFaces.map(face => deleteFaceImageAsync(face.uri)));
+      setEnrolledFaces([]);
+    } finally {
+      setFaceSettingsBusy(false);
+    }
+  };
+
+  const handleVerifyFaceForRecord = async actionLabel => {
+    if (enrolledFaces.length < MAX_ENROLLED_FACES) {
+      Alert.alert(
+        'Face Recognition',
+        `Enroll ${MAX_ENROLLED_FACES} faces in Settings > Face Recognition before you can save stopwatch records.`
+      );
+      return false;
+    }
+
+    const capturedFace = await captureFaceTemplateAsync({
+      persistImage: false,
+      purpose: actionLabel,
+    });
+
+    if (!capturedFace) {
+      return false;
+    }
+
+    const matchResult = getFaceMatchResult(enrolledFaces, capturedFace.template);
+
+    if (!matchResult.matched) {
+      Alert.alert('Face Recognition', 'Face did not match. Try again.');
+      return false;
+    }
+
+    return true;
+  };
+
   const handleChangePasswordSave = () => {
     if (currentPasswordInput !== settingsPassword) {
       setChangePasswordError('Current password does not match.');
@@ -4030,6 +4622,20 @@ export default function App() {
             ...(prev?.[dayId]?.[categoryKey] || {}),
             [trackName]: nextValue,
           },
+        },
+      };
+    });
+  };
+
+  const handleCategoryActivationToggle = (dayId, categoryKey) => {
+    setCategoryActivationConfig(prev => {
+      const nextValue = !(prev?.[dayId]?.[categoryKey] !== false);
+
+      return {
+        ...prev,
+        [dayId]: {
+          ...(prev?.[dayId] || {}),
+          [categoryKey]: nextValue,
         },
       };
     });
@@ -4870,6 +5476,7 @@ const buildRegistrationData = formData => ({
           justifyContent: 'space-between',
           marginBottom: responsiveLayout.gridGap,
         }}
+        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       />
 
@@ -5002,6 +5609,8 @@ const buildRegistrationData = formData => ({
                   ? 'Settings'
                   : settingsView === 'config'
                     ? 'Configuration'
+                    : settingsView === 'face'
+                      ? 'Face Recognition'
                     : settingsView === 'disputes'
                       ? 'Disputes'
                       : 'Change Password'}
@@ -5009,6 +5618,8 @@ const buildRegistrationData = formData => ({
               <Text style={[styles.settingsPageSubtitle, { color: theme.textSecondary }]}>
                 {settingsView === 'config'
                   ? 'Control which tracks are visible for each day and category.'
+                  : settingsView === 'face'
+                    ? `Enroll ${MAX_ENROLLED_FACES} reference faces used to approve stopwatch submit and dispute actions.`
                   : settingsView === 'disputes'
                     ? 'Review and resolve disputed stopwatch records for the selected day.'
                     : settingsView === 'password'
@@ -5038,6 +5649,8 @@ const buildRegistrationData = formData => ({
           <ScrollView
             style={[styles.fullPageContent, { backgroundColor: theme.background }]}
             contentContainerStyle={styles.settingsPageContent}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled
             showsVerticalScrollIndicator={false}
           >
             {settingsView === 'menu' ? (
@@ -5050,7 +5663,19 @@ const buildRegistrationData = formData => ({
                   <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Admin</Text>
                   <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Configuration</Text>
                   <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
-                    Activate or deactivate tracks for each day and category.
+                    Activate or deactivate vehicle categories and tracks for each day.
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={handleOpenFaceRecognition}
+                  activeOpacity={0.88}
+                >
+                  <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Verification</Text>
+                  <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Face Recognition</Text>
+                  <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
+                    Enroll {MAX_ENROLLED_FACES} faces that must match before stopwatch submit or dispute records can be saved.
                   </Text>
                 </TouchableOpacity>
 
@@ -5083,9 +5708,9 @@ const buildRegistrationData = formData => ({
             {settingsView === 'config' ? (
               <>
                 <View style={styles.settingsInfoCard}>
-                  <Text style={[styles.settingsInfoTitle, { color: theme.accent }]}>Track Visibility Rules</Text>
+                  <Text style={[styles.settingsInfoTitle, { color: theme.accent }]}>Visibility Rules</Text>
                   <Text style={[styles.settingsInfoText, { color: theme.textSecondary }]}>
-                    Only active tracks will appear on the track page for the selected day and category.
+                    Activate or deactivate vehicle categories for each day, then control which tracks stay visible inside each category.
                   </Text>
                 </View>
 
@@ -5116,6 +5741,79 @@ const buildRegistrationData = formData => ({
                             {day.dayLabel}
                           </Text>
                         </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                <View style={styles.settingsSection}>
+                  <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Vehicle Categories</Text>
+                  <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                    {REPORT_DAYS.find(day => day.id === settingsConfigDayId)?.dayLabel || 'Selected Day'} · Category visibility
+                  </Text>
+                  <View style={styles.settingsTrackList}>
+                    {settingsCategoryOptions.map(option => {
+                      const isActive = categoryActivationConfig?.[settingsConfigDayId]?.[option.key] !== false;
+
+                      return (
+                        <View
+                          key={`${settingsConfigDayId}-${option.key}-category`}
+                          style={[styles.settingsTrackRow, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                        >
+                          <View style={styles.settingsTrackInfo}>
+                            <View style={styles.settingsTrackNameRow}>
+                              <View
+                                style={[
+                                  styles.settingsTrackMarker,
+                                  isActive ? styles.settingsTrackMarkerActive : styles.settingsTrackMarkerInactive,
+                                ]}
+                              />
+                              <Text
+                                style={[
+                                  styles.settingsTrackName,
+                                  isActive ? styles.settingsTrackNameActive : styles.settingsTrackNameInactive,
+                                ]}
+                              >
+                                {option.label}
+                              </Text>
+                            </View>
+                            <Text
+                              style={[
+                                styles.settingsTrackStatus,
+                                isActive ? styles.settingsTrackStatusActive : styles.settingsTrackStatusInactive,
+                              ]}
+                            >
+                              {isActive ? 'Activated for the selected day' : 'Deactivated for the selected day'}
+                            </Text>
+                          </View>
+                          <TouchableOpacity
+                            style={styles.settingsToggleButton}
+                            onPress={() => handleCategoryActivationToggle(settingsConfigDayId, option.key)}
+                            activeOpacity={0.85}
+                          >
+                            <Text
+                              style={[
+                                styles.settingsToggleButtonLabel,
+                                isActive ? styles.settingsToggleButtonLabelActivated : styles.settingsToggleButtonLabelDeactivated,
+                              ]}
+                            >
+                              {isActive ? 'Activated' : 'Deactivated'}
+                            </Text>
+                            <View
+                              style={[
+                                styles.settingsToggleSwitch,
+                                isActive ? styles.settingsToggleSwitchActivated : styles.settingsToggleSwitchDeactivated,
+                              ]}
+                            >
+                              <View
+                                style={[
+                                  styles.settingsToggleKnob,
+                                  isActive ? styles.settingsToggleKnobActivated : styles.settingsToggleKnobDeactivated,
+                                ]}
+                              />
+                            </View>
+                          </TouchableOpacity>
+                        </View>
                       );
                     })}
                   </View>
@@ -5228,6 +5926,123 @@ const buildRegistrationData = formData => ({
                     })}
                   </View>
                 </View>
+              </>
+            ) : null}
+
+            {settingsView === 'face' ? (
+              <>
+                <View
+                  style={[
+                    styles.faceSettingsSummaryCard,
+                    { backgroundColor: theme.surface, borderColor: theme.border },
+                  ]}
+                >
+                  <Text style={[styles.faceSettingsSummaryTitle, { color: theme.textPrimary }]}>
+                    Enrolled Faces
+                  </Text>
+                  <View style={styles.faceSettingsSummaryRow}>
+                    <Text style={[styles.faceSettingsCount, { color: theme.accent }]}>
+                      {enrolledFaces.length}/{MAX_ENROLLED_FACES}
+                    </Text>
+                    {faceSettingsBusy ? (
+                      <ActivityIndicator color={theme.accent} />
+                    ) : null}
+                  </View>
+                  <Text style={[styles.faceSettingsSummaryText, { color: theme.textSecondary }]}>
+                    A matching enrolled face is required before stopwatch Submit or Dispute can continue. Records stay blocked until all {MAX_ENROLLED_FACES} faces are added.
+                  </Text>
+                </View>
+
+                <View style={styles.faceSettingsActionRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.settingsActionButton,
+                      styles.settingsPrimaryButton,
+                      styles.faceSettingsActionButton,
+                      { backgroundColor: theme.accent },
+                      (faceSettingsBusy || enrolledFaces.length >= MAX_ENROLLED_FACES) && styles.faceSettingsActionButtonDisabled,
+                    ]}
+                    onPress={handleEnrollFace}
+                    activeOpacity={0.85}
+                    disabled={faceSettingsBusy || enrolledFaces.length >= MAX_ENROLLED_FACES}
+                  >
+                    <Text style={[styles.settingsActionButtonText, { color: theme.accentText }]}>
+                      Add Face
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.settingsActionButton,
+                      styles.settingsSecondaryButton,
+                      styles.faceSettingsActionButton,
+                      { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
+                      (faceSettingsBusy || !enrolledFaces.length) && styles.faceSettingsActionButtonDisabled,
+                    ]}
+                    onPress={handleClearEnrolledFaces}
+                    activeOpacity={0.85}
+                    disabled={faceSettingsBusy || !enrolledFaces.length}
+                  >
+                    <Text style={[styles.settingsActionButtonText, styles.settingsSecondaryButtonText, { color: theme.textPrimary }]}>
+                      Clear All
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {enrolledFaces.length ? (
+                  <View style={styles.faceSettingsList}>
+                    {enrolledFaces.map(face => (
+                      <View
+                        key={face.id}
+                        style={[
+                          styles.faceSettingsCard,
+                          { backgroundColor: theme.surface, borderColor: theme.border },
+                        ]}
+                      >
+                        <Image
+                          source={{ uri: face.uri }}
+                          style={[styles.faceSettingsImage, { backgroundColor: theme.surfaceAlt }]}
+                        />
+                        <View style={styles.faceSettingsCardBody}>
+                          <Text style={[styles.faceSettingsCardTitle, { color: theme.textPrimary }]}>
+                            {face.label}
+                          </Text>
+                          <Text style={[styles.faceSettingsCardText, { color: theme.textSecondary }]}>
+                            Added {new Date(face.createdAt).toLocaleDateString()}
+                          </Text>
+                        </View>
+                        <TouchableOpacity
+                          style={[
+                            styles.faceSettingsRemoveButton,
+                            { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
+                            faceSettingsBusy && styles.faceSettingsActionButtonDisabled,
+                          ]}
+                          onPress={() => handleRemoveEnrolledFace(face.id)}
+                          activeOpacity={0.85}
+                          disabled={faceSettingsBusy}
+                        >
+                          <Text style={[styles.faceSettingsRemoveButtonText, { color: theme.accent }]}>
+                            Remove
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <View
+                    style={[
+                      styles.faceSettingsEmptyState,
+                      { backgroundColor: theme.surface, borderColor: theme.border },
+                    ]}
+                  >
+                    <Text style={[styles.faceSettingsEmptyTitle, { color: theme.textPrimary }]}>
+                      No faces enrolled yet
+                    </Text>
+                    <Text style={[styles.faceSettingsEmptyText, { color: theme.textSecondary }]}>
+                      Tap Add Face and capture each approved person one by one until all {MAX_ENROLLED_FACES} slots are filled.
+                    </Text>
+                  </View>
+                )}
               </>
             ) : null}
 
@@ -5397,6 +6212,8 @@ const buildRegistrationData = formData => ({
           <ScrollView
             style={[styles.fullPageContent, { backgroundColor: theme.background }]}
             contentContainerStyle={styles.settingsPageContent}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled
             showsVerticalScrollIndicator={false}
           >
             <View style={[styles.settingsFormCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
@@ -5469,6 +6286,8 @@ const buildRegistrationData = formData => ({
         }}
         onSubmit={handleFormSubmit}
         onHoldForDispute={holdRecordForDispute}
+        onVerifyFace={handleVerifyFaceForRecord}
+        enrolledFaceCount={enrolledFaces.length}
         theme={theme}
       />
     </View>
@@ -5989,6 +6808,7 @@ const styles = StyleSheet.create({
   },
 
   topHeaderButton: {
+    minHeight: 48,
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 999,
@@ -6061,6 +6881,7 @@ const styles = StyleSheet.create({
     marginVertical: 16,
     paddingHorizontal: 14,
     paddingVertical: 10,
+    minHeight: 52,
     backgroundColor: '#111722',
     borderRadius: 14,
     borderWidth: 1,
@@ -6138,6 +6959,8 @@ const styles = StyleSheet.create({
   reportMenuItem: {
     paddingHorizontal: 16,
     paddingVertical: 14,
+    minHeight: 48,
+    justifyContent: 'center',
     backgroundColor: '#111722',
   },
 
@@ -6302,6 +7125,7 @@ const styles = StyleSheet.create({
   },
 
   resultsHeaderButton: {
+    minHeight: 48,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 999,
@@ -6566,6 +7390,7 @@ const styles = StyleSheet.create({
   trackCardsBackButton: {
     marginTop: 12,
     alignSelf: 'flex-start',
+    minHeight: 48,
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 999,
@@ -6583,6 +7408,7 @@ const styles = StyleSheet.create({
   trackBackButton: {
     alignSelf: 'flex-start',
     marginBottom: 10,
+    minHeight: 48,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 999,
@@ -6828,7 +7654,7 @@ const styles = StyleSheet.create({
   lateStartCheckboxRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 44,
+    minHeight: MIN_TOUCH_TARGET,
   },
 
   lateStartCheckboxRowDisabled: {
@@ -6865,7 +7691,7 @@ const styles = StyleSheet.create({
   },
 
   dnsButton: {
-    minHeight: 44,
+    minHeight: MIN_TOUCH_TARGET,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#f4a4a4',
@@ -6900,7 +7726,7 @@ const styles = StyleSheet.create({
   },
 
   lateStartSelectorButton: {
-    minHeight: 44,
+    minHeight: MIN_TOUCH_TARGET,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#f5c542',
@@ -6945,6 +7771,8 @@ const styles = StyleSheet.create({
   lateStartSelectorItem: {
     paddingHorizontal: 14,
     paddingVertical: 12,
+    minHeight: 48,
+    justifyContent: 'center',
     borderBottomWidth: 1,
     borderBottomColor: '#f6e7b4',
   },
@@ -7160,8 +7988,12 @@ const styles = StyleSheet.create({
   },
 
   settingsPasswordToggle: {
+    minHeight: MIN_TOUCH_TARGET,
+    minWidth: MIN_TOUCH_TARGET,
     paddingHorizontal: 8,
     paddingVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   settingsPasswordToggleText: {
@@ -7369,7 +8201,7 @@ const styles = StyleSheet.create({
   },
 
   settingsCloseButton: {
-    minHeight: 42,
+    minHeight: MIN_TOUCH_TARGET,
     paddingHorizontal: 14,
     borderRadius: 12,
     backgroundColor: '#182131',
@@ -7477,6 +8309,7 @@ const styles = StyleSheet.create({
   },
 
   settingsChip: {
+    minHeight: MIN_TOUCH_TARGET,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 999,
@@ -7662,6 +8495,145 @@ const styles = StyleSheet.create({
 
   settingsFormSaveButton: {
     marginTop: 18,
+  },
+
+  faceVerificationNotice: {
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 10,
+  },
+
+  faceVerificationNoticeTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+    fontFamily: HEADING_FONT,
+  },
+
+  faceVerificationNoticeText: {
+    marginTop: 6,
+    fontSize: 13,
+    lineHeight: 18,
+    fontFamily: BODY_FONT,
+  },
+
+  faceSettingsSummaryCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 18,
+    marginBottom: 18,
+  },
+
+  faceSettingsSummaryTitle: {
+    fontSize: 17,
+    fontWeight: '900',
+    fontFamily: HEADING_FONT,
+  },
+
+  faceSettingsSummaryRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+
+  faceSettingsCount: {
+    fontSize: 28,
+    fontWeight: '900',
+    fontFamily: HEADING_FONT,
+  },
+
+  faceSettingsSummaryText: {
+    marginTop: 10,
+    fontSize: 14,
+    lineHeight: 20,
+    fontFamily: BODY_FONT,
+  },
+
+  faceSettingsActionRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 18,
+  },
+
+  faceSettingsActionButton: {
+    marginTop: 0,
+  },
+
+  faceSettingsActionButtonDisabled: {
+    opacity: 0.5,
+  },
+
+  faceSettingsList: {
+    gap: 12,
+  },
+
+  faceSettingsCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+
+  faceSettingsImage: {
+    width: 78,
+    height: 78,
+    borderRadius: 14,
+  },
+
+  faceSettingsCardBody: {
+    flex: 1,
+  },
+
+  faceSettingsCardTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    fontFamily: HEADING_FONT,
+  },
+
+  faceSettingsCardText: {
+    marginTop: 6,
+    fontSize: 13,
+    lineHeight: 18,
+    fontFamily: BODY_FONT,
+  },
+
+  faceSettingsRemoveButton: {
+    minHeight: MIN_TOUCH_TARGET,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  faceSettingsRemoveButtonText: {
+    fontSize: 13,
+    fontWeight: '800',
+    fontFamily: BODY_FONT,
+  },
+
+  faceSettingsEmptyState: {
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 18,
+  },
+
+  faceSettingsEmptyTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    fontFamily: HEADING_FONT,
+  },
+
+  faceSettingsEmptyText: {
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 20,
+    fontFamily: BODY_FONT,
   },
 
   // Form header
@@ -7863,6 +8835,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
+    minHeight: MIN_TOUCH_TARGET,
     backgroundColor: '#111722',
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -7893,6 +8866,8 @@ const styles = StyleSheet.create({
   dropdownItem: {
     paddingHorizontal: 12,
     paddingVertical: 12,
+    minHeight: 48,
+    justifyContent: 'center',
     borderBottomWidth: 1,
     borderBottomColor: '#e9ecef',
   },
@@ -8052,8 +9027,8 @@ const styles = StyleSheet.create({
   },
 
   counterButton: {
-    width: IS_TABLET ? 40 : IS_SMALL_PHONE ? 32 : 36,
-    height: IS_TABLET ? 40 : IS_SMALL_PHONE ? 32 : 36,
+    width: IS_TABLET ? 54 : MIN_TOUCH_TARGET,
+    height: IS_TABLET ? 54 : MIN_TOUCH_TARGET,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 10,
@@ -8071,8 +9046,8 @@ const styles = StyleSheet.create({
   },
 
   counterInput: {
-    width: IS_TABLET ? 56 : IS_SMALL_PHONE ? 36 : 42,
-    height: IS_TABLET ? 40 : IS_SMALL_PHONE ? 32 : 36,
+    width: IS_TABLET ? 60 : 54,
+    height: IS_TABLET ? 54 : MIN_TOUCH_TARGET,
     textAlign: 'center',
     fontSize: IS_TABLET ? 22 : IS_SMALL_PHONE ? 15 : 16,
     fontWeight: '700',
@@ -8110,7 +9085,7 @@ const styles = StyleSheet.create({
   },
 
   dnfToggleButton: {
-    minHeight: 48,
+    minHeight: 52,
     borderRadius: 12,
     backgroundColor: '#111722',
     borderWidth: 1,
@@ -8161,6 +9136,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 14,
     paddingVertical: 12,
+    minHeight: 48,
     borderBottomWidth: 1,
     borderBottomColor: '#ffe4da',
   },
@@ -8211,6 +9187,8 @@ const styles = StyleSheet.create({
   dnfDropdownItem: {
     paddingHorizontal: 14,
     paddingVertical: 12,
+    minHeight: 48,
+    justifyContent: 'center',
     borderBottomWidth: 1,
     borderBottomColor: '#ffe4da',
   },
