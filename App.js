@@ -112,6 +112,9 @@ const useVisionCameraPermission =
     requestPermission: async () => false,
   }));
 
+const isFaceRecognitionRuntimeSupported = ({ visionCameraView, visionCameraDevice }) =>
+  Boolean(visionCameraView && visionCameraDevice && faceDetectorModule?.detectFaces);
+
 const detectFaces = async (...args) => {
   if (!faceDetectorModule?.detectFaces) {
     const unsupportedError = new Error(VISION_CAMERA_ERROR_MESSAGE);
@@ -1611,7 +1614,7 @@ const CustomDropdown = ({ label, value, options, onValueChange }) => {
 
 const DNF_OPTIONS = ['20 points', '50 points'];
 
-const DNFSelector = React.memo(({
+const DNFSelector = ({
   wrongCourseSelected,
   fourthAttemptSelected,
   timeOverSelected,
@@ -1753,16 +1756,7 @@ const DNFSelector = React.memo(({
       ) : null}
     </View>
   );
-}, (prevProps, nextProps) =>
-  prevProps.wrongCourseSelected === nextProps.wrongCourseSelected &&
-  prevProps.fourthAttemptSelected === nextProps.fourthAttemptSelected &&
-  prevProps.timeOverSelected === nextProps.timeOverSelected &&
-  prevProps.pointsValue === nextProps.pointsValue &&
-  prevProps.disabled === nextProps.disabled &&
-  prevProps.layout?.isTablet === nextProps.layout?.isTablet &&
-  prevProps.layout?.isSmallPhone === nextProps.layout?.isSmallPhone &&
-  prevProps.layout?.penaltyColumns === nextProps.layout?.penaltyColumns
-));
+};
 
 const LATE_START_OPTIONS = [
   { value: 'late_start', label: 'Late Start with Penalty' },
@@ -1884,7 +1878,7 @@ const LateStartCheckbox = ({
  * PenaltyCounter Component
  * Provides increment/decrement buttons with manual input for penalty counts
  */
-const PenaltyCounter = React.memo(({
+const PenaltyCounter = ({
   label,
   count,
   onCountChange,
@@ -2015,16 +2009,7 @@ const PenaltyCounter = React.memo(({
       </View>
     </View>
   );
-}, (prevProps, nextProps) =>
-  prevProps.label === nextProps.label &&
-  prevProps.count === nextProps.count &&
-  prevProps.penaltyTime === nextProps.penaltyTime &&
-  prevProps.disabled === nextProps.disabled &&
-  prevProps.showPenaltyTime === nextProps.showPenaltyTime &&
-  prevProps.layout?.isTablet === nextProps.layout?.isTablet &&
-  prevProps.layout?.isSmallPhone === nextProps.layout?.isSmallPhone &&
-  prevProps.layout?.penaltyColumns === nextProps.layout?.penaltyColumns
-));
+};
 
 /**
  * Registration Form Modal Component
@@ -3975,6 +3960,10 @@ export default function App() {
   const lateStartActionCounterRef = useRef(0);
   const theme = useMemo(() => APP_THEMES[normalizeThemeMode(themeMode)], [themeMode]);
   const visionCameraDevice = useVisionCameraDevice('front');
+  const faceRecognitionSupported = isFaceRecognitionRuntimeSupported({
+    visionCameraView: VisionCameraView,
+    visionCameraDevice,
+  });
   const {
     hasPermission: hasVisionCameraPermission,
     requestPermission: requestVisionCameraPermission,
@@ -4616,6 +4605,11 @@ export default function App() {
   };
 
   const requestCameraAccessAsync = async () => {
+    if (!faceRecognitionSupported) {
+      Alert.alert('Face Recognition Unavailable', VISION_CAMERA_ERROR_MESSAGE);
+      return false;
+    }
+
     if (VisionCameraView && visionCameraDevice) {
       if (hasVisionCameraPermission) {
         return true;
@@ -4765,6 +4759,11 @@ export default function App() {
       return;
     }
 
+    if (!faceRecognitionSupported) {
+      Alert.alert('Face Recognition Unavailable', VISION_CAMERA_ERROR_MESSAGE);
+      return;
+    }
+
     try {
       setFaceSettingsBusy(true);
       const capturedFace = await captureFaceTemplateAsync({
@@ -4822,6 +4821,11 @@ export default function App() {
   };
 
   const handleVerifyFaceForRecord = async actionLabel => {
+    if (!faceRecognitionSupported) {
+      Alert.alert('Face Recognition Unavailable', VISION_CAMERA_ERROR_MESSAGE);
+      return false;
+    }
+
     if (enrolledFaces.length < MAX_ENROLLED_FACES) {
       Alert.alert(
         'Face Recognition',
@@ -6255,6 +6259,11 @@ const buildRegistrationData = formData => ({
                   <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
                     Enter the person name first, then tap Add Face Recognition to capture and save their face locally.
                   </Text>
+                  {!faceRecognitionSupported ? (
+                    <Text style={[styles.settingsSectionHint, { color: theme.accent, marginTop: 10 }]}>
+                      Face recognition is only available in a development build or release build. Open the installed app instead of Expo Go to register faces.
+                    </Text>
+                  ) : null}
                   <TextInput
                     style={[
                       styles.settingsInput,
@@ -6266,7 +6275,7 @@ const buildRegistrationData = formData => ({
                     placeholderTextColor={theme.textTertiary}
                     autoCapitalize="words"
                     autoCorrect={false}
-                    editable={!faceSettingsBusy}
+                    editable={!faceSettingsBusy && faceRecognitionSupported}
                   />
                 </View>
 
@@ -6277,11 +6286,12 @@ const buildRegistrationData = formData => ({
                       styles.settingsPrimaryButton,
                       styles.faceSettingsActionButton,
                       { backgroundColor: theme.accent },
-                      (faceSettingsBusy || enrolledFaces.length >= MAX_ENROLLED_FACES) && styles.faceSettingsActionButtonDisabled,
+                      (!faceRecognitionSupported || faceSettingsBusy || enrolledFaces.length >= MAX_ENROLLED_FACES) &&
+                        styles.faceSettingsActionButtonDisabled,
                     ]}
                     onPress={handleEnrollFace}
                     activeOpacity={0.85}
-                    disabled={faceSettingsBusy || enrolledFaces.length >= MAX_ENROLLED_FACES}
+                    disabled={!faceRecognitionSupported || faceSettingsBusy || enrolledFaces.length >= MAX_ENROLLED_FACES}
                   >
                     <Text style={[styles.settingsActionButtonText, { color: theme.accentText }]}>
                       Add Face Recognition
