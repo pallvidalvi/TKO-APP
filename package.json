@@ -46,7 +46,8 @@
     "@babel/plugin-transform-arrow-functions": "^7.27.1",
     "@babel/plugin-transform-shorthand-properties": "^7.27.1",
     "@babel/plugin-transform-template-literals": "^7.27.1",
-    "@types/react": "~19.1.0"
+    "@types/react": "~19.1.0",
+    "typescript": "~5.9.2"
   },
   "private": true
 }

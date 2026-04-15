@@ -16,10 +16,10 @@ import {
   ActivityIndicator,
   Vibration,
   useWindowDimensions,
+  NativeModules,
 } from 'react-native';
 import { Audio } from 'expo-av';
 import * as ImagePicker from 'expo-image-picker';
-import { detectFaces } from 'react-native-vision-camera-face-detector';
 import { initializeDatabase, seedDatabase } from './src/db/database';
 import { TeamsService, CategoriesService, ResultsService, DisputesService } from './src/services/dataService';
 import ReportScreen from './src/screens/ReportScreen';
@@ -55,6 +55,72 @@ if (Platform.OS !== 'web') {
   FileSystem = require('expo-file-system/legacy');
   Sharing = require('expo-sharing');
 }
+
+const VISION_CAMERA_ERROR_MESSAGE =
+  'Face recognition needs a development build or release build with Vision Camera installed. Expo Go does not support this module.';
+
+const loadFaceDetector = () => {
+  if (Platform.OS === 'web') {
+    return null;
+  }
+
+  const hasVisionCameraNativeModule = Boolean(
+    NativeModules?.VisionCamera ||
+      NativeModules?.VisionCameraProxy ||
+      NativeModules?.CameraViewManager
+  );
+
+  if (!hasVisionCameraNativeModule) {
+    return null;
+  }
+
+  try {
+    return require('react-native-vision-camera-face-detector');
+  } catch (error) {
+    console.warn('Face detector module is unavailable in the current runtime:', error);
+    return null;
+  }
+};
+
+const faceDetectorModule = loadFaceDetector();
+const loadVisionCamera = () => {
+  if (Platform.OS === 'web') {
+    return null;
+  }
+
+  const hasVisionCameraNativeModule = Boolean(NativeModules?.CameraView);
+
+  if (!hasVisionCameraNativeModule) {
+    return null;
+  }
+
+  try {
+    return require('react-native-vision-camera');
+  } catch (error) {
+    console.warn('Vision Camera module is unavailable in the current runtime:', error);
+    return null;
+  }
+};
+
+const visionCameraModule = loadVisionCamera();
+const VisionCameraView = visionCameraModule?.Camera || null;
+const useVisionCameraDevice = visionCameraModule?.useCameraDevice || (() => null);
+const useVisionCameraPermission =
+  visionCameraModule?.useCameraPermission ||
+  (() => ({
+    hasPermission: false,
+    requestPermission: async () => false,
+  }));
+
+const detectFaces = async (...args) => {
+  if (!faceDetectorModule?.detectFaces) {
+    const unsupportedError = new Error(VISION_CAMERA_ERROR_MESSAGE);
+    unsupportedError.code = 'camera-module-not-found';
+    throw unsupportedError;
+  }
+
+  return faceDetectorModule.detectFaces(...args);
+};
 
 /**
  * CSV Exporter
@@ -1023,7 +1089,7 @@ const normalizeEnrolledFaceRecords = storedFaces =>
   (Array.isArray(storedFaces) ? storedFaces : [])
     .map((face, index) => ({
       id: String(face?.id || `face-${index + 1}`),
-      label: String(face?.label || `Face ${index + 1}`),
+      label: normalizeFaceLabel(face?.label, index),
       uri: String(face?.uri || ''),
       createdAt: String(face?.createdAt || new Date().toISOString()),
       template: {
@@ -1040,6 +1106,11 @@ const normalizeEnrolledFaceRecords = storedFaces =>
 const getDefaultFaceRecognitionSettings = () => ({
   enrolledFaces: [],
 });
+
+const normalizeFaceLabel = (value = '', fallbackIndex = 0) => {
+  const trimmedValue = String(value || '').trim();
+  return trimmedValue || `Face ${fallbackIndex + 1}`;
+};
 
 const loadStoredAppSettings = async () => {
   const fallback = {
@@ -3787,6 +3858,7 @@ export default function App() {
   const [settingsPasswordError, setSettingsPasswordError] = useState('');
   const [settingsConfigDayId, setSettingsConfigDayId] = useState(REPORT_DAYS[0]?.id || '');
   const [settingsConfigCategoryKey, setSettingsConfigCategoryKey] = useState('EXTREME');
+  const [faceRegistrationName, setFaceRegistrationName] = useState('');
   const [disputeRecords, setDisputeRecords] = useState([]);
   const [disputesLoading, setDisputesLoading] = useState(false);
   const [currentPasswordInput, setCurrentPasswordInput] = useState('');
@@ -3796,10 +3868,16 @@ export default function App() {
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [faceScannerVisible, setFaceScannerVisible] = useState(false);
+  const [faceScannerBusy, setFaceScannerBusy] = useState(false);
+  const [faceScannerError, setFaceScannerError] = useState('');
+  const [faceScannerPurpose, setFaceScannerPurpose] = useState('verify this record');
   const settingsPasswordInputRef = useRef(null);
   const currentPasswordInputRef = useRef(null);
   const newPasswordInputRef = useRef(null);
   const confirmPasswordInputRef = useRef(null);
+  const faceScannerCameraRef = useRef(null);
+  const faceScannerRequestRef = useRef(null);
   const splashLogoAnim = useRef(new Animated.Value(0)).current;
   const switchAnim = useRef(new Animated.Value(0)).current;
   const glowPulseAnim = useRef(new Animated.Value(0)).current;
@@ -3808,6 +3886,11 @@ export default function App() {
   const ignitionSequenceTimerRef = useRef(null);
   const lateStartActionCounterRef = useRef(0);
   const theme = useMemo(() => APP_THEMES[normalizeThemeMode(themeMode)], [themeMode]);
+  const visionCameraDevice = useVisionCameraDevice('front');
+  const {
+    hasPermission: hasVisionCameraPermission,
+    requestPermission: requestVisionCameraPermission,
+  } = useVisionCameraPermission();
 
   useEffect(() => {
     const pulseLoop = Animated.loop(
@@ -4346,6 +4429,14 @@ export default function App() {
     setThemeVisible(true);
   };
 
+  const getPreviousSettingsView = currentView => {
+    if (currentView === 'face' || currentView === 'password') {
+      return 'security';
+    }
+
+    return 'menu';
+  };
+
   const handleSettingsPasswordSubmit = () => {
     if (settingsPasswordInput !== settingsPassword) {
       setSettingsPasswordError('Wrong password. Please try again.');
@@ -4370,11 +4461,37 @@ export default function App() {
     setSettingsView('password');
   };
 
+  const handleOpenSecurity = () => {
+    setFaceRegistrationName('');
+    setSettingsView('security');
+  };
+
   const relabelEnrolledFaces = faces =>
     (faces || []).map((face, index) => ({
       ...face,
-      label: `Face ${index + 1}`,
+      label: normalizeFaceLabel(face?.label, index),
     }));
+
+  const closeFaceScanner = result => {
+    const pendingRequest = faceScannerRequestRef.current;
+    faceScannerRequestRef.current = null;
+    setFaceScannerBusy(false);
+    setFaceScannerError('');
+    setFaceScannerVisible(false);
+
+    if (pendingRequest?.resolve) {
+      pendingRequest.resolve(result || null);
+    }
+  };
+
+  const openFaceScannerAsync = ({ purpose = 'verify this record' } = {}) =>
+    new Promise(resolve => {
+      faceScannerRequestRef.current = { resolve };
+      setFaceScannerPurpose(purpose);
+      setFaceScannerError('');
+      setFaceScannerBusy(false);
+      setFaceScannerVisible(true);
+    });
 
   const ensureFaceImageDirectoryAsync = async () => {
     if (!FileSystem?.documentDirectory) {
@@ -4411,6 +4528,21 @@ export default function App() {
   };
 
   const requestCameraAccessAsync = async () => {
+    if (VisionCameraView && visionCameraDevice) {
+      if (hasVisionCameraPermission) {
+        return true;
+      }
+
+      const visionPermission = await requestVisionCameraPermission();
+      const granted = visionPermission === true || visionPermission === 'granted';
+
+      if (!granted) {
+        Alert.alert('Camera Permission', 'Camera access is required for face recognition.');
+      }
+
+      return granted;
+    }
+
     const permission = await ImagePicker.requestCameraPermissionsAsync();
 
     if (!permission.granted) {
@@ -4421,39 +4553,27 @@ export default function App() {
     return true;
   };
 
-  const captureFaceTemplateAsync = async ({ persistImage = false, purpose = 'verify this record' } = {}) => {
-    const hasPermission = await requestCameraAccessAsync();
-
-    if (!hasPermission) {
-      return null;
-    }
-
-    const captureResult = await ImagePicker.launchCameraAsync({
-      allowsEditing: false,
-      quality: 0.8,
-      mediaTypes: ['images'],
-      cameraType: ImagePicker.CameraType.front,
-      exif: false,
-    });
-
-    if (captureResult.canceled) {
-      return null;
-    }
-
-    const capturedAsset = captureResult.assets?.[0];
-
-    if (!capturedAsset?.uri) {
+  const processCapturedFaceUriAsync = async (capturedUri, { persistImage = false, purpose = 'verify this record' } = {}) => {
+    if (!capturedUri) {
       Alert.alert('Face Recognition', 'Could not read the captured face image. Please try again.');
       return null;
     }
 
-    const detectedFaces = await detectFaces({
-      image: capturedAsset.uri,
-      options: FACE_DETECTION_OPTIONS,
-    }).catch(error => {
+    let detectedFaces = [];
+
+    try {
+      detectedFaces = await detectFaces({
+        image: capturedUri,
+        options: FACE_DETECTION_OPTIONS,
+      });
+    } catch (error) {
       console.warn('Unable to detect faces in captured image:', error);
-      return [];
-    });
+
+      if (error?.code === 'camera-module-not-found') {
+        Alert.alert('Face Recognition Unavailable', VISION_CAMERA_ERROR_MESSAGE);
+        return null;
+      }
+    }
 
     if (detectedFaces.length !== 1) {
       Alert.alert(
@@ -4472,7 +4592,7 @@ export default function App() {
       return null;
     }
 
-    const storedUri = persistImage ? await persistCapturedFaceAsync(capturedAsset.uri) : capturedAsset.uri;
+    const storedUri = persistImage ? await persistCapturedFaceAsync(capturedUri) : capturedUri;
 
     return {
       uri: storedUri,
@@ -4480,7 +4600,63 @@ export default function App() {
     };
   };
 
+  const handleFaceScannerCapture = async () => {
+    if (!faceScannerCameraRef.current || faceScannerBusy) {
+      return;
+    }
+
+    try {
+      setFaceScannerBusy(true);
+      setFaceScannerError('');
+      const capturedPhoto = await faceScannerCameraRef.current.takePhoto({
+        flash: 'off',
+        enableShutterSound: false,
+      });
+      const capturedUri = capturedPhoto?.path ? `file://${capturedPhoto.path}` : '';
+      closeFaceScanner(capturedUri || null);
+    } catch (error) {
+      console.warn('Unable to capture face from scanner:', error);
+      setFaceScannerBusy(false);
+      setFaceScannerError('Capture failed. Hold steady and try again.');
+    }
+  };
+
+  const captureFaceTemplateAsync = async ({ persistImage = false, purpose = 'verify this record' } = {}) => {
+    const hasPermission = await requestCameraAccessAsync();
+
+    if (!hasPermission) {
+      return null;
+    }
+
+    if (VisionCameraView && visionCameraDevice) {
+      const capturedUri = await openFaceScannerAsync({ purpose });
+
+      if (!capturedUri) {
+        return null;
+      }
+
+      return processCapturedFaceUriAsync(capturedUri, { persistImage, purpose });
+    }
+
+    const captureResult = await ImagePicker.launchCameraAsync({
+      allowsEditing: false,
+      quality: 0.8,
+      mediaTypes: ['images'],
+      cameraType: ImagePicker.CameraType.front,
+      exif: false,
+    });
+
+    if (captureResult.canceled) {
+      return null;
+    }
+
+    const capturedAsset = captureResult.assets?.[0];
+
+    return processCapturedFaceUriAsync(capturedAsset?.uri, { persistImage, purpose });
+  };
+
   const handleOpenFaceRecognition = () => {
+    setFaceRegistrationName('');
     setSettingsView('face');
   };
 
@@ -4491,6 +4667,13 @@ export default function App() {
 
     if (enrolledFaces.length >= MAX_ENROLLED_FACES) {
       Alert.alert('Face Recognition', `Only ${MAX_ENROLLED_FACES} enrolled faces are allowed.`);
+      return;
+    }
+
+    const normalizedFaceName = faceRegistrationName.trim();
+
+    if (!normalizedFaceName) {
+      Alert.alert('Face Recognition', 'Enter a name before registering a face.');
       return;
     }
 
@@ -4510,13 +4693,14 @@ export default function App() {
           ...prev,
           {
             id: `face-${Date.now()}`,
-            label: `Face ${prev.length + 1}`,
+            label: normalizedFaceName,
             uri: capturedFace.uri,
             createdAt: new Date().toISOString(),
             template: capturedFace.template,
           },
         ])
       );
+      setFaceRegistrationName('');
       Alert.alert('Face Recognition', 'Face enrolled successfully.');
     } finally {
       setFaceSettingsBusy(false);
@@ -5597,7 +5781,7 @@ const buildRegistrationData = formData => ({
           if (settingsView === 'menu') {
             setSettingsVisible(false);
           } else {
-            setSettingsView('menu');
+            setSettingsView(getPreviousSettingsView(settingsView));
           }
         }}
       >
@@ -5609,6 +5793,8 @@ const buildRegistrationData = formData => ({
                   ? 'Settings'
                   : settingsView === 'config'
                     ? 'Configuration'
+                    : settingsView === 'security'
+                      ? 'Security'
                     : settingsView === 'face'
                       ? 'Face Recognition'
                     : settingsView === 'disputes'
@@ -5618,11 +5804,13 @@ const buildRegistrationData = formData => ({
               <Text style={[styles.settingsPageSubtitle, { color: theme.textSecondary }]}>
                 {settingsView === 'config'
                   ? 'Control which tracks are visible for each day and category.'
+                  : settingsView === 'security'
+                    ? 'Manage the protected tools used to verify race-day actions.'
                   : settingsView === 'face'
-                    ? `Enroll ${MAX_ENROLLED_FACES} reference faces used to approve stopwatch submit and dispute actions.`
+                    ? `Register named faces used to approve stopwatch submit and dispute actions.`
                   : settingsView === 'disputes'
                     ? 'Review and resolve disputed stopwatch records for the selected day.'
-                    : settingsView === 'password'
+                  : settingsView === 'password'
                       ? 'Update the password used to open Settings.'
                       : 'Protected tools for race-day configuration.'}
               </Text>
@@ -5638,7 +5826,7 @@ const buildRegistrationData = formData => ({
             ) : (
               <TouchableOpacity
                 style={[styles.settingsCloseButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
-                onPress={() => setSettingsView('menu')}
+                onPress={() => setSettingsView(getPreviousSettingsView(settingsView))}
                 activeOpacity={0.85}
               >
                 <Text style={[styles.settingsCloseButtonText, { color: theme.accent }]}>Back</Text>
@@ -5669,18 +5857,6 @@ const buildRegistrationData = formData => ({
 
                 <TouchableOpacity
                   style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
-                  onPress={handleOpenFaceRecognition}
-                  activeOpacity={0.88}
-                >
-                  <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Verification</Text>
-                  <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Face Recognition</Text>
-                  <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
-                    Enroll {MAX_ENROLLED_FACES} faces that must match before stopwatch submit or dispute records can be saved.
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
                   onPress={handleOpenDisputes}
                   activeOpacity={0.88}
                 >
@@ -5693,13 +5869,41 @@ const buildRegistrationData = formData => ({
 
                 <TouchableOpacity
                   style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
-                  onPress={handleOpenChangePassword}
+                  onPress={handleOpenSecurity}
                   activeOpacity={0.88}
                 >
                   <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Security</Text>
+                  <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Security</Text>
+                  <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
+                    Add face recognition and update the password required to access Settings.
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+
+            {settingsView === 'security' ? (
+              <View style={styles.settingsMenuGrid}>
+                <TouchableOpacity
+                  style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={handleOpenFaceRecognition}
+                  activeOpacity={0.88}
+                >
+                  <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Verification</Text>
+                  <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Add Face Recognition</Text>
+                  <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
+                    Register named faces that must match before stopwatch submit or dispute records can be saved.
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={handleOpenChangePassword}
+                  activeOpacity={0.88}
+                >
+                  <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Access</Text>
                   <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Change Password</Text>
                   <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
-                    Update the password required to access Settings.
+                    Update the password required to open protected settings.
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -5953,6 +6157,31 @@ const buildRegistrationData = formData => ({
                   </Text>
                 </View>
 
+                <View
+                  style={[
+                    styles.settingsFormCard,
+                    { backgroundColor: theme.surface, borderColor: theme.border },
+                  ]}
+                >
+                  <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Register Face</Text>
+                  <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                    Enter the person name first, then tap Add Face Recognition to capture and save their face locally.
+                  </Text>
+                  <TextInput
+                    style={[
+                      styles.settingsInput,
+                      { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary },
+                    ]}
+                    value={faceRegistrationName}
+                    onChangeText={setFaceRegistrationName}
+                    placeholder="Enter person name"
+                    placeholderTextColor={theme.textTertiary}
+                    autoCapitalize="words"
+                    autoCorrect={false}
+                    editable={!faceSettingsBusy}
+                  />
+                </View>
+
                 <View style={styles.faceSettingsActionRow}>
                   <TouchableOpacity
                     style={[
@@ -5967,7 +6196,7 @@ const buildRegistrationData = formData => ({
                     disabled={faceSettingsBusy || enrolledFaces.length >= MAX_ENROLLED_FACES}
                   >
                     <Text style={[styles.settingsActionButtonText, { color: theme.accentText }]}>
-                      Add Face
+                      Add Face Recognition
                     </Text>
                   </TouchableOpacity>
 
@@ -6039,7 +6268,7 @@ const buildRegistrationData = formData => ({
                       No faces enrolled yet
                     </Text>
                     <Text style={[styles.faceSettingsEmptyText, { color: theme.textSecondary }]}>
-                      Tap Add Face and capture each approved person one by one until all {MAX_ENROLLED_FACES} slots are filled.
+                      Enter a person name, then tap Add Face Recognition and capture each approved person one by one until all {MAX_ENROLLED_FACES} slots are filled.
                     </Text>
                   </View>
                 )}
@@ -6263,6 +6492,84 @@ const buildRegistrationData = formData => ({
               </View>
             </View>
           </ScrollView>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={faceScannerVisible}
+        transparent={false}
+        animationType="fade"
+        onRequestClose={() => closeFaceScanner(null)}
+      >
+        <View style={styles.faceScannerScreen}>
+          {VisionCameraView && visionCameraDevice ? (
+            <VisionCameraView
+              ref={faceScannerCameraRef}
+              style={StyleSheet.absoluteFill}
+              device={visionCameraDevice}
+              isActive={faceScannerVisible}
+              photo
+            />
+          ) : (
+            <View style={styles.faceScannerUnavailableState}>
+              <Text style={styles.faceScannerUnavailableTitle}>Face Scanner Unavailable</Text>
+              <Text style={styles.faceScannerUnavailableText}>{VISION_CAMERA_ERROR_MESSAGE}</Text>
+            </View>
+          )}
+
+          <View style={styles.faceScannerOverlay}>
+            <TouchableOpacity
+              style={styles.faceScannerCloseButton}
+              onPress={() => closeFaceScanner(null)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.faceScannerCloseButtonText}>Close</Text>
+            </TouchableOpacity>
+
+            <View style={styles.faceScannerContent}>
+              <Text style={styles.faceScannerTitle}>Face Lock</Text>
+              <Text style={styles.faceScannerSubtitle}>
+                Align your face inside the frame to {faceScannerPurpose}.
+              </Text>
+
+              <View style={styles.faceScannerFrame}>
+                <View style={styles.faceScannerFrameInner} />
+                <Text style={styles.faceScannerFrameLabel}>Hold steady and look straight ahead</Text>
+              </View>
+
+              {faceScannerError ? (
+                <Text style={styles.faceScannerErrorText}>{faceScannerError}</Text>
+              ) : null}
+
+              <View style={styles.faceScannerActionRow}>
+                <TouchableOpacity
+                  style={[styles.faceScannerActionButton, styles.faceScannerActionButtonSecondary]}
+                  onPress={() => closeFaceScanner(null)}
+                  activeOpacity={0.85}
+                  disabled={faceScannerBusy}
+                >
+                  <Text style={styles.faceScannerActionButtonSecondaryText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.faceScannerActionButton,
+                    styles.faceScannerActionButtonPrimary,
+                    faceScannerBusy && styles.faceScannerActionButtonDisabled,
+                  ]}
+                  onPress={handleFaceScannerCapture}
+                  activeOpacity={0.85}
+                  disabled={faceScannerBusy || !VisionCameraView || !visionCameraDevice}
+                >
+                  {faceScannerBusy ? (
+                    <ActivityIndicator color="#18120a" />
+                  ) : (
+                    <Text style={styles.faceScannerActionButtonPrimaryText}>Scan Face</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
         </View>
       </Modal>
 
@@ -8259,6 +8566,170 @@ const styles = StyleSheet.create({
     fontFamily: BODY_FONT,
   },
 
+  faceScannerScreen: {
+    flex: 1,
+    backgroundColor: '#050505',
+  },
+
+  faceScannerUnavailableState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+    backgroundColor: '#050505',
+  },
+
+  faceScannerUnavailableTitle: {
+    fontSize: 24,
+    fontFamily: TITLE_FONT,
+    color: '#fff6ea',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+
+  faceScannerUnavailableText: {
+    fontSize: 15,
+    lineHeight: 22,
+    fontFamily: BODY_FONT,
+    color: '#cdbf9a',
+    textAlign: 'center',
+  },
+
+  faceScannerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(5, 5, 5, 0.28)',
+    paddingHorizontal: 20,
+    paddingTop: 56,
+    paddingBottom: 32,
+  },
+
+  faceScannerCloseButton: {
+    alignSelf: 'flex-end',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: 'rgba(12, 17, 26, 0.82)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.16)',
+  },
+
+  faceScannerCloseButtonText: {
+    color: '#fff6ea',
+    fontSize: 14,
+    fontFamily: BODY_FONT,
+  },
+
+  faceScannerContent: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  faceScannerTitle: {
+    fontSize: 30,
+    fontFamily: TITLE_FONT,
+    color: '#fff6ea',
+    marginBottom: 8,
+  },
+
+  faceScannerSubtitle: {
+    fontSize: 15,
+    lineHeight: 22,
+    fontFamily: BODY_FONT,
+    color: '#f1d8b1',
+    textAlign: 'center',
+    maxWidth: 320,
+    marginBottom: 26,
+  },
+
+  faceScannerFrame: {
+    width: 260,
+    height: 340,
+    borderRadius: 132,
+    borderWidth: 3,
+    borderColor: '#ffb15a',
+    backgroundColor: 'rgba(255, 177, 90, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingBottom: 28,
+    shadowColor: '#ffb15a',
+    shadowOpacity: 0.45,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 16,
+  },
+
+  faceScannerFrameInner: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    right: 16,
+    bottom: 16,
+    borderRadius: 120,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 246, 234, 0.35)',
+  },
+
+  faceScannerFrameLabel: {
+    fontSize: 13,
+    fontFamily: BODY_FONT,
+    color: '#fff6ea',
+    textAlign: 'center',
+    paddingHorizontal: 24,
+  },
+
+  faceScannerErrorText: {
+    marginTop: 18,
+    fontSize: 14,
+    fontFamily: BODY_FONT,
+    color: '#ffd5c9',
+    textAlign: 'center',
+  },
+
+  faceScannerActionRow: {
+    width: '100%',
+    maxWidth: 340,
+    flexDirection: 'row',
+    marginTop: 28,
+  },
+
+  faceScannerActionButton: {
+    flex: 1,
+    minHeight: 54,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+  },
+
+  faceScannerActionButtonPrimary: {
+    backgroundColor: '#ffb15a',
+    marginLeft: 10,
+  },
+
+  faceScannerActionButtonSecondary: {
+    backgroundColor: 'rgba(12, 17, 26, 0.88)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.18)',
+    marginRight: 10,
+  },
+
+  faceScannerActionButtonDisabled: {
+    opacity: 0.55,
+  },
+
+  faceScannerActionButtonPrimaryText: {
+    color: '#18120a',
+    fontSize: 16,
+    fontFamily: BODY_FONT,
+  },
+
+  faceScannerActionButtonSecondaryText: {
+    color: '#fff6ea',
+    fontSize: 16,
+    fontFamily: BODY_FONT,
+  },
+
   settingsInfoCard: {
     borderRadius: 18,
     borderWidth: 1,
@@ -9382,5 +9853,3 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 8,
   },
 });
-
-
