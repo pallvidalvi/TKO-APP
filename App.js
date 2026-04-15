@@ -1611,7 +1611,7 @@ const CustomDropdown = ({ label, value, options, onValueChange }) => {
 
 const DNF_OPTIONS = ['20 points', '50 points'];
 
-const DNFSelector = ({
+const DNFSelector = React.memo(({
   wrongCourseSelected,
   fourthAttemptSelected,
   timeOverSelected,
@@ -1753,7 +1753,16 @@ const DNFSelector = ({
       ) : null}
     </View>
   );
-};
+}, (prevProps, nextProps) =>
+  prevProps.wrongCourseSelected === nextProps.wrongCourseSelected &&
+  prevProps.fourthAttemptSelected === nextProps.fourthAttemptSelected &&
+  prevProps.timeOverSelected === nextProps.timeOverSelected &&
+  prevProps.pointsValue === nextProps.pointsValue &&
+  prevProps.disabled === nextProps.disabled &&
+  prevProps.layout?.isTablet === nextProps.layout?.isTablet &&
+  prevProps.layout?.isSmallPhone === nextProps.layout?.isSmallPhone &&
+  prevProps.layout?.penaltyColumns === nextProps.layout?.penaltyColumns
+));
 
 const LATE_START_OPTIONS = [
   { value: 'late_start', label: 'Late Start with Penalty' },
@@ -1875,7 +1884,7 @@ const LateStartCheckbox = ({
  * PenaltyCounter Component
  * Provides increment/decrement buttons with manual input for penalty counts
  */
-const PenaltyCounter = ({
+const PenaltyCounter = React.memo(({
   label,
   count,
   onCountChange,
@@ -2006,7 +2015,16 @@ const PenaltyCounter = ({
       </View>
     </View>
   );
-};
+}, (prevProps, nextProps) =>
+  prevProps.label === nextProps.label &&
+  prevProps.count === nextProps.count &&
+  prevProps.penaltyTime === nextProps.penaltyTime &&
+  prevProps.disabled === nextProps.disabled &&
+  prevProps.showPenaltyTime === nextProps.showPenaltyTime &&
+  prevProps.layout?.isTablet === nextProps.layout?.isTablet &&
+  prevProps.layout?.isSmallPhone === nextProps.layout?.isSmallPhone &&
+  prevProps.layout?.penaltyColumns === nextProps.layout?.penaltyColumns
+));
 
 /**
  * Registration Form Modal Component
@@ -2049,6 +2067,8 @@ const RegistrationForm = ({
   const [disputeModalVisible, setDisputeModalVisible] = useState(false);
   const [disputeFormState, setDisputeFormState] = useState(() => createEmptyDisputeFormState());
   const [isFaceVerificationInProgress, setIsFaceVerificationInProgress] = useState(false);
+  const stopwatchStartTimestampRef = useRef(null);
+  const stopwatchElapsedRef = useRef(0);
 
   const PENALTY_VALUES = {
     busting: 20,
@@ -2095,15 +2115,24 @@ const RegistrationForm = ({
   );
 
   useEffect(() => {
-    let interval;
-    if (isStopwatchRunning) {
-      interval = setInterval(() => {
-        setStopwatchTime(prevTime => prevTime + 10);
-      }, 10);
+    if (!isStopwatchRunning) {
+      return undefined;
     }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
+
+    if (stopwatchStartTimestampRef.current === null) {
+      stopwatchStartTimestampRef.current = Date.now() - stopwatchElapsedRef.current;
+    }
+
+    const interval = setInterval(() => {
+      const nextElapsed = Math.max(0, Date.now() - stopwatchStartTimestampRef.current);
+
+      if (nextElapsed !== stopwatchElapsedRef.current) {
+        stopwatchElapsedRef.current = nextElapsed;
+        setStopwatchTime(nextElapsed);
+      }
+    }, 50);
+
+    return () => clearInterval(interval);
   }, [isStopwatchRunning]);
 
   useEffect(() => {
@@ -2141,6 +2170,8 @@ const RegistrationForm = ({
       setTimeOverSelected(Boolean(initialRecord.timeOverSelected));
       setDnfSelection(initialRecord.dnfSelection ? String(initialRecord.dnfSelection) : '');
       setStopwatchTime(initialStopwatchTime);
+      stopwatchElapsedRef.current = initialStopwatchTime;
+      stopwatchStartTimestampRef.current = null;
       setHasTimerStarted(Boolean(initialStopwatchTime) || Boolean(initialRecord.isDNF));
       setHasTimerStopped(Boolean(initialStopwatchTime) || Boolean(initialRecord.isDNF));
       setIsStopwatchRunning(false);
@@ -2155,6 +2186,8 @@ const RegistrationForm = ({
       return;
     }
 
+    stopwatchElapsedRef.current = stopwatchTime;
+    stopwatchStartTimestampRef.current = null;
     setIsStopwatchRunning(false);
 
     if (hasTimerStarted || stopwatchTime > 0) {
@@ -2164,22 +2197,39 @@ const RegistrationForm = ({
 
   const toggleStopwatch = () => {
     if (isStopwatchRunning) {
+      const nextElapsed =
+        stopwatchStartTimestampRef.current !== null
+          ? Math.max(0, Date.now() - stopwatchStartTimestampRef.current)
+          : stopwatchElapsedRef.current;
+
+      stopwatchElapsedRef.current = nextElapsed;
+      stopwatchStartTimestampRef.current = null;
+      setStopwatchTime(nextElapsed);
       setIsStopwatchRunning(false);
       setHasTimerStopped(true);
       return;
     }
 
     if (!hasTimerStarted && !hasTimerStopped) {
+      stopwatchStartTimestampRef.current = Date.now() - stopwatchElapsedRef.current;
       setIsStopwatchRunning(true);
       setHasTimerStarted(true);
     }
   };
 
   const resetStopwatch = () => {
+    stopwatchStartTimestampRef.current = null;
+    stopwatchElapsedRef.current = 0;
     setStopwatchTime(0);
     setIsStopwatchRunning(false);
     setHasTimerStarted(false);
     setHasTimerStopped(false);
+    setBustingCount('0');
+    setSeatbeltCount('0');
+    setGroundTouchCount('0');
+    setAttemptCount('0');
+    setTaskSkippedCount('0');
+    setLateStartMode('');
     setWrongCourseSelected(false);
     setFourthAttemptSelected(false);
     setTimeOverSelected(false);
@@ -2240,6 +2290,8 @@ const RegistrationForm = ({
     setTimeOverSelected(false);
     setDnfSelection('');
     setLateStartMode('');
+    stopwatchStartTimestampRef.current = null;
+    stopwatchElapsedRef.current = 0;
     setStopwatchTime(0);
     setHasTimerStarted(false);
     setHasTimerStopped(false);
@@ -2419,9 +2471,442 @@ const RegistrationForm = ({
   const submitDisabled = (!hasTimerStopped && !isDNF) || isDNFPointsMissing;
   const disputeDisabled = submitDisabled;
   const startButtonDisabled = hasTimerStopped || isDNF;
-  const resetButtonDisabled = isStopwatchRunning || stopwatchTime === 0;
+  const hasAnyResettableValue =
+    stopwatchTime > 0 ||
+    lateStartMode !== '' ||
+    (parseInt(bustingCount, 10) || 0) > 0 ||
+    (parseInt(seatbeltCount, 10) || 0) > 0 ||
+    (parseInt(groundTouchCount, 10) || 0) > 0 ||
+    (parseInt(attemptCount, 10) || 0) > 0 ||
+    (parseInt(taskSkippedCount, 10) || 0) > 0 ||
+    wrongCourseSelected ||
+    fourthAttemptSelected ||
+    timeOverSelected ||
+    dnfSelection !== '';
+  const resetButtonDisabled = isStopwatchRunning || !hasAnyResettableValue;
   const showDisputeButton = initialRecord?.source !== 'dispute';
   const faceEnrollmentIncomplete = enrolledFaceCount < MAX_ENROLLED_FACES;
+  const useLandscapeTabletLayout = responsiveLayout.isTabletLandscape;
+
+  const formContent = (
+    <>
+      <View
+        style={[
+          styles.dashboardLayout,
+          {
+            flexDirection: responsiveLayout.useSplitLayout ? 'row' : 'column',
+            gap: responsiveLayout.isSmallPhone ? 8 : 12,
+          },
+        ]}
+      >
+        <View
+          style={[
+            styles.dashboardLeftPanel,
+            { width: responsiveLayout.useSplitLayout ? '37%' : '100%' },
+          ]}
+        >
+          <View style={styles.detailsAccordion}>
+            <TouchableOpacity
+              style={styles.detailsAccordionHeader}
+              onPress={() => setDetailsExpanded(prev => !prev)}
+              activeOpacity={0.85}
+              hitSlop={TOUCH_HIT_SLOP}
+            >
+              <View style={styles.detailsTrackPill}>
+                <Text style={styles.detailsTrackPillText}>
+                  {trackName || 'Track'}
+                </Text>
+              </View>
+              <View style={styles.detailsAccordionTrigger}>
+                <Text style={styles.detailsAccordionTriggerText}>Details</Text>
+                <Text style={styles.detailsAccordionTriggerIcon}>
+                  {detailsExpanded ? '▴' : '▾'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            {detailsExpanded ? (
+              <View style={styles.heroInfoCard}>
+                <Text style={styles.heroMetaText}>
+                  Sticker: <Text style={styles.heroMetaStrong}>#{stickerNumber || '--'}</Text>
+                  {' | '}
+                  Driver: <Text style={styles.heroMetaStrong}>{driverName || '--'}</Text>
+                </Text>
+                <Text style={styles.heroSecondaryMetaText}>
+                  Co-Driver: <Text style={styles.heroMetaStrong}>{coDriverName || '--'}</Text>
+                  {' | '}
+                  Sr. No.: <Text style={styles.heroMetaStrong}>
+                    {srNo ? String(srNo).padStart(2, '0') : '--'}
+                  </Text>
+                </Text>
+              </View>
+            ) : null}
+          </View>
+
+          <View
+            style={[
+              styles.timerHeroCard,
+              {
+                paddingHorizontal: responsiveLayout.isTablet ? 28 : responsiveLayout.isSmallPhone ? 12 : 18,
+                paddingVertical: responsiveLayout.isTablet ? 30 : responsiveLayout.isSmallPhone ? 16 : 22,
+                marginBottom: responsiveLayout.isSmallPhone ? 14 : 24,
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.stopwatchDisplay,
+                {
+                  fontSize: responsiveLayout.isTablet ? 70 : responsiveLayout.isSmallPhone ? 38 : 48,
+                  letterSpacing: responsiveLayout.isTablet ? 6 : responsiveLayout.isSmallPhone ? 1 : 2,
+                  marginBottom: responsiveLayout.isSmallPhone ? 12 : 20,
+                },
+              ]}
+            >
+              {isDNF ? 'DNF' : formatTime(stopwatchTime)}
+            </Text>
+            <View
+              style={[
+                styles.stopwatchButtonsContainer,
+                { gap: responsiveLayout.isSmallPhone ? 8 : 12 },
+              ]}
+            >
+              <TouchableOpacity
+                style={[
+                  styles.stopwatchButton,
+                  isStopwatchRunning
+                    ? styles.stopwatchButtonStop
+                    : styles.stopwatchButtonStart,
+                  startButtonDisabled && styles.stopwatchButtonDisabled,
+                  {
+                    paddingVertical: responsiveLayout.isSmallPhone ? 12 : 16,
+                    paddingHorizontal: responsiveLayout.isSmallPhone ? 14 : 24,
+                    minWidth: responsiveLayout.isTablet ? 220 : responsiveLayout.isSmallPhone ? 136 : 180,
+                  },
+                ]}
+                onPress={toggleStopwatch}
+                disabled={startButtonDisabled}
+                hitSlop={TOUCH_HIT_SLOP}
+              >
+                <Text
+                  style={[
+                    styles.stopwatchButtonText,
+                    { fontSize: responsiveLayout.isSmallPhone ? 12 : 14 },
+                  ]}
+                >
+                  {isStopwatchRunning ? 'Stop Timer' : 'Start Timer'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.stopwatchButton,
+                  styles.stopwatchResetButton,
+                  styles.stopwatchResetCompact,
+                  resetButtonDisabled && styles.stopwatchButtonDisabled,
+                  { minWidth: responsiveLayout.isTablet ? 110 : responsiveLayout.isSmallPhone ? 82 : 96 },
+                ]}
+                onPress={resetStopwatch}
+                disabled={resetButtonDisabled}
+                hitSlop={TOUCH_HIT_SLOP}
+              >
+                <Text
+                  style={[
+                    styles.stopwatchButtonText,
+                    { fontSize: responsiveLayout.isSmallPhone ? 12 : 14 },
+                  ]}
+                >
+                  Reset
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
+        <ScrollView
+          style={[
+            styles.dashboardRightPanel,
+            {
+              width: responsiveLayout.useSplitLayout ? '61%' : '100%',
+              padding: responsiveLayout.isTablet ? 18 : responsiveLayout.isSmallPhone ? 8 : 12,
+            },
+          ]}
+          contentContainerStyle={[
+            styles.dashboardRightPanelContent,
+            useLandscapeTabletLayout && styles.dashboardRightPanelContentLandscape,
+          ]}
+          keyboardShouldPersistTaps="handled"
+          nestedScrollEnabled
+          showsVerticalScrollIndicator={false}
+        >
+          {initialRecord?.source === 'dispute' && currentDisputeEntries.length ? (
+            <View style={[styles.section, styles.disputeInfoCard]}>
+              <Text
+                style={[
+                  styles.sectionTitle,
+                  {
+                    fontSize: responsiveLayout.isTablet ? 18 : responsiveLayout.isSmallPhone ? 14 : 15,
+                    marginBottom: responsiveLayout.isSmallPhone ? 8 : 10,
+                  },
+                ]}
+              >
+                Dispute Details
+              </Text>
+              {currentDisputeEntries.map(entry => (
+                <View key={`hold-${entry.key}`} style={styles.disputeInfoRow}>
+                  <Text style={styles.disputeInfoLabel}>{entry.label}</Text>
+                  <Text style={styles.disputeInfoValue}>{entry.detail}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          <View style={[styles.section, { marginBottom: responsiveLayout.isSmallPhone ? 10 : 14 }]}>
+            <Text
+              style={[
+                styles.sectionTitle,
+                {
+                  fontSize: responsiveLayout.isTablet ? 18 : responsiveLayout.isSmallPhone ? 14 : 15,
+                  marginBottom: responsiveLayout.isSmallPhone ? 8 : 10,
+                },
+              ]}
+            >
+              Penalties
+            </Text>
+            <View style={[styles.penaltyGrid, { gap: responsiveLayout.isSmallPhone ? 8 : 10 }]}>
+              <PenaltyCounter
+                label="Bunting & Pole (20s)"
+                count={bustingCount}
+                onCountChange={setBustingCount}
+                penaltyTime={bustingPenaltyTime}
+                layout={responsiveLayout}
+                disabled={penaltyControlsDisabled}
+              />
+              <PenaltyCounter
+                label="Seatbelt (30s)"
+                count={seatbeltCount}
+                onCountChange={setSeatbeltCount}
+                penaltyTime={seatbeltPenaltyTime}
+                layout={responsiveLayout}
+                disabled={penaltyControlsDisabled}
+              />
+              <PenaltyCounter
+                label="Ground Touch (30s)"
+                count={groundTouchCount}
+                onCountChange={setGroundTouchCount}
+                penaltyTime={groundTouchPenaltyTime}
+                layout={responsiveLayout}
+                disabled={penaltyControlsDisabled}
+              />
+            </View>
+          </View>
+
+          <View style={[styles.section, { marginBottom: responsiveLayout.isSmallPhone ? 10 : 14 }]}>
+            <Text
+              style={[
+                styles.sectionTitle,
+                {
+                  fontSize: responsiveLayout.isTablet ? 18 : responsiveLayout.isSmallPhone ? 14 : 15,
+                  marginBottom: responsiveLayout.isSmallPhone ? 8 : 10,
+                },
+              ]}
+            >
+              Task Skipped
+            </Text>
+            <View style={[styles.penaltyGrid, { gap: responsiveLayout.isSmallPhone ? 8 : 10 }]}>
+              <PenaltyCounter
+                label="Task Attempt (30s)"
+                count={attemptCount}
+                onCountChange={setAttemptCount}
+                penaltyTime={attemptPenaltyTime}
+                layout={responsiveLayout}
+                disabled={penaltyControlsDisabled}
+              />
+              <PenaltyCounter
+                label="Task Skip (60s)"
+                count={taskSkippedCount}
+                onCountChange={setTaskSkippedCount}
+                penaltyTime={taskSkippedPenaltyTime}
+                layout={responsiveLayout}
+                disabled={penaltyControlsDisabled}
+              />
+            </View>
+          </View>
+
+          <View style={[styles.section, { marginBottom: responsiveLayout.isSmallPhone ? 10 : 14 }]}>
+            <Text
+              style={[
+                styles.sectionTitle,
+                {
+                  fontSize: responsiveLayout.isTablet ? 18 : responsiveLayout.isSmallPhone ? 14 : 15,
+                  marginBottom: responsiveLayout.isSmallPhone ? 8 : 10,
+                },
+              ]}
+            >
+              DNF (Did Not Finish)
+            </Text>
+            <View style={[styles.penaltyGrid, { gap: responsiveLayout.isSmallPhone ? 8 : 10 }]}>
+              <DNFSelector
+                wrongCourseSelected={wrongCourseSelected}
+                fourthAttemptSelected={fourthAttemptSelected}
+                timeOverSelected={timeOverSelected}
+                pointsValue={dnfSelection}
+                onWrongCourseChange={setWrongCourseSelected}
+                onFourthAttemptChange={setFourthAttemptSelected}
+                onTimeOverChange={setTimeOverSelected}
+                onPointsChange={setDnfSelection}
+                layout={responsiveLayout}
+                disabled={!hasTimerStarted && !isDNF}
+              />
+            </View>
+          </View>
+
+          {!responsiveLayout.useSplitLayout ? (
+            <View
+              style={[
+                styles.summarySection,
+                {
+                  marginBottom: responsiveLayout.isSmallPhone ? 10 : 12,
+                  padding: responsiveLayout.isSmallPhone ? 10 : 12,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.summaryTitle,
+                  {
+                    fontSize: responsiveLayout.isTablet ? 16 : responsiveLayout.isSmallPhone ? 14 : 15,
+                    marginBottom: responsiveLayout.isSmallPhone ? 8 : 10,
+                  },
+                ]}
+              >
+                Time Summary
+              </Text>
+              <View style={styles.summaryRow}>
+                <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>Total Penalties Time:</Text>
+                <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>{totalPenaltiesTime} sec</Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>Late Start Penalty:</Text>
+                <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>{lateStartPenaltyTime} sec</Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>Performance Time:</Text>
+                <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>
+                  {performanceTimeDisplay}
+                </Text>
+              </View>
+              {isDNF ? (
+                <View style={styles.summaryRow}>
+                  <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>DNF Points:</Text>
+                  <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>{dnfSelection}</Text>
+                </View>
+              ) : null}
+              <View style={styles.summaryDivider} />
+              <View
+                style={[
+                  styles.summaryRowTotal,
+                  {
+                    paddingVertical: responsiveLayout.isSmallPhone ? 8 : 10,
+                    paddingHorizontal: responsiveLayout.isSmallPhone ? 10 : 12,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.summaryLabelTotal,
+                    { fontSize: responsiveLayout.isTablet ? 18 : responsiveLayout.isSmallPhone ? 15 : 16 },
+                  ]}
+                >
+                  TOTAL TIME:
+                </Text>
+                <Text
+                  style={[
+                    styles.summaryValueTotal,
+                    { fontSize: responsiveLayout.isTablet ? 26 : responsiveLayout.isSmallPhone ? 20 : 22 },
+                  ]}
+                >
+                  {totalTimeDisplay}
+                </Text>
+              </View>
+            </View>
+          ) : null}
+        </ScrollView>
+      </View>
+
+      {responsiveLayout.useSplitLayout ? (
+        <View style={[styles.tabletFooterPanel, { width: '37%' }]}>
+          <View
+            style={[
+              styles.summarySection,
+              {
+                marginBottom: responsiveLayout.isSmallPhone ? 10 : 12,
+                padding: responsiveLayout.isSmallPhone ? 10 : 12,
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.summaryTitle,
+                {
+                  fontSize: responsiveLayout.isTablet ? 16 : responsiveLayout.isSmallPhone ? 14 : 15,
+                  marginBottom: responsiveLayout.isSmallPhone ? 8 : 10,
+                },
+              ]}
+            >
+              Time Summary
+            </Text>
+            <View style={styles.summaryRow}>
+              <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>Total Penalties Time:</Text>
+              <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>{totalPenaltiesTime} sec</Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>Late Start Penalty:</Text>
+              <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>{lateStartPenaltyTime} sec</Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>Performance Time:</Text>
+              <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>
+                {performanceTimeDisplay}
+              </Text>
+            </View>
+            {isDNF ? (
+              <View style={styles.summaryRow}>
+                <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>DNF Points:</Text>
+                <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>{dnfSelection}</Text>
+              </View>
+            ) : null}
+            <View style={styles.summaryDivider} />
+            <View
+              style={[
+                styles.summaryRowTotal,
+                {
+                  paddingVertical: responsiveLayout.isSmallPhone ? 8 : 10,
+                  paddingHorizontal: responsiveLayout.isSmallPhone ? 10 : 12,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.summaryLabelTotal,
+                  { fontSize: responsiveLayout.isTablet ? 18 : responsiveLayout.isSmallPhone ? 15 : 16 },
+                ]}
+              >
+                TOTAL TIME:
+              </Text>
+              <Text
+                style={[
+                  styles.summaryValueTotal,
+                  { fontSize: responsiveLayout.isTablet ? 26 : responsiveLayout.isSmallPhone ? 20 : 22 },
+                ]}
+              >
+                {totalTimeDisplay}
+              </Text>
+            </View>
+          </View>
+        </View>
+      ) : null}
+    </>
+  );
 
   return (
     <>
@@ -2475,420 +2960,19 @@ const RegistrationForm = ({
                 },
               ]}
             >
-              <View
-                style={[
-                  styles.dashboardLayout,
-                  {
-                    flexDirection: responsiveLayout.useSplitLayout ? 'row' : 'column',
-                    gap: responsiveLayout.isSmallPhone ? 8 : 12,
-                  },
-                ]}
-              >
-                <View
-                  style={[
-                    styles.dashboardLeftPanel,
-                    { width: responsiveLayout.useSplitLayout ? '37%' : '100%' },
-                  ]}
-                >
-                  <View style={styles.detailsAccordion}>
-                    <TouchableOpacity
-                      style={styles.detailsAccordionHeader}
-                      onPress={() => setDetailsExpanded(prev => !prev)}
-                      activeOpacity={0.85}
-                      hitSlop={TOUCH_HIT_SLOP}
-                    >
-                      <View style={styles.detailsTrackPill}>
-                        <Text style={styles.detailsTrackPillText}>
-                          {trackName || 'Track'}
-                        </Text>
-                      </View>
-                      <View style={styles.detailsAccordionTrigger}>
-                        <Text style={styles.detailsAccordionTriggerText}>Details</Text>
-                        <Text style={styles.detailsAccordionTriggerIcon}>
-                          {detailsExpanded ? '▴' : '▾'}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-
-                    {detailsExpanded ? (
-                      <View style={styles.heroInfoCard}>
-                        <Text style={styles.heroMetaText}>
-                          Sticker: <Text style={styles.heroMetaStrong}>#{stickerNumber || '--'}</Text>
-                          {' | '}
-                          Driver: <Text style={styles.heroMetaStrong}>{driverName || '--'}</Text>
-                        </Text>
-                        <Text style={styles.heroSecondaryMetaText}>
-                          Co-Driver: <Text style={styles.heroMetaStrong}>{coDriverName || '--'}</Text>
-                          {' | '}
-                          Sr. No.: <Text style={styles.heroMetaStrong}>
-                            {srNo ? String(srNo).padStart(2, '0') : '--'}
-                          </Text>
-                        </Text>
-                      </View>
-                    ) : null}
-                  </View>
-
-                  <View
-                    style={[
-                      styles.timerHeroCard,
-                      {
-                        paddingHorizontal: responsiveLayout.isTablet ? 28 : responsiveLayout.isSmallPhone ? 12 : 18,
-                        paddingVertical: responsiveLayout.isTablet ? 30 : responsiveLayout.isSmallPhone ? 16 : 22,
-                        marginBottom: responsiveLayout.isSmallPhone ? 14 : 24,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.stopwatchDisplay,
-                        {
-                          fontSize: responsiveLayout.isTablet ? 70 : responsiveLayout.isSmallPhone ? 38 : 48,
-                          letterSpacing: responsiveLayout.isTablet ? 6 : responsiveLayout.isSmallPhone ? 1 : 2,
-                          marginBottom: responsiveLayout.isSmallPhone ? 12 : 20,
-                        },
-                      ]}
-                    >
-                      {isDNF ? 'DNF' : formatTime(stopwatchTime)}
-                    </Text>
-                    <View
-                      style={[
-                        styles.stopwatchButtonsContainer,
-                        { gap: responsiveLayout.isSmallPhone ? 8 : 12 },
-                      ]}
-                    >
-                      <TouchableOpacity
-                        style={[
-                          styles.stopwatchButton,
-                          isStopwatchRunning
-                            ? styles.stopwatchButtonStop
-                            : styles.stopwatchButtonStart,
-                          startButtonDisabled && styles.stopwatchButtonDisabled,
-                          {
-                            paddingVertical: responsiveLayout.isSmallPhone ? 12 : 16,
-                            paddingHorizontal: responsiveLayout.isSmallPhone ? 14 : 24,
-                            minWidth: responsiveLayout.isTablet ? 220 : responsiveLayout.isSmallPhone ? 136 : 180,
-                          },
-                        ]}
-                        onPress={toggleStopwatch}
-                        disabled={startButtonDisabled}
-                        hitSlop={TOUCH_HIT_SLOP}
-                      >
-                        <Text
-                          style={[
-                            styles.stopwatchButtonText,
-                            { fontSize: responsiveLayout.isSmallPhone ? 12 : 14 },
-                          ]}
-                        >
-                          {isStopwatchRunning ? 'Stop Timer' : 'Start Timer'}
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[
-                          styles.stopwatchButton,
-                          styles.stopwatchResetButton,
-                          styles.stopwatchResetCompact,
-                          resetButtonDisabled && styles.stopwatchButtonDisabled,
-                          { minWidth: responsiveLayout.isTablet ? 110 : responsiveLayout.isSmallPhone ? 82 : 96 },
-                        ]}
-                        onPress={resetStopwatch}
-                        disabled={resetButtonDisabled}
-                        hitSlop={TOUCH_HIT_SLOP}
-                      >
-                        <Text
-                          style={[
-                            styles.stopwatchButtonText,
-                            { fontSize: responsiveLayout.isSmallPhone ? 12 : 14 },
-                          ]}
-                        >
-                          Reset
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                </View>
-
+              {useLandscapeTabletLayout ? (
                 <ScrollView
-                  style={[
-                    styles.dashboardRightPanel,
-                    {
-                      width: responsiveLayout.useSplitLayout ? '61%' : '100%',
-                      padding: responsiveLayout.isTablet ? 18 : responsiveLayout.isSmallPhone ? 8 : 12,
-                    },
-                  ]}
-                  contentContainerStyle={styles.dashboardRightPanelContent}
+                  style={styles.formBodyScroll}
+                  contentContainerStyle={styles.formBodyScrollContent}
                   keyboardShouldPersistTaps="handled"
                   nestedScrollEnabled
                   showsVerticalScrollIndicator={false}
                 >
-                  {initialRecord?.source === 'dispute' && currentDisputeEntries.length ? (
-                    <View style={[styles.section, styles.disputeInfoCard]}>
-                      <Text
-                        style={[
-                          styles.sectionTitle,
-                          {
-                            fontSize: responsiveLayout.isTablet ? 18 : responsiveLayout.isSmallPhone ? 14 : 15,
-                            marginBottom: responsiveLayout.isSmallPhone ? 8 : 10,
-                          },
-                        ]}
-                      >
-                        Dispute Details
-                      </Text>
-                      {currentDisputeEntries.map(entry => (
-                        <View key={`hold-${entry.key}`} style={styles.disputeInfoRow}>
-                          <Text style={styles.disputeInfoLabel}>{entry.label}</Text>
-                          <Text style={styles.disputeInfoValue}>{entry.detail}</Text>
-                        </View>
-                      ))}
-                    </View>
-                  ) : null}
-
-                  <View style={[styles.section, { marginBottom: responsiveLayout.isSmallPhone ? 10 : 14 }]}>
-                    <Text
-                      style={[
-                        styles.sectionTitle,
-                        {
-                          fontSize: responsiveLayout.isTablet ? 18 : responsiveLayout.isSmallPhone ? 14 : 15,
-                          marginBottom: responsiveLayout.isSmallPhone ? 8 : 10,
-                        },
-                      ]}
-                    >
-                      Penalties
-                    </Text>
-                    <View style={[styles.penaltyGrid, { gap: responsiveLayout.isSmallPhone ? 8 : 10 }]}>
-                      <PenaltyCounter
-                        label="Bunting & Pole (20s)"
-                        count={bustingCount}
-                        onCountChange={setBustingCount}
-                        penaltyTime={bustingPenaltyTime}
-                        layout={responsiveLayout}
-                        disabled={penaltyControlsDisabled}
-                      />
-                      <PenaltyCounter
-                        label="Seatbelt (30s)"
-                        count={seatbeltCount}
-                        onCountChange={setSeatbeltCount}
-                        penaltyTime={seatbeltPenaltyTime}
-                        layout={responsiveLayout}
-                        disabled={penaltyControlsDisabled}
-                      />
-                      <PenaltyCounter
-                        label="Ground Touch (30s)"
-                        count={groundTouchCount}
-                        onCountChange={setGroundTouchCount}
-                        penaltyTime={groundTouchPenaltyTime}
-                        layout={responsiveLayout}
-                        disabled={penaltyControlsDisabled}
-                      />
-                    </View>
-                  </View>
-
-                  <View style={[styles.section, { marginBottom: responsiveLayout.isSmallPhone ? 10 : 14 }]}>
-                    <Text
-                      style={[
-                        styles.sectionTitle,
-                        {
-                          fontSize: responsiveLayout.isTablet ? 18 : responsiveLayout.isSmallPhone ? 14 : 15,
-                          marginBottom: responsiveLayout.isSmallPhone ? 8 : 10,
-                        },
-                      ]}
-                    >
-                      Task Skipped
-                    </Text>
-                    <View style={[styles.penaltyGrid, { gap: responsiveLayout.isSmallPhone ? 8 : 10 }]}>
-                      <PenaltyCounter
-                        label="Task Attempt (30s)"
-                        count={attemptCount}
-                        onCountChange={setAttemptCount}
-                        penaltyTime={attemptPenaltyTime}
-                        layout={responsiveLayout}
-                        disabled={penaltyControlsDisabled}
-                      />
-                      <PenaltyCounter
-                        label="Task Skip (60s)"
-                        count={taskSkippedCount}
-                        onCountChange={setTaskSkippedCount}
-                        penaltyTime={taskSkippedPenaltyTime}
-                        layout={responsiveLayout}
-                        disabled={penaltyControlsDisabled}
-                      />
-                    </View>
-                  </View>
-
-                  <View style={[styles.section, { marginBottom: responsiveLayout.isSmallPhone ? 10 : 14 }]}>
-                    <Text
-                      style={[
-                        styles.sectionTitle,
-                        {
-                          fontSize: responsiveLayout.isTablet ? 18 : responsiveLayout.isSmallPhone ? 14 : 15,
-                          marginBottom: responsiveLayout.isSmallPhone ? 8 : 10,
-                        },
-                      ]}
-                    >
-                      DNF (Did Not Finish)
-                    </Text>
-                    <View style={[styles.penaltyGrid, { gap: responsiveLayout.isSmallPhone ? 8 : 10 }]}>
-                      <DNFSelector
-                        wrongCourseSelected={wrongCourseSelected}
-                        fourthAttemptSelected={fourthAttemptSelected}
-                        timeOverSelected={timeOverSelected}
-                        pointsValue={dnfSelection}
-                        onWrongCourseChange={setWrongCourseSelected}
-                        onFourthAttemptChange={setFourthAttemptSelected}
-                        onTimeOverChange={setTimeOverSelected}
-                        onPointsChange={setDnfSelection}
-                        layout={responsiveLayout}
-                        disabled={!hasTimerStarted && !isDNF}
-                      />
-                    </View>
-                  </View>
-
-                  {!responsiveLayout.useSplitLayout ? (
-                    <View
-                      style={[
-                        styles.summarySection,
-                        {
-                          marginBottom: responsiveLayout.isSmallPhone ? 10 : 12,
-                          padding: responsiveLayout.isSmallPhone ? 10 : 12,
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.summaryTitle,
-                          {
-                            fontSize: responsiveLayout.isTablet ? 16 : responsiveLayout.isSmallPhone ? 14 : 15,
-                            marginBottom: responsiveLayout.isSmallPhone ? 8 : 10,
-                          },
-                        ]}
-                      >
-                        Time Summary
-                      </Text>
-                      <View style={styles.summaryRow}>
-                        <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>Total Penalties Time:</Text>
-                        <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>{totalPenaltiesTime} sec</Text>
-                      </View>
-                      <View style={styles.summaryRow}>
-                        <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>Late Start Penalty:</Text>
-                        <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>{lateStartPenaltyTime} sec</Text>
-                      </View>
-                      <View style={styles.summaryRow}>
-                        <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>Performance Time:</Text>
-                        <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>
-                          {performanceTimeDisplay}
-                        </Text>
-                      </View>
-                      {isDNF ? (
-                        <View style={styles.summaryRow}>
-                          <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>DNF Points:</Text>
-                          <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>{dnfSelection}</Text>
-                        </View>
-                      ) : null}
-                      <View style={styles.summaryDivider} />
-                      <View
-                        style={[
-                          styles.summaryRowTotal,
-                          {
-                            paddingVertical: responsiveLayout.isSmallPhone ? 8 : 10,
-                            paddingHorizontal: responsiveLayout.isSmallPhone ? 10 : 12,
-                          },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.summaryLabelTotal,
-                            { fontSize: responsiveLayout.isTablet ? 18 : responsiveLayout.isSmallPhone ? 15 : 16 },
-                          ]}
-                        >
-                          TOTAL TIME:
-                        </Text>
-                        <Text
-                          style={[
-                            styles.summaryValueTotal,
-                            { fontSize: responsiveLayout.isTablet ? 26 : responsiveLayout.isSmallPhone ? 20 : 22 },
-                          ]}
-                        >
-                          {totalTimeDisplay}
-                        </Text>
-                      </View>
-                    </View>
-                  ) : null}
-
+                  {formContent}
                 </ScrollView>
-              </View>
-
-              {responsiveLayout.useSplitLayout ? (
-                <View style={[styles.tabletFooterPanel, { width: '37%' }]}>
-                  <View
-                    style={[
-                      styles.summarySection,
-                      {
-                        marginBottom: responsiveLayout.isSmallPhone ? 10 : 12,
-                        padding: responsiveLayout.isSmallPhone ? 10 : 12,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.summaryTitle,
-                        {
-                          fontSize: responsiveLayout.isTablet ? 16 : responsiveLayout.isSmallPhone ? 14 : 15,
-                          marginBottom: responsiveLayout.isSmallPhone ? 8 : 10,
-                        },
-                      ]}
-                    >
-                      Time Summary
-                    </Text>
-                    <View style={styles.summaryRow}>
-                      <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>Total Penalties Time:</Text>
-                      <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>{totalPenaltiesTime} sec</Text>
-                    </View>
-                    <View style={styles.summaryRow}>
-                      <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>Late Start Penalty:</Text>
-                      <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>{lateStartPenaltyTime} sec</Text>
-                    </View>
-                    <View style={styles.summaryRow}>
-                      <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>Performance Time:</Text>
-                      <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>
-                        {performanceTimeDisplay}
-                      </Text>
-                    </View>
-                    {isDNF ? (
-                      <View style={styles.summaryRow}>
-                        <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>DNF Points:</Text>
-                        <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>{dnfSelection}</Text>
-                      </View>
-                    ) : null}
-                    <View style={styles.summaryDivider} />
-                    <View
-                      style={[
-                        styles.summaryRowTotal,
-                        {
-                          paddingVertical: responsiveLayout.isSmallPhone ? 8 : 10,
-                          paddingHorizontal: responsiveLayout.isSmallPhone ? 10 : 12,
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.summaryLabelTotal,
-                          { fontSize: responsiveLayout.isTablet ? 18 : responsiveLayout.isSmallPhone ? 15 : 16 },
-                        ]}
-                      >
-                        TOTAL TIME:
-                      </Text>
-                      <Text
-                        style={[
-                          styles.summaryValueTotal,
-                          { fontSize: responsiveLayout.isTablet ? 26 : responsiveLayout.isSmallPhone ? 20 : 22 },
-                        ]}
-                      >
-                        {totalTimeDisplay}
-                      </Text>
-                    </View>
-                  </View>
-
-                </View>
-              ) : null}
+              ) : (
+                formContent
+              )}
             </View>
 
             <View
@@ -2917,42 +3001,46 @@ const RegistrationForm = ({
                   </Text>
                 </View>
               ) : null}
-              {showDisputeButton ? (
+              <View style={[styles.submitActionButtonsRow, useLandscapeTabletLayout && styles.submitActionButtonsRowLandscape]}>
+                {showDisputeButton ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.disputeButton,
+                      useLandscapeTabletLayout && styles.submitActionButtonLandscape,
+                      disputeDisabled && styles.submitButtonDisabled,
+                      { paddingVertical: responsiveLayout.isSmallPhone ? 12 : 14, marginBottom: useLandscapeTabletLayout ? 0 : 10 },
+                    ]}
+                    onPress={handleDispute}
+                    disabled={disputeDisabled}
+                  >
+                    {isFaceVerificationInProgress ? (
+                      <ActivityIndicator color={theme.primaryButtonText} />
+                    ) : (
+                      <Text style={[styles.submitButtonText, { fontSize: responsiveLayout.isSmallPhone ? 14 : 15 }]}>
+                        Dispute
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                ) : null}
                 <TouchableOpacity
                   style={[
-                    styles.disputeButton,
-                    disputeDisabled && styles.submitButtonDisabled,
-                    { paddingVertical: responsiveLayout.isSmallPhone ? 12 : 14, marginBottom: 10 },
+                    styles.submitButton,
+                    useLandscapeTabletLayout && styles.submitActionButtonLandscape,
+                    submitDisabled && styles.submitButtonDisabled,
+                    { paddingVertical: responsiveLayout.isSmallPhone ? 12 : 14 },
                   ]}
-                  onPress={handleDispute}
-                  disabled={disputeDisabled}
+                  onPress={handleSubmit}
+                  disabled={submitDisabled}
                 >
                   {isFaceVerificationInProgress ? (
                     <ActivityIndicator color={theme.primaryButtonText} />
                   ) : (
                     <Text style={[styles.submitButtonText, { fontSize: responsiveLayout.isSmallPhone ? 14 : 15 }]}>
-                      Dispute
+                      SUBMIT
                     </Text>
                   )}
                 </TouchableOpacity>
-              ) : null}
-              <TouchableOpacity
-                style={[
-                  styles.submitButton,
-                  submitDisabled && styles.submitButtonDisabled,
-                  { paddingVertical: responsiveLayout.isSmallPhone ? 12 : 14 },
-                ]}
-                onPress={handleSubmit}
-                disabled={submitDisabled}
-              >
-                {isFaceVerificationInProgress ? (
-                  <ActivityIndicator color={theme.primaryButtonText} />
-                ) : (
-                  <Text style={[styles.submitButtonText, { fontSize: responsiveLayout.isSmallPhone ? 14 : 15 }]}>
-                    SUBMIT
-                  </Text>
-                )}
-              </TouchableOpacity>
+              </View>
             </View>
           </View>
         </View>
@@ -9138,6 +9226,16 @@ const styles = StyleSheet.create({
     minHeight: 0,
   },
 
+  formBodyScroll: {
+    flex: 1,
+    minHeight: 0,
+  },
+
+  formBodyScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 16,
+  },
+
   dashboardLayout: {
     flex: 1,
     flexDirection: USE_SPLIT_LAYOUT ? 'row' : 'column',
@@ -9164,6 +9262,10 @@ const styles = StyleSheet.create({
 
   dashboardRightPanelContent: {
     paddingBottom: 8,
+  },
+
+  dashboardRightPanelContentLandscape: {
+    paddingBottom: 24,
   },
 
   detailsAccordion: {
@@ -9363,6 +9465,21 @@ const styles = StyleSheet.create({
     paddingBottom: 35,
     flexShrink: 0,
     backgroundColor: '#1a2432',
+  },
+
+  submitActionButtonsRow: {
+    width: '100%',
+  },
+
+  submitActionButtonsRowLandscape: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 12,
+  },
+
+  submitActionButtonLandscape: {
+    flex: 1,
+    width: undefined,
   },
 
   disputeButton: {
