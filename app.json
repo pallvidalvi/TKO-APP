@@ -3,8 +3,9 @@
     "name": "TKO - GROUND ZERO",
     "slug": "vehicle-categories",
     "version": "1.0.1",
-    "orientation": "default",
+    "orientation": "portrait",
     "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -20,24 +21,15 @@
       },
       "package": "com.vehiclecategories.app",
       "versionCode": 2,
-      "permissions": []
+      "permissions": [],
+      "targetSdkVersion": 34,
+      "minSdkVersion": 24
     },
     "web": {},
-    "plugins": [
-      [
-        "react-native-vision-camera",
-        {
-          "cameraPermissionText": "Allow TKO - GROUND ZERO to access the camera for face verification",
-          "enableMicrophonePermission": false
-        }
-      ],
-      [
-        "expo-image-picker",
-        {
-          "cameraPermission": "Allow TKO - GROUND ZERO to capture faces for stopwatch verification"
-        }
-      ]
-    ],
+    "plugins": [],
+    "cli": {
+      "appVersionSource": "local"
+    },
     "extra": {
       "eas": {
         "projectId": "aae93d20-1e10-46f1-b02b-3948be623f75"
