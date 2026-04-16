@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useDeferredValue, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,16 +9,17 @@ import {
   Modal,
   TextInput,
   ScrollView,
+  KeyboardAvoidingView,
+  Keyboard,
+  BackHandler,
   Alert,
   Platform,
   Image,
   ActivityIndicator,
   Vibration,
   useWindowDimensions,
-  NativeModules,
 } from 'react-native';
 import { Audio } from 'expo-av';
-import * as ImagePicker from 'expo-image-picker';
 import { initializeDatabase, seedDatabase } from './src/db/database';
 import { TeamsService, CategoriesService, ResultsService, DisputesService } from './src/services/dataService';
 import ReportScreen from './src/screens/ReportScreen';
@@ -56,81 +57,6 @@ if (Platform.OS !== 'web') {
   FileSystem = require('expo-file-system/legacy');
   Sharing = require('expo-sharing');
 }
-
-const VISION_CAMERA_ERROR_MESSAGE =
-  'Face recognition needs a development build or release build with Vision Camera installed. Expo Go does not support this module.';
-
-const loadFaceDetector = () => {
-  if (Platform.OS === 'web') {
-    return null;
-  }
-
-  const hasVisionCameraNativeModule = Boolean(
-    NativeModules?.VisionCamera ||
-      NativeModules?.VisionCameraProxy ||
-      NativeModules?.CameraView ||
-      NativeModules?.CameraViewManager
-  );
-
-  if (!hasVisionCameraNativeModule) {
-    return null;
-  }
-
-  try {
-    return require('react-native-vision-camera-face-detector');
-  } catch (error) {
-    console.warn('Face detector module is unavailable in the current runtime:', error);
-    return null;
-  }
-};
-
-const faceDetectorModule = loadFaceDetector();
-const loadVisionCamera = () => {
-  if (Platform.OS === 'web') {
-    return null;
-  }
-
-  const hasVisionCameraNativeModule = Boolean(
-    NativeModules?.VisionCamera ||
-      NativeModules?.VisionCameraProxy ||
-      NativeModules?.CameraView ||
-      NativeModules?.CameraViewManager
-  );
-
-  if (!hasVisionCameraNativeModule) {
-    return null;
-  }
-
-  try {
-    return require('react-native-vision-camera');
-  } catch (error) {
-    console.warn('Vision Camera module is unavailable in the current runtime:', error);
-    return null;
-  }
-};
-
-const visionCameraModule = loadVisionCamera();
-const VisionCameraView = visionCameraModule?.Camera || null;
-const useVisionCameraDevice = visionCameraModule?.useCameraDevice || (() => null);
-const useVisionCameraPermission =
-  visionCameraModule?.useCameraPermission ||
-  (() => ({
-    hasPermission: false,
-    requestPermission: async () => false,
-  }));
-
-const isFaceRecognitionRuntimeSupported = () =>
-  Boolean(Platform.OS !== 'web' && faceDetectorModule?.detectFaces);
-
-const detectFaces = async (...args) => {
-  if (!faceDetectorModule?.detectFaces) {
-    const unsupportedError = new Error(VISION_CAMERA_ERROR_MESSAGE);
-    unsupportedError.code = 'camera-module-not-found';
-    throw unsupportedError;
-  }
-
-  return faceDetectorModule.detectFaces(...args);
-};
 
 /**
  * CSV Exporter
@@ -598,20 +524,10 @@ const IGNITION_VIBRATION_PATTERN = Platform.OS === 'android'
   : 220;
 const RESULTS_RESET_TOKEN = '2026-04-09-clear-report-records';
 const DEFAULT_SETTINGS_PASSWORD = 'Pritisangam@MH50';
+const DEFAULT_SECURITY_PIN = '0000';
 const APP_SETTINGS_STORAGE_KEY = 'tko_admin_settings_v1';
 const APP_SETTINGS_FILE_NAME = 'tko-admin-settings.json';
 const DEFAULT_THEME_MODE = 'dark';
-const MAX_ENROLLED_FACES = 5;
-const FACE_IMAGE_DIRECTORY_NAME = 'face-recognition';
-const FACE_MATCH_DEFAULT_THRESHOLD = 0.24;
-const FACE_DETECTION_OPTIONS = Object.freeze({
-  performanceMode: 'accurate',
-  landmarkMode: 'all',
-  classificationMode: 'none',
-  contourMode: 'none',
-  minFaceSize: 0.2,
-});
-const REQUIRED_FACE_LANDMARK_KEYS = ['LEFT_EYE', 'RIGHT_EYE', 'NOSE_BASE', 'MOUTH_LEFT', 'MOUTH_RIGHT'];
 
 const APP_THEMES = {
   dark: {
@@ -676,176 +592,12 @@ const isStrongPassword = value => {
     /[^A-Za-z0-9]/.test(password)
   );
 };
-
-const getPointDistance = (firstPoint, secondPoint) => {
-  if (!firstPoint || !secondPoint) {
-    return 0;
-  }
-
-  const deltaX = Number(secondPoint.x || 0) - Number(firstPoint.x || 0);
-  const deltaY = Number(secondPoint.y || 0) - Number(firstPoint.y || 0);
-  return Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+const PIN_RULE_MESSAGE = 'PIN must be exactly 4 digits.';
+const normalizeSecurityPin = value => {
+  const digitsOnly = String(value || '').replace(/\D/g, '').slice(0, 4);
+  return digitsOnly.length === 4 ? digitsOnly : DEFAULT_SECURITY_PIN;
 };
-
-const getPointMidpoint = (firstPoint, secondPoint) => ({
-  x: (Number(firstPoint?.x || 0) + Number(secondPoint?.x || 0)) / 2,
-  y: (Number(firstPoint?.y || 0) + Number(secondPoint?.y || 0)) / 2,
-});
-
-const resolveRequiredFaceLandmarks = face => {
-  const landmarks = face?.landmarks || {};
-  const resolved = {};
-
-  for (const key of REQUIRED_FACE_LANDMARK_KEYS) {
-    if (!landmarks[key]) {
-      return null;
-    }
-
-    resolved[key] = landmarks[key];
-  }
-
-  return resolved;
-};
-
-const getNormalizedFeaturePoint = (point, leftEye, rightEye, eyeDistance) => {
-  const eyeMidpoint = getPointMidpoint(leftEye, rightEye);
-  const eyeAngle = Math.atan2(
-    Number(rightEye?.y || 0) - Number(leftEye?.y || 0),
-    Number(rightEye?.x || 0) - Number(leftEye?.x || 0)
-  );
-  const relativeX = Number(point?.x || 0) - eyeMidpoint.x;
-  const relativeY = Number(point?.y || 0) - eyeMidpoint.y;
-  const cosValue = Math.cos(-eyeAngle);
-  const sinValue = Math.sin(-eyeAngle);
-
-  return {
-    x: (relativeX * cosValue - relativeY * sinValue) / eyeDistance,
-    y: (relativeX * sinValue + relativeY * cosValue) / eyeDistance,
-  };
-};
-
-const buildFaceTemplate = face => {
-  const landmarks = resolveRequiredFaceLandmarks(face);
-
-  if (!landmarks) {
-    return null;
-  }
-
-  const leftEye = landmarks.LEFT_EYE;
-  const rightEye = landmarks.RIGHT_EYE;
-  const eyeDistance = getPointDistance(leftEye, rightEye);
-
-  if (!eyeDistance || eyeDistance < 1) {
-    return null;
-  }
-
-  const orderedPoints = [
-    leftEye,
-    rightEye,
-    landmarks.NOSE_BASE,
-    landmarks.MOUTH_LEFT,
-    landmarks.MOUTH_RIGHT,
-  ];
-  const vector = [];
-
-  for (let currentIndex = 0; currentIndex < orderedPoints.length; currentIndex += 1) {
-    for (let compareIndex = currentIndex + 1; compareIndex < orderedPoints.length; compareIndex += 1) {
-      vector.push(getPointDistance(orderedPoints[currentIndex], orderedPoints[compareIndex]) / eyeDistance);
-    }
-  }
-
-  [landmarks.NOSE_BASE, landmarks.MOUTH_LEFT, landmarks.MOUTH_RIGHT].forEach(point => {
-    const normalizedPoint = getNormalizedFeaturePoint(point, leftEye, rightEye, eyeDistance);
-    vector.push(normalizedPoint.x, normalizedPoint.y);
-  });
-
-  vector.push(Number(face?.yawAngle || 0) / 45);
-  vector.push(Number(face?.rollAngle || 0) / 45);
-  vector.push(Number(face?.pitchAngle || 0) / 45);
-
-  return {
-    version: 1,
-    vector,
-  };
-};
-
-const getFaceTemplateDistance = (firstTemplate, secondTemplate) => {
-  if (!firstTemplate?.vector || !secondTemplate?.vector) {
-    return Number.POSITIVE_INFINITY;
-  }
-
-  const featureCount = Math.min(firstTemplate.vector.length, secondTemplate.vector.length);
-
-  if (!featureCount) {
-    return Number.POSITIVE_INFINITY;
-  }
-
-  let sum = 0;
-
-  for (let index = 0; index < featureCount; index += 1) {
-    const delta = Number(firstTemplate.vector[index] || 0) - Number(secondTemplate.vector[index] || 0);
-    sum += delta * delta;
-  }
-
-  return Math.sqrt(sum / featureCount);
-};
-
-const getDynamicFaceMatchThreshold = enrolledFaces => {
-  const templates = (enrolledFaces || [])
-    .map(face => face?.template)
-    .filter(template => Array.isArray(template?.vector) && template.vector.length);
-
-  if (templates.length < 2) {
-    return FACE_MATCH_DEFAULT_THRESHOLD;
-  }
-
-  const distances = [];
-
-  for (let firstIndex = 0; firstIndex < templates.length; firstIndex += 1) {
-    for (let secondIndex = firstIndex + 1; secondIndex < templates.length; secondIndex += 1) {
-      const distance = getFaceTemplateDistance(templates[firstIndex], templates[secondIndex]);
-
-      if (Number.isFinite(distance)) {
-        distances.push(distance);
-      }
-    }
-  }
-
-  if (!distances.length) {
-    return FACE_MATCH_DEFAULT_THRESHOLD;
-  }
-
-  const maxDistance = Math.max(...distances);
-  const averageDistance = distances.reduce((sum, distance) => sum + distance, 0) / distances.length;
-
-  return Math.min(0.42, Math.max(FACE_MATCH_DEFAULT_THRESHOLD, maxDistance * 1.18, averageDistance * 1.4));
-};
-
-const getFaceMatchResult = (enrolledFaces, candidateTemplate) => {
-  const threshold = getDynamicFaceMatchThreshold(enrolledFaces);
-  let bestMatch = null;
-
-  (enrolledFaces || []).forEach(face => {
-    const distance = getFaceTemplateDistance(face?.template, candidateTemplate);
-
-    if (!Number.isFinite(distance)) {
-      return;
-    }
-
-    if (!bestMatch || distance < bestMatch.distance) {
-      bestMatch = {
-        face,
-        distance,
-      };
-    }
-  });
-
-  return {
-    matched: Boolean(bestMatch && bestMatch.distance <= threshold),
-    threshold,
-    bestMatch,
-  };
-};
+const isValidSecurityPin = value => /^\d{4}$/.test(String(value || ''));
 
 const normalizeCategoryKey = (value = '') => {
   const normalizedValue = value
@@ -1117,40 +869,13 @@ const getActiveTracksForDayCategory = (trackActivationConfig, dayId, categoryNam
   return allTracks.filter(trackName => dayConfig[trackName] !== false);
 };
 
-const normalizeEnrolledFaceRecords = storedFaces =>
-  (Array.isArray(storedFaces) ? storedFaces : [])
-    .map((face, index) => ({
-      id: String(face?.id || `face-${index + 1}`),
-      label: normalizeFaceLabel(face?.label, index),
-      uri: String(face?.uri || ''),
-      createdAt: String(face?.createdAt || new Date().toISOString()),
-      template: {
-        version: Number(face?.template?.version || 1),
-        vector: Array.isArray(face?.template?.vector)
-          ? face.template.vector
-              .map(value => Number(value))
-              .filter(value => Number.isFinite(value))
-          : [],
-      },
-    }))
-    .filter(face => face.uri && face.template.vector.length);
-
-const getDefaultFaceRecognitionSettings = () => ({
-  enrolledFaces: [],
-});
-
-const normalizeFaceLabel = (value = '', fallbackIndex = 0) => {
-  const trimmedValue = String(value || '').trim();
-  return trimmedValue || `Face ${fallbackIndex + 1}`;
-};
-
 const loadStoredAppSettings = async () => {
   const fallback = {
     password: DEFAULT_SETTINGS_PASSWORD,
+    pin: DEFAULT_SECURITY_PIN,
     categoryActivationConfig: buildDefaultCategoryActivationConfig(),
     trackActivationConfig: buildDefaultTrackActivationConfig(),
     themeMode: DEFAULT_THEME_MODE,
-    faceRecognition: getDefaultFaceRecognitionSettings(),
   };
 
   try {
@@ -1164,12 +889,10 @@ const loadStoredAppSettings = async () => {
       const parsed = JSON.parse(raw);
       return {
         password: parsed?.password || DEFAULT_SETTINGS_PASSWORD,
+        pin: normalizeSecurityPin(parsed?.pin),
         categoryActivationConfig: normalizeCategoryActivationConfig(parsed?.categoryActivationConfig),
         trackActivationConfig: normalizeTrackActivationConfig(parsed?.trackActivationConfig),
         themeMode: normalizeThemeMode(parsed?.themeMode),
-        faceRecognition: {
-          enrolledFaces: normalizeEnrolledFaceRecords(parsed?.faceRecognition?.enrolledFaces),
-        },
       };
     }
 
@@ -1185,12 +908,10 @@ const loadStoredAppSettings = async () => {
       const parsed = JSON.parse(raw);
       return {
         password: parsed?.password || DEFAULT_SETTINGS_PASSWORD,
+        pin: normalizeSecurityPin(parsed?.pin),
         categoryActivationConfig: normalizeCategoryActivationConfig(parsed?.categoryActivationConfig),
         trackActivationConfig: normalizeTrackActivationConfig(parsed?.trackActivationConfig),
         themeMode: normalizeThemeMode(parsed?.themeMode),
-        faceRecognition: {
-          enrolledFaces: normalizeEnrolledFaceRecords(parsed?.faceRecognition?.enrolledFaces),
-        },
       };
     }
   } catch (error) {
@@ -1203,12 +924,10 @@ const loadStoredAppSettings = async () => {
 const saveStoredAppSettings = async settings => {
   const payload = JSON.stringify({
     password: settings.password || DEFAULT_SETTINGS_PASSWORD,
+    pin: normalizeSecurityPin(settings.pin),
     categoryActivationConfig: normalizeCategoryActivationConfig(settings.categoryActivationConfig),
     trackActivationConfig: normalizeTrackActivationConfig(settings.trackActivationConfig),
     themeMode: normalizeThemeMode(settings.themeMode),
-    faceRecognition: {
-      enrolledFaces: normalizeEnrolledFaceRecords(settings.faceRecognition?.enrolledFaces),
-    },
   });
 
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -1465,10 +1184,9 @@ const RECORD_EXPORT_HEADERS = [
  * CategoryCard Component
  * Displays individual category with animation on press and team count
  */
-const CategoryCard = ({ category, onPress, teamCount = 0, cardStyle, layout }) => {
+const CategoryCard = React.memo(function CategoryCard({ category, onPress, teamCount = 0, cardStyle, layout }) {
   const [scaleAnim] = useState(new Animated.Value(1));
-  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
-  const responsiveLayout = layout || getResponsiveLayout(screenWidth, screenHeight);
+  const responsiveLayout = layout || INITIAL_LAYOUT;
   const categoryKey = normalizeCategoryKey(category.name || category.category || '');
   const palette = CATEGORY_CARD_PALETTES[categoryKey] || {
     background: '#ffffff',
@@ -1526,7 +1244,7 @@ const CategoryCard = ({ category, onPress, teamCount = 0, cardStyle, layout }) =
               styles.iconBox,
               {
                 minHeight: responsiveLayout.isTablet ? 212 : 182,
-                backgroundColor: palette.iconBackground,
+                backgroundColor: category.imageSource ? 'transparent' : palette.iconBackground,
               },
             ]}
           >
@@ -1544,59 +1262,44 @@ const CategoryCard = ({ category, onPress, teamCount = 0, cardStyle, layout }) =
           </View>
 
           <View style={styles.countPanel}>
-            <View style={styles.countBadgeRow}>
+            <View style={styles.countStatsRow}>
               <View
                 style={[
-                  styles.countBadge,
-                  styles.countBadgeStandalone,
-                  {
-                    backgroundColor: palette.badgeBackground,
-                  },
-                ]}
-              >
-                <Text style={styles.countText}>{teamCount}</Text>
-                <Text style={styles.countLabel}>Teams</Text>
-              </View>
-              <View
-                style={[
-                  styles.countBadge,
-                  styles.countBadgeSecondary,
-                  styles.countBadgeStandalone,
+                  styles.countStat,
+                  styles.countStatSecondary,
                   {
                     backgroundColor: palette.secondaryBadgeBackground,
                     borderColor: palette.secondaryBadgeBorder,
                   },
                 ]}
               >
-                <Text style={[styles.countText, { color: palette.secondaryBadgeText }]}>
-                  {category.trackCount || 0}
+                <Text style={[styles.countStatValue, { color: palette.secondaryBadgeText }]}>
+                  {String(category.trackCount || 0).padStart(2, '0')}
                 </Text>
-                <Text style={[styles.countLabel, { color: palette.secondaryBadgeText }]}>Tracks</Text>
+                <Text style={[styles.countStatLabel, { color: palette.secondaryBadgeText }]}>Tracks</Text>
+              </View>
+              <View style={styles.countStatsDivider} />
+              <View
+                style={[
+                  styles.countStat,
+                  {
+                    backgroundColor: palette.badgeBackground,
+                    borderColor: palette.badgeBackground,
+                  },
+                ]}
+              >
+                <Text style={[styles.countStatValue, styles.countStatValueOnPrimary]}>
+                  {String(teamCount || 0).padStart(2, '0')}
+                </Text>
+                <Text style={[styles.countStatLabel, styles.countStatLabelOnPrimary]}>Teams</Text>
               </View>
             </View>
-          </View>
-
-          <View style={styles.textContent}>
-            <Text
-              numberOfLines={3}
-              ellipsizeMode="tail"
-              style={[
-                styles.categoryDescription,
-                {
-                  fontSize: responsiveLayout.isTablet ? 12 : 11,
-                  lineHeight: responsiveLayout.isTablet ? 18 : 16,
-                  color: palette.description,
-                },
-              ]}
-            >
-              {category.description}
-            </Text>
           </View>
         </View>
       </TouchableOpacity>
     </Animated.View>
   );
-};
+});
 
 /**
  * Custom Dropdown Component
@@ -1648,7 +1351,7 @@ const CustomDropdown = ({ label, value, options, onValueChange }) => {
 
 const DNF_OPTIONS = ['20 points', '50 points'];
 
-const DNFSelector = ({
+const DNFSelector = React.memo(function DNFSelector({
   wrongCourseSelected,
   fourthAttemptSelected,
   timeOverSelected,
@@ -1659,9 +1362,8 @@ const DNFSelector = ({
   onPointsChange,
   disabled = false,
   layout,
-}) => {
-  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
-  const responsiveLayout = layout || getResponsiveLayout(screenWidth, screenHeight);
+}) {
+  const responsiveLayout = layout || INITIAL_LAYOUT;
   const [isOpen, setIsOpen] = useState(false);
   const hasSelection = wrongCourseSelected || fourthAttemptSelected || timeOverSelected;
 
@@ -1790,21 +1492,20 @@ const DNFSelector = ({
       ) : null}
     </View>
   );
-};
+});
 
 const LATE_START_OPTIONS = [
   { value: 'late_start', label: 'Late Start with Penalty' },
   { value: 'late_start_with_approval', label: 'Late Start with Approval' },
 ];
 
-const LateStartSelector = ({
+const LateStartSelector = React.memo(function LateStartSelector({
   value,
   onValueChange,
   disabled = false,
   layout,
-}) => {
-  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
-  const responsiveLayout = layout || getResponsiveLayout(screenWidth, screenHeight);
+}) {
+  const responsiveLayout = layout || INITIAL_LAYOUT;
   const [isOpen, setIsOpen] = useState(false);
   const selectedOption = LATE_START_OPTIONS.find(option => option.value === value);
 
@@ -1883,36 +1584,38 @@ const LateStartSelector = ({
       ) : null}
     </View>
   );
-};
+});
 
-const LateStartCheckbox = ({
+const LateStartCheckbox = React.memo(function LateStartCheckbox({
   checked,
   onChange,
   disabled = false,
-}) => (
-  <TouchableOpacity
-    style={[styles.lateStartCheckboxRow, disabled && styles.lateStartCheckboxRowDisabled]}
-    onPress={() => {
-      if (!disabled) {
-        onChange(!checked);
-      }
-    }}
-    disabled={disabled}
-    activeOpacity={0.85}
-    hitSlop={TOUCH_HIT_SLOP}
-  >
-    <View style={[styles.lateStartCheckbox, checked && styles.lateStartCheckboxChecked]}>
-      <Text style={styles.lateStartCheckboxTick}>{checked ? '✓' : ''}</Text>
-    </View>
-    <Text style={styles.lateStartCheckboxLabel}>Late Start</Text>
-  </TouchableOpacity>
-);
+}) {
+  return (
+    <TouchableOpacity
+      style={[styles.lateStartCheckboxRow, disabled && styles.lateStartCheckboxRowDisabled]}
+      onPress={() => {
+        if (!disabled) {
+          onChange(!checked);
+        }
+      }}
+      disabled={disabled}
+      activeOpacity={0.85}
+      hitSlop={TOUCH_HIT_SLOP}
+    >
+      <View style={[styles.lateStartCheckbox, checked && styles.lateStartCheckboxChecked]}>
+        <Text style={styles.lateStartCheckboxTick}>{checked ? '✓' : ''}</Text>
+      </View>
+      <Text style={styles.lateStartCheckboxLabel}>Late Start</Text>
+    </TouchableOpacity>
+  );
+});
 
 /**
  * PenaltyCounter Component
  * Provides increment/decrement buttons with manual input for penalty counts
  */
-const PenaltyCounter = ({
+const PenaltyCounter = React.memo(function PenaltyCounter({
   label,
   count,
   onCountChange,
@@ -1920,9 +1623,8 @@ const PenaltyCounter = ({
   layout,
   disabled = false,
   showPenaltyTime = true,
-}) => {
-  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
-  const responsiveLayout = layout || getResponsiveLayout(screenWidth, screenHeight);
+}) {
+  const responsiveLayout = layout || INITIAL_LAYOUT;
   const penaltyCardWidth =
     responsiveLayout.penaltyColumns === 1
       ? '100%'
@@ -2043,13 +1745,13 @@ const PenaltyCounter = ({
       </View>
     </View>
   );
-};
+});
 
 /**
  * Registration Form Modal Component
  * Displays form for player details and penalties
  */
-const RegistrationForm = ({
+const RegistrationForm = React.memo(function RegistrationForm({
   visible,
   category,
   initialRecord,
@@ -2057,12 +1759,11 @@ const RegistrationForm = ({
   onClose,
   onSubmit,
   onHoldForDispute,
-  onVerifyFace,
-  enrolledFaceCount = 0,
+  onVerifyPin,
+  layout,
   theme = APP_THEMES.dark,
-}) => {
-  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
-  const responsiveLayout = getResponsiveLayout(screenWidth, screenHeight);
+}) {
+  const responsiveLayout = layout || INITIAL_LAYOUT;
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [trackName, setTrackName] = useState('');
   const [srNo, setSrNo] = useState('');
@@ -2085,7 +1786,7 @@ const RegistrationForm = ({
   const [hasTimerStopped, setHasTimerStopped] = useState(false);
   const [disputeModalVisible, setDisputeModalVisible] = useState(false);
   const [disputeFormState, setDisputeFormState] = useState(() => createEmptyDisputeFormState());
-  const [isFaceVerificationInProgress, setIsFaceVerificationInProgress] = useState(false);
+  const [isPinVerificationInProgress, setIsPinVerificationInProgress] = useState(false);
   const stopwatchStartTimestampRef = useRef(null);
   const stopwatchElapsedRef = useRef(0);
 
@@ -2325,6 +2026,26 @@ const RegistrationForm = ({
     onClose();
   };
 
+  const isStopwatchExitLocked = hasTimerStarted || isStopwatchRunning || stopwatchTime > 0;
+
+  const handleFormRequestClose = useCallback(() => {
+    if (isStopwatchExitLocked) {
+      return;
+    }
+
+    handleClose();
+  }, [isStopwatchExitLocked]);
+
+  useEffect(() => {
+    if (!visible || !isStopwatchExitLocked || Platform.OS !== 'android') {
+      return undefined;
+    }
+
+    const backSubscription = BackHandler.addEventListener('hardwareBackPress', () => true);
+
+    return () => backSubscription.remove();
+  }, [visible, isStopwatchExitLocked]);
+
   const buildFormData = () => ({
     disputeId: initialRecord?.disputeId || initialRecord?.id || null,
     source: initialRecord?.source || 'records',
@@ -2385,16 +2106,16 @@ const RegistrationForm = ({
     return true;
   };
 
-  const runFaceVerification = async actionLabel => {
-    if (typeof onVerifyFace !== 'function') {
+  const runPinVerification = async actionLabel => {
+    if (typeof onVerifyPin !== 'function') {
       return true;
     }
 
     try {
-      setIsFaceVerificationInProgress(true);
-      return await onVerifyFace(actionLabel);
+      setIsPinVerificationInProgress(true);
+      return await onVerifyPin(actionLabel);
     } finally {
-      setIsFaceVerificationInProgress(false);
+      setIsPinVerificationInProgress(false);
     }
   };
 
@@ -2403,9 +2124,9 @@ const RegistrationForm = ({
       return;
     }
 
-    const didVerifyFace = await runFaceVerification('submit this stopwatch record');
+    const didVerifyPin = await runPinVerification('submit this stopwatch record');
 
-    if (!didVerifyFace) {
+    if (!didVerifyPin) {
       return;
     }
 
@@ -2419,12 +2140,6 @@ const RegistrationForm = ({
 
   const handleDispute = async () => {
     if (!validateSubmission()) {
-      return;
-    }
-
-    const didVerifyFace = await runFaceVerification('open this stopwatch dispute');
-
-    if (!didVerifyFace) {
       return;
     }
 
@@ -2475,6 +2190,12 @@ const RegistrationForm = ({
       return;
     }
 
+    const didVerifyPin = await runPinVerification('confirm this dispute record');
+
+    if (!didVerifyPin) {
+      return;
+    }
+
     const didHold = await onHoldForDispute({
       ...buildFormData(),
       disputeDetails: disputeEntries,
@@ -2504,7 +2225,6 @@ const RegistrationForm = ({
     dnfSelection !== '';
   const resetButtonDisabled = isStopwatchRunning || !hasAnyResettableValue;
   const showDisputeButton = initialRecord?.source !== 'dispute';
-  const faceEnrollmentIncomplete = enrolledFaceCount < MAX_ENROLLED_FACES;
   const useLandscapeTabletLayout = responsiveLayout.isTabletLandscape;
 
   const formContent = (
@@ -2933,7 +2653,7 @@ const RegistrationForm = ({
         visible={visible}
         transparent={false}
         animationType="fade"
-        onRequestClose={handleClose}
+        onRequestClose={handleFormRequestClose}
         hardwareAccelerated={Platform.OS === 'android'}
         statusBarTranslucent={Platform.OS === 'android'}
       >
@@ -3002,37 +2722,19 @@ const RegistrationForm = ({
                 },
               ]}
             >
-              {faceEnrollmentIncomplete ? (
-                <View
-                  style={[
-                    styles.faceVerificationNotice,
-                    {
-                      backgroundColor: theme.surfaceAlt,
-                      borderColor: theme.border,
-                    },
-                  ]}
-                >
-                  <Text style={[styles.faceVerificationNoticeTitle, { color: theme.accent }]}>
-                    Face Verification Required
-                  </Text>
-                  <Text style={[styles.faceVerificationNoticeText, { color: theme.textSecondary }]}>
-                    Enroll all {MAX_ENROLLED_FACES} faces in Settings before a stopwatch record can be saved.
-                  </Text>
-                </View>
-              ) : null}
               <View style={[styles.submitActionButtonsRow, useLandscapeTabletLayout && styles.submitActionButtonsRowLandscape]}>
                 {showDisputeButton ? (
                   <TouchableOpacity
                     style={[
                       styles.disputeButton,
                       useLandscapeTabletLayout && styles.submitActionButtonLandscape,
-                      disputeDisabled && styles.submitButtonDisabled,
+                      (disputeDisabled || isPinVerificationInProgress) && styles.submitButtonDisabled,
                       { paddingVertical: responsiveLayout.isSmallPhone ? 12 : 14, marginBottom: useLandscapeTabletLayout ? 0 : 10 },
                     ]}
                     onPress={handleDispute}
-                    disabled={disputeDisabled}
+                    disabled={disputeDisabled || isPinVerificationInProgress}
                   >
-                    {isFaceVerificationInProgress ? (
+                    {isPinVerificationInProgress ? (
                       <ActivityIndicator color={theme.primaryButtonText} />
                     ) : (
                       <Text style={[styles.submitButtonText, { fontSize: responsiveLayout.isSmallPhone ? 14 : 15 }]}>
@@ -3045,13 +2747,13 @@ const RegistrationForm = ({
                   style={[
                     styles.submitButton,
                     useLandscapeTabletLayout && styles.submitActionButtonLandscape,
-                    submitDisabled && styles.submitButtonDisabled,
+                    (submitDisabled || isPinVerificationInProgress) && styles.submitButtonDisabled,
                     { paddingVertical: responsiveLayout.isSmallPhone ? 12 : 14 },
                   ]}
                   onPress={handleSubmit}
-                  disabled={submitDisabled}
+                  disabled={submitDisabled || isPinVerificationInProgress}
                 >
-                  {isFaceVerificationInProgress ? (
+                  {isPinVerificationInProgress ? (
                     <ActivityIndicator color={theme.primaryButtonText} />
                   ) : (
                     <Text style={[styles.submitButtonText, { fontSize: responsiveLayout.isSmallPhone ? 14 : 15 }]}>
@@ -3131,20 +2833,36 @@ const RegistrationForm = ({
 
             <View style={styles.disputeModalActions}>
               <TouchableOpacity
-                style={[styles.settingsActionButton, styles.settingsSecondaryButton, styles.disputeModalActionButton]}
+                style={[
+                  styles.settingsActionButton,
+                  styles.settingsSecondaryButton,
+                  styles.disputeModalActionButton,
+                  isPinVerificationInProgress && styles.submitButtonDisabled,
+                ]}
                 onPress={handleDisputeModalClose}
                 activeOpacity={0.85}
                 hitSlop={TOUCH_HIT_SLOP}
+                disabled={isPinVerificationInProgress}
               >
                 <Text style={[styles.settingsActionButtonText, styles.settingsSecondaryButtonText]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.settingsActionButton, styles.settingsPrimaryButton, styles.disputeModalActionButton]}
+                style={[
+                  styles.settingsActionButton,
+                  styles.settingsPrimaryButton,
+                  styles.disputeModalActionButton,
+                  isPinVerificationInProgress && styles.submitButtonDisabled,
+                ]}
                 onPress={handleConfirmDispute}
                 activeOpacity={0.85}
                 hitSlop={TOUCH_HIT_SLOP}
+                disabled={isPinVerificationInProgress}
               >
-                <Text style={styles.settingsActionButtonText}>Confirm Dispute</Text>
+                {isPinVerificationInProgress ? (
+                  <ActivityIndicator color="#18120a" />
+                ) : (
+                  <Text style={styles.settingsActionButtonText}>Confirm Dispute</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -3152,9 +2870,9 @@ const RegistrationForm = ({
       </Modal>
     </>
   );
-};
+});
 
-const CategoryRecordsModal = ({
+const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
   visible,
   category,
   categoryTracks,
@@ -3172,10 +2890,10 @@ const CategoryRecordsModal = ({
   selectedLateStartByRecord,
   lateStartActionOrderByRecord,
   completedTracksByRecord,
+  layout,
   theme = APP_THEMES.dark,
-}) => {
-  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
-  const responsiveLayout = getResponsiveLayout(screenWidth, screenHeight);
+}) {
+  const responsiveLayout = layout || INITIAL_LAYOUT;
   const orderedRecords = useMemo(
     () =>
       [...records].sort((a, b) => {
@@ -3468,19 +3186,19 @@ const CategoryRecordsModal = ({
       </View>
     </Modal>
   );
-};
+});
 
-const DisputeRecordsPanel = ({
+const DisputeRecordsPanel = React.memo(function DisputeRecordsPanel({
   disputes,
   selectedDay,
   categoryOptions,
   loading,
   onRefresh,
   onEdit,
+  layout,
   theme = APP_THEMES.dark,
-}) => {
-  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
-  const responsiveLayout = getResponsiveLayout(screenWidth, screenHeight);
+}) {
+  const responsiveLayout = layout || INITIAL_LAYOUT;
   const [selectedCategoryKey, setSelectedCategoryKey] = useState('');
   const [selectedTrackKey, setSelectedTrackKey] = useState('');
 
@@ -3766,17 +3484,17 @@ const DisputeRecordsPanel = ({
       )}
     </>
   );
-};
+});
 
-const RegistrationResultsModal = ({
+const RegistrationResultsModal = React.memo(function RegistrationResultsModal({
   visible,
   registrations,
   loading,
   onClose,
   onRefresh,
-}) => {
-  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
-  const responsiveLayout = getResponsiveLayout(screenWidth, screenHeight);
+  layout,
+}) {
+  const responsiveLayout = layout || INITIAL_LAYOUT;
   const normalizedRegistrations = useMemo(
     () => (registrations || []).map(parseRegistrationPayload),
     [registrations]
@@ -3934,7 +3652,7 @@ const RegistrationResultsModal = ({
       </View>
     </Modal>
   );
-};
+});
 
 /**
  * Main App Component
@@ -3943,6 +3661,7 @@ const RegistrationResultsModal = ({
 export default function App() {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const responsiveLayout = getResponsiveLayout(screenWidth, screenHeight);
+  const authModalCompact = screenHeight < 560 || (screenWidth > screenHeight && screenHeight < 760);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [selectedRecord, setSelectedRecord] = useState(null);
   const [activeRecordKey, setActiveRecordKey] = useState('');
@@ -3954,49 +3673,57 @@ export default function App() {
   const [lateStartActionOrderByRecord, setLateStartActionOrderByRecord] = useState({});
   const [completedTracksByRecord, setCompletedTracksByRecord] = useState({});
   const [searchText, setSearchText] = useState('');
+  const deferredSearchText = useDeferredValue(searchText);
   const [dbReady, setDbReady] = useState(false);
   const [teams, setTeams] = useState([]);
   const [categoriesWithCounts, setCategoriesWithCounts] = useState([]);
   const [reportsVisible, setReportsVisible] = useState(false);
   const [leaderboardVisible, setLeaderboardVisible] = useState(false);
+  const [leaderboardRefreshKey, setLeaderboardRefreshKey] = useState(0);
   const [reportMenuVisible, setReportMenuVisible] = useState(false);
   const [appStage, setAppStage] = useState('splash');
   const [selectedDay, setSelectedDay] = useState(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [settingsPassword, setSettingsPassword] = useState(DEFAULT_SETTINGS_PASSWORD);
+  const [securityPin, setSecurityPin] = useState(DEFAULT_SECURITY_PIN);
   const [themeMode, setThemeMode] = useState(DEFAULT_THEME_MODE);
   const [categoryActivationConfig, setCategoryActivationConfig] = useState(() => buildDefaultCategoryActivationConfig());
   const [trackActivationConfig, setTrackActivationConfig] = useState(() => buildDefaultTrackActivationConfig());
-  const [enrolledFaces, setEnrolledFaces] = useState([]);
   const [settingsPasswordModalVisible, setSettingsPasswordModalVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [settingsView, setSettingsView] = useState('menu');
   const [themeVisible, setThemeVisible] = useState(false);
-  const [faceSettingsBusy, setFaceSettingsBusy] = useState(false);
   const [settingsPasswordInput, setSettingsPasswordInput] = useState('');
   const [settingsPasswordError, setSettingsPasswordError] = useState('');
   const [settingsConfigDayId, setSettingsConfigDayId] = useState(REPORT_DAYS[0]?.id || '');
   const [settingsConfigCategoryKey, setSettingsConfigCategoryKey] = useState('EXTREME');
-  const [faceRegistrationName, setFaceRegistrationName] = useState('');
   const [disputeRecords, setDisputeRecords] = useState([]);
   const [disputesLoading, setDisputesLoading] = useState(false);
   const [currentPasswordInput, setCurrentPasswordInput] = useState('');
   const [newPasswordInput, setNewPasswordInput] = useState('');
   const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
   const [changePasswordError, setChangePasswordError] = useState('');
+  const [currentPinInput, setCurrentPinInput] = useState('');
+  const [newPinInput, setNewPinInput] = useState('');
+  const [confirmPinInput, setConfirmPinInput] = useState('');
+  const [changePinError, setChangePinError] = useState('');
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [faceScannerVisible, setFaceScannerVisible] = useState(false);
-  const [faceScannerBusy, setFaceScannerBusy] = useState(false);
-  const [faceScannerError, setFaceScannerError] = useState('');
-  const [faceScannerPurpose, setFaceScannerPurpose] = useState('verify this record');
+  const [recordPinModalVisible, setRecordPinModalVisible] = useState(false);
+  const [recordPinInput, setRecordPinInput] = useState('');
+  const [recordPinError, setRecordPinError] = useState('');
+  const [recordPinPurpose, setRecordPinPurpose] = useState('submit this record');
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const settingsPasswordInputRef = useRef(null);
   const currentPasswordInputRef = useRef(null);
   const newPasswordInputRef = useRef(null);
   const confirmPasswordInputRef = useRef(null);
-  const faceScannerCameraRef = useRef(null);
-  const faceScannerRequestRef = useRef(null);
+  const currentPinInputRef = useRef(null);
+  const newPinInputRef = useRef(null);
+  const confirmPinInputRef = useRef(null);
+  const recordPinInputRef = useRef(null);
+  const recordPinRequestRef = useRef(null);
   const splashLogoAnim = useRef(new Animated.Value(0)).current;
   const switchAnim = useRef(new Animated.Value(0)).current;
   const glowPulseAnim = useRef(new Animated.Value(0)).current;
@@ -4005,15 +3732,7 @@ export default function App() {
   const ignitionSequenceTimerRef = useRef(null);
   const lateStartActionCounterRef = useRef(0);
   const theme = useMemo(() => APP_THEMES[normalizeThemeMode(themeMode)], [themeMode]);
-  const frontVisionCameraDevice = useVisionCameraDevice('front');
-  const backVisionCameraDevice = useVisionCameraDevice('back');
-  const visionCameraDevice = frontVisionCameraDevice || backVisionCameraDevice;
-  const faceScannerCameraLabel = frontVisionCameraDevice ? 'front camera' : backVisionCameraDevice ? 'rear camera' : 'camera';
-  const faceRecognitionSupported = isFaceRecognitionRuntimeSupported();
-  const {
-    hasPermission: hasVisionCameraPermission,
-    requestPermission: requestVisionCameraPermission,
-  } = useVisionCameraPermission();
+  const visibleAuthHeight = Math.max(screenHeight - keyboardHeight - 40, 220);
 
   useEffect(() => {
     if (appStage !== 'splash' && appStage !== 'day') {
@@ -4047,6 +3766,23 @@ export default function App() {
   }, [appStage, glowPulseAnim]);
 
   useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const showSubscription = Keyboard.addListener(showEvent, event => {
+      setKeyboardHeight(event?.endCoordinates?.height || 0);
+    });
+    const hideSubscription = Keyboard.addListener(hideEvent, () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
     let isMounted = true;
 
     const hydrateSettings = async () => {
@@ -4057,10 +3793,10 @@ export default function App() {
       }
 
       setSettingsPassword(storedSettings.password);
+      setSecurityPin(storedSettings.pin);
       setCategoryActivationConfig(storedSettings.categoryActivationConfig);
       setTrackActivationConfig(storedSettings.trackActivationConfig);
       setThemeMode(storedSettings.themeMode);
-      setEnrolledFaces(storedSettings.faceRecognition?.enrolledFaces || []);
       setSettingsLoaded(true);
     };
 
@@ -4078,16 +3814,14 @@ export default function App() {
 
     saveStoredAppSettings({
       password: settingsPassword,
+      pin: securityPin,
       categoryActivationConfig,
       trackActivationConfig,
       themeMode,
-      faceRecognition: {
-        enrolledFaces,
-      },
     }).catch(error => {
       console.warn('Unable to save admin settings:', error);
     });
-  }, [categoryActivationConfig, enrolledFaces, settingsLoaded, settingsPassword, themeMode, trackActivationConfig]);
+  }, [categoryActivationConfig, securityPin, settingsLoaded, settingsPassword, themeMode, trackActivationConfig]);
 
   useEffect(() => {
     if (appStage !== 'splash') {
@@ -4431,12 +4165,12 @@ export default function App() {
 
   const leaderboardCategoryOptions = useMemo(
     () =>
-      activeSettingsCategoryOptions.map(category => ({
+      settingsCategoryOptions.map(category => ({
         key: category.key,
         label: category.label,
         tracks: CATEGORY_TRACKS[category.key] || [],
       })),
-    [activeSettingsCategoryOptions]
+    [settingsCategoryOptions]
   );
 
   const configurationTracks = useMemo(
@@ -4486,22 +4220,22 @@ export default function App() {
 
   // Filter categories based on search
   const filteredCategories = useMemo(() => {
-    const normalizedSearch = searchText.toLowerCase();
+    const normalizedSearch = deferredSearchText.toLowerCase();
 
     return dayScopedCategories.filter(cat =>
       cat.name.toLowerCase().includes(normalizedSearch)
     );
-  }, [dayScopedCategories, searchText]);
+  }, [dayScopedCategories, deferredSearchText]);
 
   /**
    * Handle card press - Opens registration form
    */
-  const handleCategoryPress = (category) => {
+  const handleCategoryPress = useCallback((category) => {
     setSelectedCategory(category);
     setSelectedCategoryTrack('');
     setActiveRecordKey('');
     setRecordsVisible(true);
-  };
+  }, []);
 
   const handleDaySelect = day => {
     setSelectedDay(day);
@@ -4560,7 +4294,7 @@ export default function App() {
   };
 
   const getPreviousSettingsView = currentView => {
-    if (currentView === 'face' || currentView === 'password') {
+    if (currentView === 'pin' || currentView === 'change-pin' || currentView === 'password') {
       return 'security';
     }
 
@@ -4591,319 +4325,83 @@ export default function App() {
     setSettingsView('password');
   };
 
+  const handleOpenPinVerification = () => {
+    setSettingsView('pin');
+  };
+
+  const handleOpenChangePin = () => {
+    setCurrentPinInput('');
+    setNewPinInput('');
+    setConfirmPinInput('');
+    setChangePinError('');
+    setSettingsView('change-pin');
+  };
+
   const handleOpenSecurity = () => {
-    setFaceRegistrationName('');
     setSettingsView('security');
   };
 
-  const relabelEnrolledFaces = faces =>
-    (faces || []).map((face, index) => ({
-      ...face,
-      label: normalizeFaceLabel(face?.label, index),
-    }));
-
-  const closeFaceScanner = result => {
-    const pendingRequest = faceScannerRequestRef.current;
-    faceScannerRequestRef.current = null;
-    setFaceScannerBusy(false);
-    setFaceScannerError('');
-    setFaceScannerVisible(false);
+  const closeRecordPinModal = didVerify => {
+    const pendingRequest = recordPinRequestRef.current;
+    recordPinRequestRef.current = null;
+    setRecordPinModalVisible(false);
+    setRecordPinPurpose('submit this record');
+    setRecordPinInput('');
+    setRecordPinError('');
 
     if (pendingRequest?.resolve) {
-      pendingRequest.resolve(result || null);
+      pendingRequest.resolve(Boolean(didVerify));
     }
   };
 
-  const openFaceScannerAsync = ({ purpose = 'verify this record' } = {}) =>
+  const openRecordPinModalAsync = ({ purpose = 'submit this record' } = {}) =>
     new Promise(resolve => {
-      faceScannerRequestRef.current = { resolve };
-      setFaceScannerPurpose(purpose);
-      setFaceScannerError('');
-      setFaceScannerBusy(false);
-      setFaceScannerVisible(true);
+      recordPinRequestRef.current = { resolve };
+      setRecordPinPurpose(purpose);
+      setRecordPinInput('');
+      setRecordPinError('');
+      setRecordPinModalVisible(true);
     });
 
-  const ensureFaceImageDirectoryAsync = async () => {
-    if (!FileSystem?.documentDirectory) {
-      return null;
-    }
-
-    const directoryPath = `${FileSystem.documentDirectory}${FACE_IMAGE_DIRECTORY_NAME}`;
-    await FileSystem.makeDirectoryAsync(directoryPath, { intermediates: true }).catch(() => {});
-    return directoryPath;
-  };
-
-  const deleteFaceImageAsync = async imageUri => {
-    if (!imageUri || !FileSystem) {
+  const handleRecordPinSubmit = () => {
+    if (!isValidSecurityPin(recordPinInput)) {
+      setRecordPinError(PIN_RULE_MESSAGE);
       return;
     }
 
-    await FileSystem.deleteAsync(imageUri, { idempotent: true }).catch(() => {});
-  };
-
-  const persistCapturedFaceAsync = async sourceUri => {
-    if (!sourceUri || !FileSystem?.documentDirectory) {
-      return sourceUri;
-    }
-
-    const directoryPath = await ensureFaceImageDirectoryAsync();
-    const extensionMatch = String(sourceUri).match(/\.(jpg|jpeg|png|webp)(\?.*)?$/i);
-    const extension = extensionMatch?.[1] ? `.${extensionMatch[1].toLowerCase()}` : '.jpg';
-    const targetUri = `${directoryPath}/face-${Date.now()}${extension}`;
-    await FileSystem.copyAsync({
-      from: sourceUri,
-      to: targetUri,
-    });
-    return targetUri;
-  };
-
-  const requestCameraAccessAsync = async () => {
-    if (!faceDetectorModule?.detectFaces) {
-      Alert.alert('Face Recognition Unavailable', VISION_CAMERA_ERROR_MESSAGE);
-      return false;
-    }
-
-    if (VisionCameraView) {
-      if (hasVisionCameraPermission) {
-        return true;
-      }
-
-      const visionPermission = await requestVisionCameraPermission();
-      const granted = visionPermission === true || visionPermission === 'granted';
-
-      if (!granted) {
-        Alert.alert('Camera Permission', 'Camera access is required for face recognition.');
-      }
-
-      return granted;
-    }
-
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-
-    if (!permission.granted) {
-      Alert.alert('Camera Permission', 'Camera permission is required for face recognition.');
-      return false;
-    }
-
-    return true;
-  };
-
-  const processCapturedFaceUriAsync = async (capturedUri, { persistImage = false, purpose = 'verify this record' } = {}) => {
-    if (!capturedUri) {
-      Alert.alert('Face Recognition', 'Could not read the captured face image. Please try again.');
-      return null;
-    }
-
-    let detectedFaces = [];
-
-    try {
-      detectedFaces = await detectFaces({
-        image: capturedUri,
-        options: FACE_DETECTION_OPTIONS,
-      });
-    } catch (error) {
-      console.warn('Unable to detect faces in captured image:', error);
-
-      if (error?.code === 'camera-module-not-found') {
-        Alert.alert('Face Recognition Unavailable', VISION_CAMERA_ERROR_MESSAGE);
-        return null;
-      }
-    }
-
-    if (detectedFaces.length !== 1) {
-      Alert.alert(
-        'Face Recognition',
-        detectedFaces.length > 1
-          ? 'Multiple faces were detected. Please try again with only one face in the frame.'
-          : `No face was detected to ${purpose}. Please try again.`
-      );
-      return null;
-    }
-
-    const template = buildFaceTemplate(detectedFaces[0]);
-
-    if (!template) {
-      Alert.alert('Face Recognition', 'The face could not be processed clearly. Please try again facing the camera.');
-      return null;
-    }
-
-    const storedUri = persistImage ? await persistCapturedFaceAsync(capturedUri) : capturedUri;
-
-    return {
-      uri: storedUri,
-      template,
-    };
-  };
-
-  const handleFaceScannerCapture = async () => {
-    if (!faceScannerCameraRef.current || faceScannerBusy) {
+    if (recordPinInput !== securityPin) {
+      setRecordPinError('Incorrect PIN. Please try again.');
       return;
     }
 
-    try {
-      setFaceScannerBusy(true);
-      setFaceScannerError('');
-      const capturedPhoto = await faceScannerCameraRef.current.takePhoto({
-        flash: 'off',
-        enableShutterSound: false,
-      });
-      const capturedUri = capturedPhoto?.path ? `file://${capturedPhoto.path}` : '';
-      closeFaceScanner(capturedUri || null);
-    } catch (error) {
-      console.warn('Unable to capture face from scanner:', error);
-      setFaceScannerBusy(false);
-      setFaceScannerError('Capture failed. Hold steady and try again.');
-    }
+    closeRecordPinModal(true);
   };
 
-  const captureFaceTemplateAsync = async ({ persistImage = false, purpose = 'verify this record' } = {}) => {
-    const hasPermission = await requestCameraAccessAsync();
+  const handleVerifyPinForRecord = async actionLabel => openRecordPinModalAsync({ purpose: actionLabel });
 
-    if (!hasPermission) {
-      return null;
-    }
-
-    if (VisionCameraView && visionCameraDevice) {
-      const capturedUri = await openFaceScannerAsync({ purpose });
-
-      if (!capturedUri) {
-        return null;
-      }
-
-      return processCapturedFaceUriAsync(capturedUri, { persistImage, purpose });
-    }
-
-    const captureResult = await ImagePicker.launchCameraAsync({
-      allowsEditing: false,
-      quality: 0.8,
-      mediaTypes: ['images'],
-      cameraType: frontVisionCameraDevice ? ImagePicker.CameraType.front : ImagePicker.CameraType.back,
-      exif: false,
-    });
-
-    if (captureResult.canceled) {
-      return null;
-    }
-
-    const capturedAsset = captureResult.assets?.[0];
-
-    return processCapturedFaceUriAsync(capturedAsset?.uri, { persistImage, purpose });
-  };
-
-  const handleOpenFaceRecognition = () => {
-    setFaceRegistrationName('');
-    setSettingsView('face');
-  };
-
-  const handleEnrollFace = async () => {
-    if (faceSettingsBusy) {
+  const handleChangePinSave = () => {
+    if (currentPinInput !== securityPin) {
+      setChangePinError('Current PIN does not match.');
       return;
     }
 
-    if (enrolledFaces.length >= MAX_ENROLLED_FACES) {
-      Alert.alert('Face Recognition', `Only ${MAX_ENROLLED_FACES} enrolled faces are allowed.`);
+    if (!isValidSecurityPin(newPinInput)) {
+      setChangePinError(PIN_RULE_MESSAGE);
       return;
     }
 
-    const normalizedFaceName = faceRegistrationName.trim();
-
-    if (!normalizedFaceName) {
-      Alert.alert('Face Recognition', 'Enter a name before registering a face.');
+    if (newPinInput !== confirmPinInput) {
+      setChangePinError('New PIN and confirm PIN must match exactly.');
       return;
     }
 
-    if (!faceRecognitionSupported) {
-      Alert.alert('Face Recognition Unavailable', VISION_CAMERA_ERROR_MESSAGE);
-      return;
-    }
-
-    try {
-      setFaceSettingsBusy(true);
-      const capturedFace = await captureFaceTemplateAsync({
-        persistImage: true,
-        purpose: 'enroll a face',
-      });
-
-      if (!capturedFace) {
-        return;
-      }
-
-      setEnrolledFaces(prev =>
-        relabelEnrolledFaces([
-          ...prev,
-          {
-            id: `face-${Date.now()}`,
-            label: normalizedFaceName,
-            uri: capturedFace.uri,
-            createdAt: new Date().toISOString(),
-            template: capturedFace.template,
-          },
-        ])
-      );
-      setFaceRegistrationName('');
-      Alert.alert('Face Recognition', 'Face enrolled successfully.');
-    } finally {
-      setFaceSettingsBusy(false);
-    }
-  };
-
-  const handleRemoveEnrolledFace = async faceId => {
-    const faceToRemove = enrolledFaces.find(face => face.id === faceId);
-
-    if (!faceToRemove) {
-      return;
-    }
-
-    try {
-      setFaceSettingsBusy(true);
-      await deleteFaceImageAsync(faceToRemove.uri);
-      setEnrolledFaces(prev => relabelEnrolledFaces(prev.filter(face => face.id !== faceId)));
-    } finally {
-      setFaceSettingsBusy(false);
-    }
-  };
-
-  const handleClearEnrolledFaces = async () => {
-    try {
-      setFaceSettingsBusy(true);
-      await Promise.all(enrolledFaces.map(face => deleteFaceImageAsync(face.uri)));
-      setEnrolledFaces([]);
-    } finally {
-      setFaceSettingsBusy(false);
-    }
-  };
-
-  const handleVerifyFaceForRecord = async actionLabel => {
-    if (!faceRecognitionSupported) {
-      Alert.alert('Face Recognition Unavailable', VISION_CAMERA_ERROR_MESSAGE);
-      return false;
-    }
-
-    if (enrolledFaces.length < MAX_ENROLLED_FACES) {
-      Alert.alert(
-        'Face Recognition',
-        `Enroll ${MAX_ENROLLED_FACES} faces in Settings > Face Recognition before you can save stopwatch records.`
-      );
-      return false;
-    }
-
-    const capturedFace = await captureFaceTemplateAsync({
-      persistImage: false,
-      purpose: actionLabel,
-    });
-
-    if (!capturedFace) {
-      return false;
-    }
-
-    const matchResult = getFaceMatchResult(enrolledFaces, capturedFace.template);
-
-    if (!matchResult.matched) {
-      Alert.alert('Face Recognition', 'Face did not match. Try again.');
-      return false;
-    }
-
-    return true;
+    setSecurityPin(newPinInput);
+    setCurrentPinInput('');
+    setNewPinInput('');
+    setConfirmPinInput('');
+    setChangePinError('');
+    setSettingsView('security');
+    Alert.alert('Success', 'PIN updated successfully.');
   };
 
   const handleChangePasswordSave = () => {
@@ -5051,6 +4549,12 @@ export default function App() {
   };
 
   const handleDNSRecordSubmit = async record => {
+    const didVerifyPin = await handleVerifyPinForRecord('submit this DNS record');
+
+    if (!didVerifyPin) {
+      return;
+    }
+
     const nullValue = 'null';
     const fileName = `${selectedCategory?.name || 'Category'} - ${record.selectedTrack || 'Track'} - DNS.csv`;
     const dayPayload = {
@@ -5140,6 +4644,7 @@ export default function App() {
 
       await ResultsService.addResult(dnsResultData);
       await refreshCompletedTracks(teams, selectedDay?.id || '');
+      setLeaderboardRefreshKey(prev => prev + 1);
 
       const recordKey = record.recordKey || getRecordKey(record);
 
@@ -5298,6 +4803,7 @@ const buildRegistrationData = formData => ({
     }
 
     await refreshCompletedTracks(teams, selectedDay?.id || '');
+    setLeaderboardRefreshKey(prev => prev + 1);
     return true;
   };
 
@@ -5326,6 +4832,7 @@ const buildRegistrationData = formData => ({
       await DisputesService.saveDispute(disputePayload);
       await refreshDisputes();
       await refreshCompletedTracks(teams, selectedDay?.id || '');
+      setLeaderboardRefreshKey(prev => prev + 1);
       clearActiveRecordState(selectedRecord?.recordKey || getRecordKey(selectedRecord || {}), false);
       return true;
     } catch (error) {
@@ -5372,21 +4879,24 @@ const buildRegistrationData = formData => ({
   /**
    * Render individual category item
    */
-  const renderCategoryItem = ({ item }) => (
-    <View
-      style={{
-        width: responsiveLayout.categoryCardWidth,
-        paddingHorizontal: responsiveLayout.gridGap / 2,
-        marginBottom: responsiveLayout.gridGap,
-      }}
-    >
-      <CategoryCard
-        category={item}
-        teamCount={item.teamCount || 0}
-        onPress={() => handleCategoryPress(item)}
-        layout={responsiveLayout}
-      />
-    </View>
+  const renderCategoryItem = useCallback(
+    ({ item }) => (
+      <View
+        style={{
+          width: responsiveLayout.categoryCardWidth,
+          paddingHorizontal: responsiveLayout.gridGap / 2,
+          marginBottom: responsiveLayout.gridGap,
+        }}
+      >
+        <CategoryCard
+          category={item}
+          teamCount={item.teamCount || 0}
+          onPress={() => handleCategoryPress(item)}
+          layout={responsiveLayout}
+        />
+      </View>
+    ),
+    [handleCategoryPress, responsiveLayout]
   );
 
   const selectedCategoryRecords = useMemo(
@@ -5907,48 +5417,57 @@ const buildRegistrationData = formData => ({
         })}
       />
 
-      <CategoryRecordsModal
-        visible={recordsVisible}
-        category={selectedCategory}
-        categoryTracks={selectedCategoryTracks}
-        records={selectedCategoryRecords}
-        selectedTrackFilter={selectedCategoryTrack}
-        onTrackCardSelect={handleTrackCardSelect}
-        onTrackCardBack={handleTrackCardBack}
-        selectedLateStartEnabledByRecord={selectedLateStartEnabledByRecord}
-        selectedLateStartByRecord={selectedLateStartByRecord}
-        lateStartActionOrderByRecord={lateStartActionOrderByRecord}
-        completedTracksByRecord={completedTracksByRecord}
-        onClose={() => {
-          setRecordsVisible(false);
-          setSelectedCategory(null);
-          setSelectedCategoryTrack('');
-          setActiveRecordKey('');
-        }}
-        onDNSPress={handleDNSRecordSubmit}
-        onRecordActivate={handleRecordActivate}
-        onLateStartToggle={handleLateStartToggle}
-        onLateStartSelect={handleLateStartSelect}
-        onStart={handleRecordStart}
-        theme={theme}
-      />
+      {recordsVisible ? (
+        <CategoryRecordsModal
+          visible={recordsVisible}
+          category={selectedCategory}
+          categoryTracks={selectedCategoryTracks}
+          records={selectedCategoryRecords}
+          selectedTrackFilter={selectedCategoryTrack}
+          onTrackCardSelect={handleTrackCardSelect}
+          onTrackCardBack={handleTrackCardBack}
+          selectedLateStartEnabledByRecord={selectedLateStartEnabledByRecord}
+          selectedLateStartByRecord={selectedLateStartByRecord}
+          lateStartActionOrderByRecord={lateStartActionOrderByRecord}
+          completedTracksByRecord={completedTracksByRecord}
+          onClose={() => {
+            setRecordsVisible(false);
+            setSelectedCategory(null);
+            setSelectedCategoryTrack('');
+            setActiveRecordKey('');
+          }}
+          onDNSPress={handleDNSRecordSubmit}
+          onRecordActivate={handleRecordActivate}
+          onLateStartToggle={handleLateStartToggle}
+          onLateStartSelect={handleLateStartSelect}
+          onStart={handleRecordStart}
+          layout={responsiveLayout}
+          theme={theme}
+        />
+      ) : null}
 
-      <ReportScreen
-        visible={reportsVisible}
-        onClose={() => setReportsVisible(false)}
-        selectedDay={selectedDay}
-        categoryOptions={reportCategoryOptions}
-        theme={theme}
-      />
+      {reportsVisible ? (
+        <ReportScreen
+          visible={reportsVisible}
+          onClose={() => setReportsVisible(false)}
+          selectedDay={selectedDay}
+          categoryOptions={reportCategoryOptions}
+          theme={theme}
+        />
+      ) : null}
 
-      <LeaderboardScreen
-        visible={leaderboardVisible}
-        onClose={() => setLeaderboardVisible(false)}
-        categoryOptions={leaderboardCategoryOptions}
-        teams={teams}
-        theme={theme}
-      />
+      {leaderboardVisible ? (
+        <LeaderboardScreen
+          visible={leaderboardVisible}
+          onClose={() => setLeaderboardVisible(false)}
+          categoryOptions={leaderboardCategoryOptions}
+          teams={teams}
+          dataRefreshKey={leaderboardRefreshKey}
+          theme={theme}
+        />
+      ) : null}
 
+      {settingsPasswordModalVisible ? (
       <Modal
         visible={settingsPasswordModalVisible}
         transparent
@@ -5961,62 +5480,89 @@ const buildRegistrationData = formData => ({
         hardwareAccelerated={Platform.OS === 'android'}
         statusBarTranslucent={Platform.OS === 'android'}
       >
-        <View style={[styles.settingsOverlay, { backgroundColor: theme.overlay }]}>
-          <View style={[styles.settingsPasswordCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-            <Text style={[styles.settingsPasswordTitle, { color: theme.textPrimary }]}>Settings Access</Text>
-            <Text style={[styles.settingsPasswordSubtitle, { color: theme.textSecondary }]}>
-              Enter password to open protected settings.
-            </Text>
-            <TextInput
-              ref={settingsPasswordInputRef}
-              autoFocus
-              value={settingsPasswordInput}
-              onChangeText={value => {
-                setSettingsPasswordInput(value);
-                if (settingsPasswordError) {
-                  setSettingsPasswordError('');
-                }
-              }}
-              autoCapitalize="none"
-              autoCorrect={false}
+        <View
+          style={[
+            styles.settingsOverlay,
+            keyboardHeight > 0 && styles.authModalOverlayKeyboardOpen,
+            { backgroundColor: theme.overlay },
+            keyboardHeight > 0 ? { paddingBottom: Math.max(keyboardHeight - 12, 0) } : null,
+          ]}
+        >
+          <ScrollView
+            style={styles.authModalScroll}
+            contentContainerStyle={[
+              styles.authModalScrollContent,
+              keyboardHeight > 0 ? { minHeight: visibleAuthHeight } : null,
+            ]}
+            keyboardShouldPersistTaps="always"
+            showsVerticalScrollIndicator={false}
+          >
+            <View
               style={[
-                styles.settingsInput,
-                { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary },
-                settingsPasswordError ? styles.settingsInputError : null,
+                styles.settingsPasswordCard,
+                styles.authModalCard,
+                { backgroundColor: theme.surface, borderColor: theme.border },
               ]}
-              placeholder="Enter password"
-              placeholderTextColor={theme.textTertiary}
-              secureTextEntry
-              returnKeyType="done"
-              onSubmitEditing={handleSettingsPasswordSubmit}
-            />
-            {settingsPasswordError ? (
-              <Text style={styles.settingsPasswordErrorText}>{settingsPasswordError}</Text>
-            ) : null}
-            <View style={styles.settingsPasswordActions}>
-              <TouchableOpacity
-                style={[styles.settingsActionButton, styles.settingsSecondaryButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
-                onPress={() => {
-                  setSettingsPasswordModalVisible(false);
-                  setSettingsPasswordInput('');
-                  setSettingsPasswordError('');
+            >
+              <Text style={[styles.settingsPasswordTitle, { color: theme.textPrimary }]}>
+                Settings Access
+              </Text>
+              <Text style={[styles.settingsPasswordSubtitle, { color: theme.textSecondary }]}>
+                Enter password to open protected settings.
+              </Text>
+              <TextInput
+                ref={settingsPasswordInputRef}
+                autoFocus
+                value={settingsPasswordInput}
+                onChangeText={value => {
+                  setSettingsPasswordInput(value);
+                  if (settingsPasswordError) {
+                    setSettingsPasswordError('');
+                  }
                 }}
-                activeOpacity={0.85}
-              >
-                <Text style={[styles.settingsActionButtonText, styles.settingsSecondaryButtonText, { color: theme.textPrimary }]}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.settingsActionButton, styles.settingsPrimaryButton, { backgroundColor: theme.accent }]}
-                onPress={handleSettingsPasswordSubmit}
-                activeOpacity={0.85}
-              >
-                <Text style={[styles.settingsActionButtonText, { color: theme.accentText }]}>Open</Text>
-              </TouchableOpacity>
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={[
+                  styles.settingsInput,
+                  { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary },
+                  settingsPasswordError ? styles.settingsInputError : null,
+                ]}
+                placeholder="Enter password"
+                placeholderTextColor={theme.textTertiary}
+                secureTextEntry
+                returnKeyType="done"
+                onSubmitEditing={handleSettingsPasswordSubmit}
+              />
+              {settingsPasswordError ? (
+                <Text style={styles.settingsPasswordErrorText}>{settingsPasswordError}</Text>
+              ) : null}
+              <View style={styles.settingsPasswordActions}>
+                <TouchableOpacity
+                  style={[styles.settingsActionButton, styles.settingsSecondaryButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
+                  onPress={() => {
+                    setSettingsPasswordModalVisible(false);
+                    setSettingsPasswordInput('');
+                    setSettingsPasswordError('');
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.settingsActionButtonText, styles.settingsSecondaryButtonText, { color: theme.textPrimary }]}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.settingsActionButton, styles.settingsPrimaryButton, { backgroundColor: theme.accent }]}
+                  onPress={handleSettingsPasswordSubmit}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.settingsActionButtonText, { color: theme.accentText }]}>Open</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          </ScrollView>
         </View>
       </Modal>
+      ) : null}
 
+      {settingsVisible ? (
       <Modal
         visible={settingsVisible}
         transparent={false}
@@ -6041,9 +5587,11 @@ const buildRegistrationData = formData => ({
                     ? 'Configuration'
                     : settingsView === 'security'
                       ? 'Security'
-                    : settingsView === 'face'
-                      ? 'Face Recognition'
-                    : settingsView === 'disputes'
+                      : settingsView === 'pin'
+                        ? 'Pin Verification'
+                        : settingsView === 'change-pin'
+                          ? 'Change PIN'
+                          : settingsView === 'disputes'
                       ? 'Disputes'
                       : 'Change Password'}
               </Text>
@@ -6052,11 +5600,13 @@ const buildRegistrationData = formData => ({
                   ? 'Control which tracks are visible for each day and category.'
                   : settingsView === 'security'
                     ? 'Manage the protected tools used to verify race-day actions.'
-                  : settingsView === 'face'
-                    ? `Register named faces used to approve stopwatch submit and dispute actions.`
-                  : settingsView === 'disputes'
-                    ? 'Review and resolve disputed stopwatch records for the selected day.'
-                  : settingsView === 'password'
+                    : settingsView === 'pin'
+                      ? 'Require a 4-digit PIN before Submit, DNS, and Confirm Dispute can continue.'
+                      : settingsView === 'change-pin'
+                        ? 'Update the 4-digit PIN used to approve protected record actions.'
+                        : settingsView === 'disputes'
+                          ? 'Review and resolve disputed stopwatch records for the selected day.'
+                          : settingsView === 'password'
                       ? 'Update the password used to open Settings.'
                       : 'Protected tools for race-day configuration.'}
               </Text>
@@ -6119,7 +5669,7 @@ const buildRegistrationData = formData => ({
                   <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Security</Text>
                   <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Security</Text>
                   <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
-                    Add face recognition and update the password required to access Settings.
+                    Manage PIN verification for record actions and update the password required to access Settings.
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -6129,13 +5679,13 @@ const buildRegistrationData = formData => ({
               <View style={styles.settingsMenuGrid}>
                 <TouchableOpacity
                   style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
-                  onPress={handleOpenFaceRecognition}
+                  onPress={handleOpenPinVerification}
                   activeOpacity={0.88}
                 >
                   <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Verification</Text>
-                  <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Add Face Recognition</Text>
+                  <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Pin Verification</Text>
                   <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
-                    Register named faces that must match before stopwatch submit or dispute records can be saved.
+                    Require a 4-digit PIN before Submit, DNS, and Confirm Dispute can save a record, and manage PIN updates.
                   </Text>
                 </TouchableOpacity>
 
@@ -6377,27 +5927,19 @@ const buildRegistrationData = formData => ({
               </>
             ) : null}
 
-            {settingsView === 'face' ? (
+            {settingsView === 'pin' ? (
               <>
                 <View
                   style={[
-                    styles.faceSettingsSummaryCard,
+                    styles.settingsInfoCard,
                     { backgroundColor: theme.surface, borderColor: theme.border },
                   ]}
                 >
-                  <Text style={[styles.faceSettingsSummaryTitle, { color: theme.textPrimary }]}>
-                    Enrolled Faces
+                  <Text style={[styles.settingsInfoTitle, { color: theme.accent }]}>
+                    Protected Actions
                   </Text>
-                  <View style={styles.faceSettingsSummaryRow}>
-                    <Text style={[styles.faceSettingsCount, { color: theme.accent }]}>
-                      {enrolledFaces.length}/{MAX_ENROLLED_FACES}
-                    </Text>
-                    {faceSettingsBusy ? (
-                      <ActivityIndicator color={theme.accent} />
-                    ) : null}
-                  </View>
-                  <Text style={[styles.faceSettingsSummaryText, { color: theme.textSecondary }]}>
-                    A matching enrolled face is required before stopwatch Submit or Dispute can continue. Records stay blocked until all {MAX_ENROLLED_FACES} faces are added.
+                  <Text style={[styles.settingsInfoText, { color: theme.textSecondary }]}>
+                    Stopwatch records only continue after the correct 4-digit PIN is entered for Submit, DNS, and Confirm Dispute.
                   </Text>
                 </View>
 
@@ -6407,121 +5949,23 @@ const buildRegistrationData = formData => ({
                     { backgroundColor: theme.surface, borderColor: theme.border },
                   ]}
                 >
-                  <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Register Face</Text>
+                  <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>PIN Details</Text>
                   <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
-                    Enter the person name first, then tap Add Face Recognition to capture and save their face locally.
+                    PIN protection is active across all race-day record approvals.
                   </Text>
-                  {!faceRecognitionSupported ? (
-                    <Text style={[styles.settingsSectionHint, { color: theme.accent, marginTop: 10 }]}>
-                      Face recognition is only available in a development build or release build. Open the installed app instead of Expo Go to register faces.
-                    </Text>
-                  ) : null}
-                  <TextInput
-                    style={[
-                      styles.settingsInput,
-                      { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary },
-                    ]}
-                    value={faceRegistrationName}
-                    onChangeText={setFaceRegistrationName}
-                    placeholder="Enter person name"
-                    placeholderTextColor={theme.textTertiary}
-                    autoCapitalize="words"
-                    autoCorrect={false}
-                    editable={!faceSettingsBusy && faceRecognitionSupported}
-                  />
-                </View>
-
-                <View style={styles.faceSettingsActionRow}>
+                  <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                    Default PIN: {DEFAULT_SECURITY_PIN}
+                  </Text>
                   <TouchableOpacity
-                    style={[
-                      styles.settingsActionButton,
-                      styles.settingsPrimaryButton,
-                      styles.faceSettingsActionButton,
-                      { backgroundColor: theme.accent },
-                      (!faceRecognitionSupported || faceSettingsBusy || enrolledFaces.length >= MAX_ENROLLED_FACES) &&
-                        styles.faceSettingsActionButtonDisabled,
-                    ]}
-                    onPress={handleEnrollFace}
+                    style={[styles.settingsActionButton, styles.settingsPrimaryButton, styles.settingsFormSaveButton, { backgroundColor: theme.accent }]}
+                    onPress={handleOpenChangePin}
                     activeOpacity={0.85}
-                    disabled={!faceRecognitionSupported || faceSettingsBusy || enrolledFaces.length >= MAX_ENROLLED_FACES}
                   >
                     <Text style={[styles.settingsActionButtonText, { color: theme.accentText }]}>
-                      Add Face Recognition
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[
-                      styles.settingsActionButton,
-                      styles.settingsSecondaryButton,
-                      styles.faceSettingsActionButton,
-                      { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
-                      (faceSettingsBusy || !enrolledFaces.length) && styles.faceSettingsActionButtonDisabled,
-                    ]}
-                    onPress={handleClearEnrolledFaces}
-                    activeOpacity={0.85}
-                    disabled={faceSettingsBusy || !enrolledFaces.length}
-                  >
-                    <Text style={[styles.settingsActionButtonText, styles.settingsSecondaryButtonText, { color: theme.textPrimary }]}>
-                      Clear All
+                      Change PIN
                     </Text>
                   </TouchableOpacity>
                 </View>
-
-                {enrolledFaces.length ? (
-                  <View style={styles.faceSettingsList}>
-                    {enrolledFaces.map(face => (
-                      <View
-                        key={face.id}
-                        style={[
-                          styles.faceSettingsCard,
-                          { backgroundColor: theme.surface, borderColor: theme.border },
-                        ]}
-                      >
-                        <Image
-                          source={{ uri: face.uri }}
-                          style={[styles.faceSettingsImage, { backgroundColor: theme.surfaceAlt }]}
-                        />
-                        <View style={styles.faceSettingsCardBody}>
-                          <Text style={[styles.faceSettingsCardTitle, { color: theme.textPrimary }]}>
-                            {face.label}
-                          </Text>
-                          <Text style={[styles.faceSettingsCardText, { color: theme.textSecondary }]}>
-                            Added {new Date(face.createdAt).toLocaleDateString()}
-                          </Text>
-                        </View>
-                        <TouchableOpacity
-                          style={[
-                            styles.faceSettingsRemoveButton,
-                            { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
-                            faceSettingsBusy && styles.faceSettingsActionButtonDisabled,
-                          ]}
-                          onPress={() => handleRemoveEnrolledFace(face.id)}
-                          activeOpacity={0.85}
-                          disabled={faceSettingsBusy}
-                        >
-                          <Text style={[styles.faceSettingsRemoveButtonText, { color: theme.accent }]}>
-                            Remove
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
-                    ))}
-                  </View>
-                ) : (
-                  <View
-                    style={[
-                      styles.faceSettingsEmptyState,
-                      { backgroundColor: theme.surface, borderColor: theme.border },
-                    ]}
-                  >
-                    <Text style={[styles.faceSettingsEmptyTitle, { color: theme.textPrimary }]}>
-                      No faces enrolled yet
-                    </Text>
-                    <Text style={[styles.faceSettingsEmptyText, { color: theme.textSecondary }]}>
-                      Enter a person name, then tap Add Face Recognition and capture each approved person one by one until all {MAX_ENROLLED_FACES} slots are filled.
-                    </Text>
-                  </View>
-                )}
               </>
             ) : null}
 
@@ -6533,8 +5977,99 @@ const buildRegistrationData = formData => ({
                 loading={disputesLoading}
                 onRefresh={refreshDisputes}
                 onEdit={handleDisputeEdit}
+                layout={responsiveLayout}
                 theme={theme}
               />
+            ) : null}
+
+            {settingsView === 'change-pin' ? (
+              <View style={[styles.settingsFormCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Update PIN</Text>
+                <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                  Enter the current PIN, then confirm the new 4-digit PIN twice.
+                </Text>
+                <TextInput
+                  ref={currentPinInputRef}
+                  autoFocus
+                  value={currentPinInput}
+                  onChangeText={value => {
+                    const normalizedValue = value.replace(/\D/g, '').slice(0, 4);
+                    setCurrentPinInput(normalizedValue);
+                    if (changePinError) {
+                      setChangePinError('');
+                    }
+                  }}
+                  keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
+                  style={[
+                    styles.settingsInput,
+                    { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary },
+                    changePinError ? styles.settingsInputError : null,
+                  ]}
+                  placeholder="Current PIN"
+                  placeholderTextColor={theme.textTertiary}
+                  secureTextEntry
+                  maxLength={4}
+                  returnKeyType="next"
+                  onSubmitEditing={() => newPinInputRef.current?.focus()}
+                />
+                <TextInput
+                  ref={newPinInputRef}
+                  value={newPinInput}
+                  onChangeText={value => {
+                    const normalizedValue = value.replace(/\D/g, '').slice(0, 4);
+                    setNewPinInput(normalizedValue);
+                    if (changePinError) {
+                      setChangePinError('');
+                    }
+                  }}
+                  keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
+                  style={[
+                    styles.settingsInput,
+                    { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary },
+                    changePinError ? styles.settingsInputError : null,
+                  ]}
+                  placeholder="New PIN"
+                  placeholderTextColor={theme.textTertiary}
+                  secureTextEntry
+                  maxLength={4}
+                  returnKeyType="next"
+                  onSubmitEditing={() => confirmPinInputRef.current?.focus()}
+                />
+                <TextInput
+                  ref={confirmPinInputRef}
+                  value={confirmPinInput}
+                  onChangeText={value => {
+                    const normalizedValue = value.replace(/\D/g, '').slice(0, 4);
+                    setConfirmPinInput(normalizedValue);
+                    if (changePinError) {
+                      setChangePinError('');
+                    }
+                  }}
+                  keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
+                  style={[
+                    styles.settingsInput,
+                    { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary },
+                    changePinError ? styles.settingsInputError : null,
+                  ]}
+                  placeholder="Confirm new PIN"
+                  placeholderTextColor={theme.textTertiary}
+                  secureTextEntry
+                  maxLength={4}
+                  returnKeyType="done"
+                  onSubmitEditing={handleChangePinSave}
+                />
+                <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>{PIN_RULE_MESSAGE}</Text>
+                {changePinError ? (
+                  <Text style={styles.settingsPasswordErrorText}>{changePinError}</Text>
+                ) : null}
+                <TouchableOpacity
+                  style={[styles.settingsActionButton, styles.settingsPrimaryButton, styles.settingsFormSaveButton, { backgroundColor: theme.accent }]}
+                  onPress={handleChangePinSave}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.settingsActionButtonText, { color: theme.accentText }]}>Save PIN</Text>
+                </TouchableOpacity>
+              </View>
             ) : null}
 
             {settingsView === 'password' ? (
@@ -6664,7 +6199,98 @@ const buildRegistrationData = formData => ({
           </ScrollView>
         </View>
       </Modal>
+      ) : null}
 
+      {recordPinModalVisible ? (
+      <Modal
+        visible={recordPinModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => closeRecordPinModal(false)}
+        hardwareAccelerated={Platform.OS === 'android'}
+        statusBarTranslucent={Platform.OS === 'android'}
+      >
+        <View
+          style={[
+            styles.settingsOverlay,
+            keyboardHeight > 0 && styles.authModalOverlayKeyboardOpen,
+            { backgroundColor: theme.overlay },
+            keyboardHeight > 0 ? { paddingBottom: Math.max(keyboardHeight - 12, 0) } : null,
+          ]}
+        >
+          <ScrollView
+            style={styles.authModalScroll}
+            contentContainerStyle={[
+              styles.authModalScrollContent,
+              keyboardHeight > 0 ? { minHeight: visibleAuthHeight } : null,
+            ]}
+            keyboardShouldPersistTaps="always"
+            showsVerticalScrollIndicator={false}
+          >
+            <View
+              style={[
+                styles.settingsPasswordCard,
+                styles.authModalCard,
+                { backgroundColor: theme.surface, borderColor: theme.border },
+              ]}
+            >
+              <Text style={[styles.settingsPasswordTitle, { color: theme.textPrimary }]}>
+                Enter PIN
+              </Text>
+              <Text style={[styles.settingsPasswordSubtitle, { color: theme.textSecondary }]}>
+                Enter the 4-digit PIN to {recordPinPurpose}.
+              </Text>
+              <TextInput
+                ref={recordPinInputRef}
+                autoFocus
+                value={recordPinInput}
+                onChangeText={value => {
+                  const normalizedValue = value.replace(/\D/g, '').slice(0, 4);
+                  setRecordPinInput(normalizedValue);
+                  if (recordPinError) {
+                    setRecordPinError('');
+                  }
+                }}
+                keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
+                style={[
+                  styles.settingsInput,
+                  styles.recordPinInput,
+                  { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary },
+                  recordPinError ? styles.settingsInputError : null,
+                ]}
+                placeholder="Enter PIN"
+                placeholderTextColor={theme.textTertiary}
+                secureTextEntry
+                maxLength={4}
+                returnKeyType="done"
+                onSubmitEditing={handleRecordPinSubmit}
+              />
+              {recordPinError ? (
+                <Text style={styles.settingsPasswordErrorText}>{recordPinError}</Text>
+              ) : null}
+              <View style={styles.settingsPasswordActions}>
+                <TouchableOpacity
+                  style={[styles.settingsActionButton, styles.settingsSecondaryButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
+                  onPress={() => closeRecordPinModal(false)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.settingsActionButtonText, styles.settingsSecondaryButtonText, { color: theme.textPrimary }]}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.settingsActionButton, styles.settingsPrimaryButton, { backgroundColor: theme.accent }]}
+                  onPress={handleRecordPinSubmit}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.settingsActionButtonText, { color: theme.accentText }]}>Verify</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
+      ) : null}
+
+      {themeVisible ? (
       <Modal
         visible={themeVisible}
         transparent={false}
@@ -6745,110 +6371,34 @@ const buildRegistrationData = formData => ({
           </ScrollView>
         </View>
       </Modal>
-
-      <Modal
-        visible={faceScannerVisible}
-        transparent={false}
-        animationType="fade"
-        onRequestClose={() => closeFaceScanner(null)}
-        hardwareAccelerated={Platform.OS === 'android'}
-        statusBarTranslucent={Platform.OS === 'android'}
-      >
-        <View style={styles.faceScannerScreen}>
-          {VisionCameraView && visionCameraDevice ? (
-            <VisionCameraView
-              ref={faceScannerCameraRef}
-              style={StyleSheet.absoluteFill}
-              device={visionCameraDevice}
-              isActive={faceScannerVisible}
-              photo
-            />
-          ) : (
-            <View style={styles.faceScannerUnavailableState}>
-              <Text style={styles.faceScannerUnavailableTitle}>Face Scanner Unavailable</Text>
-              <Text style={styles.faceScannerUnavailableText}>{VISION_CAMERA_ERROR_MESSAGE}</Text>
-            </View>
-          )}
-
-          <View style={styles.faceScannerOverlay}>
-            <NavigationActionButton
-              label="Close"
-              onPress={() => closeFaceScanner(null)}
-              style={styles.faceScannerCloseButton}
-              textStyle={styles.faceScannerCloseButtonText}
-            />
-
-            <View style={styles.faceScannerContent}>
-              <Text style={styles.faceScannerTitle}>Face Lock</Text>
-              <Text style={styles.faceScannerSubtitle}>
-                Align your face inside the frame to {faceScannerPurpose} using the {faceScannerCameraLabel}.
-              </Text>
-
-              <View style={styles.faceScannerFrame}>
-                <View style={styles.faceScannerFrameInner} />
-                <Text style={styles.faceScannerFrameLabel}>Hold steady and look straight ahead</Text>
-              </View>
-
-              {faceScannerError ? (
-                <Text style={styles.faceScannerErrorText}>{faceScannerError}</Text>
-              ) : null}
-
-              <View style={styles.faceScannerActionRow}>
-                <TouchableOpacity
-                  style={[styles.faceScannerActionButton, styles.faceScannerActionButtonSecondary]}
-                  onPress={() => closeFaceScanner(null)}
-                  activeOpacity={0.85}
-                  disabled={faceScannerBusy}
-                >
-                  <Text style={styles.faceScannerActionButtonSecondaryText}>Cancel</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.faceScannerActionButton,
-                    styles.faceScannerActionButtonPrimary,
-                    faceScannerBusy && styles.faceScannerActionButtonDisabled,
-                  ]}
-                  onPress={handleFaceScannerCapture}
-                  activeOpacity={0.85}
-                  disabled={faceScannerBusy || !VisionCameraView || !visionCameraDevice}
-                >
-                  {faceScannerBusy ? (
-                    <ActivityIndicator color="#18120a" />
-                  ) : (
-                    <Text style={styles.faceScannerActionButtonPrimaryText}>Scan Face</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      ) : null}
 
       {/* Registration Form Modal */}
-      <RegistrationForm
-        visible={formVisible}
-        category={selectedCategory}
-        initialRecord={selectedRecord}
-        selectedDay={selectedDay}
-        onClose={() => {
-          setFormVisible(false);
-          setSelectedRecord(null);
-          setActiveRecordKey('');
-          if (selectedRecord?.source === 'dispute') {
-            setRecordsVisible(false);
-            setSettingsVisible(true);
-            setSettingsView('disputes');
-          } else {
-            setRecordsVisible(true);
-          }
-        }}
-        onSubmit={handleFormSubmit}
-        onHoldForDispute={holdRecordForDispute}
-        onVerifyFace={handleVerifyFaceForRecord}
-        enrolledFaceCount={enrolledFaces.length}
-        theme={theme}
-      />
+      {formVisible ? (
+        <RegistrationForm
+          visible={formVisible}
+          category={selectedCategory}
+          initialRecord={selectedRecord}
+          selectedDay={selectedDay}
+          onClose={() => {
+            setFormVisible(false);
+            setSelectedRecord(null);
+            setActiveRecordKey('');
+            if (selectedRecord?.source === 'dispute') {
+              setRecordsVisible(false);
+              setSettingsVisible(true);
+              setSettingsView('disputes');
+            } else {
+              setRecordsVisible(true);
+            }
+          }}
+          onSubmit={handleFormSubmit}
+          onHoldForDispute={holdRecordForDispute}
+          onVerifyPin={handleVerifyPinForRecord}
+          layout={responsiveLayout}
+          theme={theme}
+        />
+      ) : null}
     </View>
   );
 }
@@ -7569,17 +7119,18 @@ const styles = StyleSheet.create({
   cardContent: {
     flex: 1,
     alignItems: 'stretch',
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
   },
 
   // Icon box with color
   iconBox: {
     width: '100%',
+    flex: 1,
     minHeight: IS_TABLET ? 188 : 156,
     borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
     overflow: 'hidden',
   },
 
@@ -7589,103 +7140,74 @@ const styles = StyleSheet.create({
   },
 
   categoryImageIcon: {
-    width: IS_TABLET ? '126%' : '118%',
+    width: IS_TABLET ? '130%' : '120%',
     height: IS_TABLET ? '112%' : '108%',
     alignSelf: 'center',
   },
 
   countPanel: {
     width: '100%',
-    marginBottom: 12,
+    marginTop: 'auto',
+    marginBottom: 0,
+    backgroundColor: '#f8fafc',
+    borderTopWidth: 1,
+    borderTopColor: '#e4e8f0',
+    paddingHorizontal: IS_TABLET ? 6 : 5,
+    paddingTop: IS_TABLET ? 6 : 5,
+    paddingBottom: IS_TABLET ? 4 : 3,
+    minHeight: IS_TABLET ? 50 : 46,
   },
 
-  // Text content container
-  textContent: {
-    alignItems: 'center',
-    justifyContent: 'flex-start',
-    flexShrink: 1,
-    width: '100%',
-    flex: 1,
-    paddingHorizontal: IS_TABLET ? 10 : 8,
-    paddingBottom: 4,
-  },
-
-  // Category name
-  categoryName: {
-    fontSize: IS_TABLET ? 16 : 14,
-    fontWeight: '700',
-    color: '#fff6ea',
-    marginBottom: 6,
-    textAlign: 'center',
-  },
-
-  // Category description
-  categoryDescription: {
-    fontSize: IS_TABLET ? 12 : 11,
-    color: '#999',
-    fontWeight: '400',
-    textAlign: 'center',
-    lineHeight: IS_TABLET ? 18 : 16,
-    width: '100%',
-    flexShrink: 1,
-  },
-
-  // Count badge
-  countBadgeRow: {
+  countStatsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
     width: '100%',
   },
 
-  countBadge: {
-    backgroundColor: '#2196F3',
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    minWidth: 0,
+  countStat: {
     flex: 1,
-    minHeight: IS_TABLET ? 58 : 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: IS_TABLET ? 36 : 34,
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingHorizontal: IS_TABLET ? 5 : 4,
+    paddingVertical: IS_TABLET ? 4 : 3,
   },
 
-  countBadgeStandalone: {
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.14,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-
-  countBadgeSecondary: {
-    backgroundColor: '#111722',
+  countStatSecondary: {
     borderWidth: 1,
   },
 
-  countText: {
-    fontSize: IS_TABLET ? 15 : 14,
+  countStatsDivider: {
+    width: 1,
+    alignSelf: 'stretch',
+    backgroundColor: '#d7dce6',
+    marginHorizontal: IS_TABLET ? 6 : 5,
+  },
+
+  countStatValue: {
+    fontSize: IS_TABLET ? 14 : 13,
     fontWeight: '800',
-    color: '#fff',
-    lineHeight: IS_TABLET ? 18 : 16,
+    color: '#172238',
+    lineHeight: IS_TABLET ? 16 : 15,
   },
 
-  countTextSecondary: {
-    color: '#4263cf',
+  countStatValueOnPrimary: {
+    color: '#fff8f1',
   },
 
-  countLabel: {
-    fontSize: IS_TABLET ? 10 : 9,
-    color: '#fff',
+  countStatLabel: {
+    fontSize: IS_TABLET ? 8 : 7,
+    color: '#707b8f',
     fontWeight: '700',
-    marginTop: 2,
+    marginTop: 1,
     textTransform: 'uppercase',
-    letterSpacing: 0.4,
+    letterSpacing: 0.8,
   },
 
-  countLabelSecondary: {
-    color: '#4263cf',
+  countStatLabelOnPrimary: {
+    color: '#fff8f1',
   },
 
   recordsPageContainer: {
@@ -8505,6 +8027,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 20,
+    paddingVertical: 20,
+  },
+
+  authModalOverlayKeyboardOpen: {
+    justifyContent: 'flex-start',
+  },
+
+  authModalOverlayCompact: {
+    justifyContent: 'flex-start',
+    paddingTop: 16,
+    paddingBottom: 12,
   },
 
   settingsPasswordCard: {
@@ -8515,6 +8048,58 @@ const styles = StyleSheet.create({
     borderColor: '#2a3441',
     backgroundColor: '#111722',
     padding: 20,
+  },
+
+  authModalKeyboardAvoid: {
+    width: '100%',
+    flex: 1,
+    justifyContent: 'center',
+  },
+
+  authModalKeyboardAvoidCompact: {
+    justifyContent: 'flex-start',
+  },
+
+  authModalKeyboardAvoidContent: {
+    width: '100%',
+  },
+
+  authModalScroll: {
+    width: '100%',
+  },
+
+  authModalScrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingVertical: 20,
+  },
+
+  authModalScrollContentCompact: {
+    justifyContent: 'flex-start',
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+
+  authModalCard: {
+    width: '100%',
+    alignSelf: 'center',
+    marginTop: 12,
+  },
+
+  authModalCardCompact: {
+    maxWidth: 400,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 14,
+  },
+
+  authModalTitleCompact: {
+    fontSize: 19,
+  },
+
+  authModalSubtitleCompact: {
+    marginTop: 6,
+    fontSize: 13,
   },
 
   settingsPasswordTitle: {
@@ -8548,6 +8133,11 @@ const styles = StyleSheet.create({
     color: '#fff6ea',
     fontSize: 14,
     fontFamily: BODY_FONT,
+  },
+
+  recordPinInput: {
+    letterSpacing: 8,
+    textAlign: 'center',
   },
 
   settingsPasswordInputRow: {
@@ -8844,170 +8434,6 @@ const styles = StyleSheet.create({
     fontFamily: BODY_FONT,
   },
 
-  faceScannerScreen: {
-    flex: 1,
-    backgroundColor: '#050505',
-  },
-
-  faceScannerUnavailableState: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 28,
-    backgroundColor: '#050505',
-  },
-
-  faceScannerUnavailableTitle: {
-    fontSize: 24,
-    fontFamily: TITLE_FONT,
-    color: '#fff6ea',
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-
-  faceScannerUnavailableText: {
-    fontSize: 15,
-    lineHeight: 22,
-    fontFamily: BODY_FONT,
-    color: '#cdbf9a',
-    textAlign: 'center',
-  },
-
-  faceScannerOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(5, 5, 5, 0.28)',
-    paddingHorizontal: 20,
-    paddingTop: 56,
-    paddingBottom: 32,
-  },
-
-  faceScannerCloseButton: {
-    alignSelf: 'flex-end',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 999,
-    backgroundColor: 'rgba(12, 17, 26, 0.82)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.16)',
-  },
-
-  faceScannerCloseButtonText: {
-    color: '#fff6ea',
-    fontSize: 14,
-    fontFamily: BODY_FONT,
-  },
-
-  faceScannerContent: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  faceScannerTitle: {
-    fontSize: 30,
-    fontFamily: TITLE_FONT,
-    color: '#fff6ea',
-    marginBottom: 8,
-  },
-
-  faceScannerSubtitle: {
-    fontSize: 15,
-    lineHeight: 22,
-    fontFamily: BODY_FONT,
-    color: '#f1d8b1',
-    textAlign: 'center',
-    maxWidth: 320,
-    marginBottom: 26,
-  },
-
-  faceScannerFrame: {
-    width: 260,
-    height: 340,
-    borderRadius: 132,
-    borderWidth: 3,
-    borderColor: '#ffb15a',
-    backgroundColor: 'rgba(255, 177, 90, 0.08)',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    paddingBottom: 28,
-    shadowColor: '#ffb15a',
-    shadowOpacity: 0.45,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 16,
-  },
-
-  faceScannerFrameInner: {
-    position: 'absolute',
-    top: 16,
-    left: 16,
-    right: 16,
-    bottom: 16,
-    borderRadius: 120,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 246, 234, 0.35)',
-  },
-
-  faceScannerFrameLabel: {
-    fontSize: 13,
-    fontFamily: BODY_FONT,
-    color: '#fff6ea',
-    textAlign: 'center',
-    paddingHorizontal: 24,
-  },
-
-  faceScannerErrorText: {
-    marginTop: 18,
-    fontSize: 14,
-    fontFamily: BODY_FONT,
-    color: '#ffd5c9',
-    textAlign: 'center',
-  },
-
-  faceScannerActionRow: {
-    width: '100%',
-    maxWidth: 340,
-    flexDirection: 'row',
-    marginTop: 28,
-  },
-
-  faceScannerActionButton: {
-    flex: 1,
-    minHeight: 54,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 18,
-  },
-
-  faceScannerActionButtonPrimary: {
-    backgroundColor: '#ffb15a',
-    marginLeft: 10,
-  },
-
-  faceScannerActionButtonSecondary: {
-    backgroundColor: 'rgba(12, 17, 26, 0.88)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.18)',
-    marginRight: 10,
-  },
-
-  faceScannerActionButtonDisabled: {
-    opacity: 0.55,
-  },
-
-  faceScannerActionButtonPrimaryText: {
-    color: '#18120a',
-    fontSize: 16,
-    fontFamily: BODY_FONT,
-  },
-
-  faceScannerActionButtonSecondaryText: {
-    color: '#fff6ea',
-    fontSize: 16,
-    fontFamily: BODY_FONT,
-  },
-
   settingsInfoCard: {
     borderRadius: 18,
     borderWidth: 1,
@@ -9244,145 +8670,6 @@ const styles = StyleSheet.create({
 
   settingsFormSaveButton: {
     marginTop: 18,
-  },
-
-  faceVerificationNotice: {
-    borderRadius: 14,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 10,
-  },
-
-  faceVerificationNoticeTitle: {
-    fontSize: 14,
-    fontWeight: '900',
-    fontFamily: HEADING_FONT,
-  },
-
-  faceVerificationNoticeText: {
-    marginTop: 6,
-    fontSize: 13,
-    lineHeight: 18,
-    fontFamily: BODY_FONT,
-  },
-
-  faceSettingsSummaryCard: {
-    borderRadius: 18,
-    borderWidth: 1,
-    padding: 18,
-    marginBottom: 18,
-  },
-
-  faceSettingsSummaryTitle: {
-    fontSize: 17,
-    fontWeight: '900',
-    fontFamily: HEADING_FONT,
-  },
-
-  faceSettingsSummaryRow: {
-    marginTop: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-
-  faceSettingsCount: {
-    fontSize: 28,
-    fontWeight: '900',
-    fontFamily: HEADING_FONT,
-  },
-
-  faceSettingsSummaryText: {
-    marginTop: 10,
-    fontSize: 14,
-    lineHeight: 20,
-    fontFamily: BODY_FONT,
-  },
-
-  faceSettingsActionRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 18,
-  },
-
-  faceSettingsActionButton: {
-    marginTop: 0,
-  },
-
-  faceSettingsActionButtonDisabled: {
-    opacity: 0.5,
-  },
-
-  faceSettingsList: {
-    gap: 12,
-  },
-
-  faceSettingsCard: {
-    borderRadius: 18,
-    borderWidth: 1,
-    padding: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-  },
-
-  faceSettingsImage: {
-    width: 78,
-    height: 78,
-    borderRadius: 14,
-  },
-
-  faceSettingsCardBody: {
-    flex: 1,
-  },
-
-  faceSettingsCardTitle: {
-    fontSize: 16,
-    fontWeight: '900',
-    fontFamily: HEADING_FONT,
-  },
-
-  faceSettingsCardText: {
-    marginTop: 6,
-    fontSize: 13,
-    lineHeight: 18,
-    fontFamily: BODY_FONT,
-  },
-
-  faceSettingsRemoveButton: {
-    minHeight: MIN_TOUCH_TARGET,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  faceSettingsRemoveButtonText: {
-    fontSize: 13,
-    fontWeight: '800',
-    fontFamily: BODY_FONT,
-  },
-
-  faceSettingsEmptyState: {
-    borderRadius: 18,
-    borderWidth: 1,
-    padding: 18,
-  },
-
-  faceSettingsEmptyTitle: {
-    fontSize: 16,
-    fontWeight: '900',
-    fontFamily: HEADING_FONT,
-  },
-
-  faceSettingsEmptyText: {
-    marginTop: 8,
-    fontSize: 14,
-    lineHeight: 20,
-    fontFamily: BODY_FONT,
   },
 
   // Form header

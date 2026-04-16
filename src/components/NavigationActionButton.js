@@ -52,7 +52,7 @@ export const NavigationActionButton = React.memo(function NavigationActionButton
 });
 
 export const CloseActionButton = React.memo(function CloseActionButton({
-  label = 'X',
+  label = 'Close',
   onPress,
   style,
   textStyle,
@@ -103,13 +103,14 @@ const styles = StyleSheet.create({
   },
   closeButtonBase: {
     minHeight: 44,
-    minWidth: 44,
+    minWidth: 88,
+    paddingHorizontal: 14,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 999,
   },
   closeLabel: {
-    fontSize: 18,
-    fontWeight: '800',
+    fontSize: 13,
+    fontWeight: '700',
   },
 });
