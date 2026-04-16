@@ -21,12 +21,29 @@
       },
       "package": "com.vehiclecategories.app",
       "versionCode": 2,
-      "permissions": [],
+      "permissions": [
+        "android.permission.CAMERA"
+      ],
       "targetSdkVersion": 34,
       "minSdkVersion": 24
     },
     "web": {},
-    "plugins": [],
+    "plugins": [
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "Allow $(PRODUCT_NAME) to access your camera for face recognition and stopwatch verification.",
+          "enableMicrophonePermission": false,
+          "enableFrameProcessors": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera for face recognition and stopwatch verification."
+        }
+      ]
+    ],
     "cli": {
       "appVersionSource": "local"
     },

@@ -16,7 +16,6 @@ import {
   ActivityIndicator,
   Vibration,
   useWindowDimensions,
-  NativeModules,
 } from 'react-native';
 import { Audio } from 'expo-av';
 import * as ImagePicker from 'expo-image-picker';
@@ -64,18 +63,9 @@ const loadFaceDetector = () => {
     return null;
   }
 
-  const hasVisionCameraNativeModule = Boolean(
-    NativeModules?.VisionCamera ||
-      NativeModules?.VisionCameraProxy ||
-      NativeModules?.CameraViewManager
-  );
-
-  if (!hasVisionCameraNativeModule) {
-    return null;
-  }
-
   try {
-    return require('react-native-vision-camera-face-detector');
+    const module = require('react-native-vision-camera-face-detector');
+    return module?.detectFaces ? module : null;
   } catch (error) {
     console.warn('Face detector module is unavailable in the current runtime:', error);
     return null;
@@ -88,14 +78,9 @@ const loadVisionCamera = () => {
     return null;
   }
 
-  const hasVisionCameraNativeModule = Boolean(NativeModules?.CameraView);
-
-  if (!hasVisionCameraNativeModule) {
-    return null;
-  }
-
   try {
-    return require('react-native-vision-camera');
+    const module = require('react-native-vision-camera');
+    return module?.Camera ? module : null;
   } catch (error) {
     console.warn('Vision Camera module is unavailable in the current runtime:', error);
     return null;
@@ -112,8 +97,9 @@ const useVisionCameraPermission =
     requestPermission: async () => false,
   }));
 
-const isFaceRecognitionRuntimeSupported = ({ visionCameraView, visionCameraDevice }) =>
-  Boolean(visionCameraView && visionCameraDevice && faceDetectorModule?.detectFaces);
+const canProcessFaceImages = () => Boolean(faceDetectorModule?.detectFaces);
+const canUseVisionCameraScanner = ({ visionCameraView, visionCameraDevice }) =>
+  Boolean(visionCameraView && visionCameraDevice);
 
 const detectFaces = async (...args) => {
   if (!faceDetectorModule?.detectFaces) {
@@ -1440,6 +1426,7 @@ const CategoryCard = ({ category, onPress, teamCount = 0, cardStyle, layout }) =
   const [scaleAnim] = useState(new Animated.Value(1));
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const responsiveLayout = layout || getResponsiveLayout(screenWidth, screenHeight);
+  const isCompactTabletCard = responsiveLayout.isTablet && responsiveLayout.categoryCardWidth < 310;
   const categoryKey = normalizeCategoryKey(category.name || category.category || '');
   const palette = CATEGORY_CARD_PALETTES[categoryKey] || {
     background: '#ffffff',
@@ -1478,9 +1465,9 @@ const CategoryCard = ({ category, onPress, teamCount = 0, cardStyle, layout }) =
           styles.card,
           {
             width: '100%',
-            minHeight: responsiveLayout.isTablet ? 320 : 276,
-            paddingHorizontal: responsiveLayout.isTablet ? 12 : 10,
-            paddingVertical: responsiveLayout.isTablet ? 12 : 10,
+            height: responsiveLayout.isTablet ? (isCompactTabletCard ? 280 : 320) : 276,
+            paddingHorizontal: responsiveLayout.isTablet ? (isCompactTabletCard ? 10 : 12) : 10,
+            paddingVertical: responsiveLayout.isTablet ? (isCompactTabletCard ? 10 : 12) : 10,
             backgroundColor: palette.background,
             borderColor: palette.border,
           },
@@ -1492,75 +1479,71 @@ const CategoryCard = ({ category, onPress, teamCount = 0, cardStyle, layout }) =
             style={[
               styles.iconBox,
               {
-                minHeight: responsiveLayout.isTablet ? 188 : 156,
-                backgroundColor: palette.iconBackground,
+                minHeight: responsiveLayout.isTablet ? (isCompactTabletCard ? 190 : 238) : 198,
+                backgroundColor: category.imageSource ? 'transparent' : palette.iconBackground,
+                marginBottom: isCompactTabletCard ? 8 : styles.iconBox.marginBottom,
               },
             ]}
           >
             {category.imageSource ? (
               <Image
                 source={category.imageSource}
-                style={styles.categoryImageIcon}
+                style={[
+                  styles.categoryImageIcon,
+                  {
+                    width: '270%',
+                    height: '112%',
+                  },
+                ]}
                 resizeMode="contain"
               />
             ) : (
-              <Text style={[styles.categoryIcon, { fontSize: responsiveLayout.isTablet ? 34 : 30 }]}>
+              <Text style={[styles.categoryIcon, { fontSize: responsiveLayout.isTablet ? 32 : 28 }]}>
                 {category.icon}
               </Text>
             )}
-            <View style={styles.countPanelOverlay}>
-              <View style={styles.countBadgeRow}>
-                <View
-                  style={[
-                    styles.countBadge,
-                    styles.countBadgeOverlay,
-                    {
-                      backgroundColor: palette.badgeBackground,
-                    },
-                  ]}
-                >
-                  <Text style={styles.countText}>{teamCount}</Text>
-                  <Text style={styles.countLabel}>Teams</Text>
-                </View>
-                <View
-                  style={[
-                    styles.countBadge,
-                    styles.countBadgeSecondary,
-                    styles.countBadgeOverlay,
-                    {
-                      backgroundColor: palette.secondaryBadgeBackground,
-                      borderColor: palette.secondaryBadgeBorder,
-                    },
-                  ]}
-                >
-                  <Text style={[styles.countText, { color: palette.secondaryBadgeText }]}>{category.trackCount || 0}</Text>
-                  <Text style={[styles.countLabel, { color: palette.secondaryBadgeText }]}>Tracks</Text>
-                </View>
-              </View>
-            </View>
           </View>
-
-          <View style={styles.textContent}>
-            <Text
+          <View
+            style={[
+              styles.countSection,
+              { borderColor: palette.border, backgroundColor: `${palette.background}` },
+            ]}
+          >
+            <View
               style={[
-                styles.categoryName,
-                { fontSize: responsiveLayout.isTablet ? 16 : 14, color: palette.title },
-              ]}
-            >
-              {category.name}
-            </Text>
-            <Text
-              style={[
-                styles.categoryDescription,
-                {
-                  fontSize: responsiveLayout.isTablet ? 12 : 11,
-                  lineHeight: responsiveLayout.isTablet ? 18 : 16,
-                  color: palette.description,
+                styles.countBadgeRow,
+                isCompactTabletCard && {
+                  gap: 6,
                 },
               ]}
             >
-              {category.description}
-            </Text>
+              <View
+                style={[
+                  styles.countBadge,
+                  styles.countBadgeSection,
+                  {
+                    backgroundColor: palette.badgeBackground,
+                  },
+                ]}
+              >
+                <Text style={styles.countText}>{teamCount}</Text>
+                <Text style={styles.countLabel}>Teams</Text>
+              </View>
+              <View
+                style={[
+                  styles.countBadge,
+                  styles.countBadgeSection,
+                  styles.countBadgeSecondary,
+                  {
+                    backgroundColor: palette.secondaryBadgeBackground,
+                    borderColor: palette.secondaryBadgeBorder,
+                  },
+                ]}
+              >
+                <Text style={[styles.countText, { color: palette.secondaryBadgeText }]}>{category.trackCount || 0}</Text>
+                <Text style={[styles.countLabel, { color: palette.secondaryBadgeText }]}>Tracks</Text>
+              </View>
+            </View>
           </View>
         </View>
       </TouchableOpacity>
@@ -3964,7 +3947,8 @@ export default function App() {
   const lateStartActionCounterRef = useRef(0);
   const theme = useMemo(() => APP_THEMES[normalizeThemeMode(themeMode)], [themeMode]);
   const visionCameraDevice = useVisionCameraDevice('front');
-  const faceRecognitionSupported = isFaceRecognitionRuntimeSupported({
+  const faceImageProcessingSupported = canProcessFaceImages();
+  const faceScannerSupported = canUseVisionCameraScanner({
     visionCameraView: VisionCameraView,
     visionCameraDevice,
   });
@@ -4609,12 +4593,12 @@ export default function App() {
   };
 
   const requestCameraAccessAsync = async () => {
-    if (!faceRecognitionSupported) {
+    if (!faceImageProcessingSupported) {
       Alert.alert('Face Recognition Unavailable', VISION_CAMERA_ERROR_MESSAGE);
       return false;
     }
 
-    if (VisionCameraView && visionCameraDevice) {
+    if (faceScannerSupported) {
       if (hasVisionCameraPermission) {
         return true;
       }
@@ -4714,7 +4698,7 @@ export default function App() {
       return null;
     }
 
-    if (VisionCameraView && visionCameraDevice) {
+    if (faceScannerSupported) {
       const capturedUri = await openFaceScannerAsync({ purpose });
 
       if (!capturedUri) {
@@ -4763,7 +4747,7 @@ export default function App() {
       return;
     }
 
-    if (!faceRecognitionSupported) {
+    if (!faceImageProcessingSupported) {
       Alert.alert('Face Recognition Unavailable', VISION_CAMERA_ERROR_MESSAGE);
       return;
     }
@@ -4825,7 +4809,7 @@ export default function App() {
   };
 
   const handleVerifyFaceForRecord = async actionLabel => {
-    if (!faceRecognitionSupported) {
+    if (!faceImageProcessingSupported) {
       Alert.alert('Face Recognition Unavailable', VISION_CAMERA_ERROR_MESSAGE);
       return false;
     }
@@ -5327,8 +5311,8 @@ const buildRegistrationData = formData => ({
     <View
       style={{
         width: responsiveLayout.categoryCardWidth,
-        paddingHorizontal: responsiveLayout.gridGap / 2,
-        marginBottom: responsiveLayout.gridGap,
+        paddingHorizontal: responsiveLayout.isTablet ? responsiveLayout.gridGap * 0.65 : responsiveLayout.gridGap / 2,
+        marginBottom: responsiveLayout.isTablet ? responsiveLayout.gridGap + 18 : responsiveLayout.gridGap + 12,
       }}
     >
       <CategoryCard
@@ -6267,9 +6251,13 @@ const buildRegistrationData = formData => ({
                   <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
                     Enter the person name first, then tap Add Face Recognition to capture and save their face locally.
                   </Text>
-                  {!faceRecognitionSupported ? (
+                  {!faceImageProcessingSupported ? (
                     <Text style={[styles.settingsSectionHint, { color: theme.accent, marginTop: 10 }]}>
-                      Face recognition is only available in a development build or release build. Open the installed app instead of Expo Go to register faces.
+                      Face recognition is only available in a development build or release build with the native face detector installed. Open the installed app instead of Expo Go to register faces.
+                    </Text>
+                  ) : !faceScannerSupported ? (
+                    <Text style={[styles.settingsSectionHint, { color: theme.accent, marginTop: 10 }]}>
+                      Live face scanner is unavailable in this build, so capture will use the device camera fallback instead.
                     </Text>
                   ) : null}
                   <TextInput
@@ -6283,7 +6271,7 @@ const buildRegistrationData = formData => ({
                     placeholderTextColor={theme.textTertiary}
                     autoCapitalize="words"
                     autoCorrect={false}
-                    editable={!faceSettingsBusy && faceRecognitionSupported}
+                    editable={!faceSettingsBusy}
                   />
                 </View>
 
@@ -6294,12 +6282,12 @@ const buildRegistrationData = formData => ({
                       styles.settingsPrimaryButton,
                       styles.faceSettingsActionButton,
                       { backgroundColor: theme.accent },
-                      (!faceRecognitionSupported || faceSettingsBusy || enrolledFaces.length >= MAX_ENROLLED_FACES) &&
+                      (!faceRegistrationName.trim() || faceSettingsBusy || enrolledFaces.length >= MAX_ENROLLED_FACES) &&
                         styles.faceSettingsActionButtonDisabled,
                     ]}
                     onPress={handleEnrollFace}
                     activeOpacity={0.85}
-                    disabled={!faceRecognitionSupported || faceSettingsBusy || enrolledFaces.length >= MAX_ENROLLED_FACES}
+                    disabled={!faceRegistrationName.trim() || faceSettingsBusy || enrolledFaces.length >= MAX_ENROLLED_FACES}
                   >
                     <Text style={[styles.settingsActionButtonText, { color: theme.accentText }]}>
                       Add Face Recognition
@@ -6608,7 +6596,7 @@ const buildRegistrationData = formData => ({
         onRequestClose={() => closeFaceScanner(null)}
       >
         <View style={styles.faceScannerScreen}>
-          {VisionCameraView && visionCameraDevice ? (
+          {faceScannerSupported ? (
             <VisionCameraView
               ref={faceScannerCameraRef}
               style={StyleSheet.absoluteFill}
@@ -6665,7 +6653,7 @@ const buildRegistrationData = formData => ({
                   ]}
                   onPress={handleFaceScannerCapture}
                   activeOpacity={0.85}
-                  disabled={faceScannerBusy || !VisionCameraView || !visionCameraDevice}
+                  disabled={faceScannerBusy || !faceScannerSupported}
                 >
                   {faceScannerBusy ? (
                     <ActivityIndicator color="#18120a" />
@@ -7407,10 +7395,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#111722',
     borderWidth: 1,
     borderColor: '#cfdcf0',
-    minHeight: IS_TABLET ? 320 : 276,
+    height: IS_TABLET ? 320 : 276,
     borderRadius: 22,
     paddingHorizontal: IS_TABLET ? 12 : 10,
     paddingVertical: IS_TABLET ? 12 : 10,
+    overflow: 'hidden',
     elevation: 5, // Android shadow
     shadowColor: '#1f3b73', // iOS shadow
     shadowOffset: { width: 0, height: 1 },
@@ -7428,11 +7417,12 @@ const styles = StyleSheet.create({
   // Icon box with color
   iconBox: {
     width: '100%',
+    flex: 1,
     minHeight: IS_TABLET ? 188 : 156,
     borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 0,
     overflow: 'hidden',
     position: 'relative',
   },
@@ -7447,39 +7437,16 @@ const styles = StyleSheet.create({
     height: '100%',
   },
 
-  countPanelOverlay: {
-    position: 'absolute',
-    left: 8,
-    right: 8,
-    bottom: 8,
-  },
-
-  // Text content container
-  textContent: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
+  countPanel: {
     width: '100%',
-    paddingHorizontal: IS_TABLET ? 10 : 8,
-    paddingBottom: 4,
   },
 
-  // Category name
-  categoryName: {
-    fontSize: IS_TABLET ? 16 : 14,
-    fontWeight: '700',
-    color: '#fff6ea',
-    marginBottom: 6,
-    textAlign: 'center',
-  },
-
-  // Category description
-  categoryDescription: {
-    fontSize: IS_TABLET ? 12 : 11,
-    color: '#999',
-    fontWeight: '400',
-    textAlign: 'center',
-    lineHeight: IS_TABLET ? 18 : 16,
+  countSection: {
+    marginTop: 10,
+    paddingTop: 10,
+    paddingBottom: 24,
+    borderTopWidth: 1,
+    width: '100%',
   },
 
   // Count badge
@@ -7487,39 +7454,41 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 3,
+    gap: IS_TABLET ? 8 : 6,
     width: '100%',
   },
 
   countBadge: {
     backgroundColor: '#2196F3',
-    borderRadius: 7,
-    paddingHorizontal: 5,
-    paddingVertical: 4,
+    borderRadius: 14,
+    paddingHorizontal: IS_TABLET ? 6 : 5,
+    paddingVertical: IS_TABLET ? 6 : 5,
     justifyContent: 'center',
     alignItems: 'center',
-    minWidth: 0,
+    minHeight: IS_TABLET ? 46 : 40,
     flex: 1,
   },
 
-  countBadgeOverlay: {
+  countBadgeSection: {
     shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.14,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
     elevation: 2,
   },
 
   countBadgeSecondary: {
     backgroundColor: '#111722',
     borderWidth: 1,
+    borderColor: '#2a3441',
+    opacity: 0.96,
   },
 
   countText: {
-    fontSize: IS_TABLET ? 12 : 11,
+    fontSize: IS_TABLET ? 14 : 12,
     fontWeight: '800',
     color: '#fff',
-    lineHeight: IS_TABLET ? 14 : 13,
+    lineHeight: IS_TABLET ? 16 : 14,
   },
 
   countTextSecondary: {
@@ -7527,12 +7496,12 @@ const styles = StyleSheet.create({
   },
 
   countLabel: {
-    fontSize: 6,
+    fontSize: IS_TABLET ? 8 : 7,
     color: '#fff',
     fontWeight: '700',
-    marginTop: 0,
+    marginTop: 1,
     textTransform: 'uppercase',
-    letterSpacing: 0,
+    letterSpacing: 0.2,
   },
 
   countLabelSecondary: {
