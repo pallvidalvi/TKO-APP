@@ -210,7 +210,7 @@ const getResponsiveLayout = (screenWidth, screenHeight) => {
   const isSmallPhone = screenWidth < 390;
   const isLandscape = screenWidth > screenHeight;
   const isTabletLandscape = isTablet && isLandscape;
-  const categoryColumns = screenWidth >= 1280 ? 4 : screenWidth >= 920 ? 3 : 2;
+  const categoryColumns = isSmallPhone ? 1 : screenWidth >= 1280 ? 4 : screenWidth >= 920 ? 3 : 2;
   const penaltyColumns = screenWidth >= 980 ? 3 : screenWidth >= 600 ? 2 : 1;
   const useSplitLayout = isTabletLandscape && screenWidth >= 960;
   const shellMaxWidth = isTablet ? Math.min(screenWidth - 24, 1320) : screenWidth;
@@ -1478,9 +1478,9 @@ const CategoryCard = ({ category, onPress, teamCount = 0, cardStyle, layout }) =
           styles.card,
           {
             width: '100%',
-            minHeight: responsiveLayout.isTablet ? 210 : 180,
-            paddingHorizontal: responsiveLayout.isTablet ? 16 : 12,
-            paddingVertical: responsiveLayout.isTablet ? 18 : 14,
+            minHeight: responsiveLayout.isTablet ? 320 : 276,
+            paddingHorizontal: responsiveLayout.isTablet ? 12 : 10,
+            paddingVertical: responsiveLayout.isTablet ? 12 : 10,
             backgroundColor: palette.background,
             borderColor: palette.border,
           },
@@ -1492,19 +1492,52 @@ const CategoryCard = ({ category, onPress, teamCount = 0, cardStyle, layout }) =
             style={[
               styles.iconBox,
               {
-                width: responsiveLayout.isTablet ? 64 : 56,
-                height: responsiveLayout.isTablet ? 64 : 56,
+                minHeight: responsiveLayout.isTablet ? 188 : 156,
+                backgroundColor: palette.iconBackground,
               },
-              { backgroundColor: palette.iconBackground },
             ]}
           >
             {category.imageSource ? (
-              <Image source={category.imageSource} style={styles.categoryImageIcon} resizeMode="contain" />
+              <Image
+                source={category.imageSource}
+                style={styles.categoryImageIcon}
+                resizeMode="contain"
+              />
             ) : (
               <Text style={[styles.categoryIcon, { fontSize: responsiveLayout.isTablet ? 34 : 30 }]}>
                 {category.icon}
               </Text>
             )}
+            <View style={styles.countPanelOverlay}>
+              <View style={styles.countBadgeRow}>
+                <View
+                  style={[
+                    styles.countBadge,
+                    styles.countBadgeOverlay,
+                    {
+                      backgroundColor: palette.badgeBackground,
+                    },
+                  ]}
+                >
+                  <Text style={styles.countText}>{teamCount}</Text>
+                  <Text style={styles.countLabel}>Teams</Text>
+                </View>
+                <View
+                  style={[
+                    styles.countBadge,
+                    styles.countBadgeSecondary,
+                    styles.countBadgeOverlay,
+                    {
+                      backgroundColor: palette.secondaryBadgeBackground,
+                      borderColor: palette.secondaryBadgeBorder,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.countText, { color: palette.secondaryBadgeText }]}>{category.trackCount || 0}</Text>
+                  <Text style={[styles.countLabel, { color: palette.secondaryBadgeText }]}>Tracks</Text>
+                </View>
+              </View>
+            </View>
           </View>
 
           <View style={styles.textContent}>
@@ -1528,35 +1561,6 @@ const CategoryCard = ({ category, onPress, teamCount = 0, cardStyle, layout }) =
             >
               {category.description}
             </Text>
-          </View>
-
-          <View style={styles.countBadgeRow}>
-            <View
-              style={[
-                styles.countBadge,
-                {
-                  minWidth: responsiveLayout.isTablet ? 68 : 60,
-                  backgroundColor: palette.badgeBackground,
-                },
-              ]}
-            >
-              <Text style={styles.countText}>{teamCount}</Text>
-              <Text style={styles.countLabel}>Teams</Text>
-            </View>
-            <View
-              style={[
-                styles.countBadge,
-                styles.countBadgeSecondary,
-                {
-                  minWidth: responsiveLayout.isTablet ? 68 : 60,
-                  backgroundColor: palette.secondaryBadgeBackground,
-                  borderColor: palette.secondaryBadgeBorder,
-                },
-              ]}
-            >
-              <Text style={[styles.countText, { color: palette.secondaryBadgeText }]}>{category.trackCount || 0}</Text>
-              <Text style={[styles.countLabel, { color: palette.secondaryBadgeText }]}>Tracks</Text>
-            </View>
           </View>
         </View>
       </TouchableOpacity>
@@ -3136,7 +3140,6 @@ const CategoryRecordsModal = ({
   selectedLateStartByRecord,
   lateStartActionOrderByRecord,
   completedTracksByRecord,
-  activeRecordKey,
   theme = APP_THEMES.dark,
 }) => {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -3192,6 +3195,7 @@ const CategoryRecordsModal = ({
         : [],
     [category?.name, completedTracksByRecord, orderedRecords, selectedTrackFilter]
   );
+  const firstAvailableRecordKey = filteredRecords.length ? getRecordKey(filteredRecords[0]) : '';
 
   return (
     <Modal
@@ -3284,8 +3288,8 @@ const CategoryRecordsModal = ({
               const isLateStartChecked = Boolean(selectedLateStartEnabledByRecord[recordKey]);
               const selectedLateStart = selectedLateStartByRecord[recordKey] || '';
               const completedTracks = completedTracksByRecord[recordKey] || [];
-              const isActiveRecord = activeRecordKey === recordKey;
-              const hasLockedSelection = Boolean(activeRecordKey) && !isActiveRecord;
+              const isActiveRecord = firstAvailableRecordKey === recordKey;
+              const hasLockedSelection = Boolean(firstAvailableRecordKey) && !isActiveRecord;
               const canStart =
                 isActiveRecord &&
                 Boolean(selectedTrack) &&
@@ -3294,7 +3298,7 @@ const CategoryRecordsModal = ({
               return (
                 <TouchableOpacity
                   activeOpacity={0.9}
-                  onPress={() => onRecordActivate(item)}
+                  onPress={() => (isActiveRecord ? onRecordActivate(item) : null)}
                   style={[
                     styles.recordCard,
                     !isActiveRecord && styles.recordCardDisabled,
@@ -4957,10 +4961,6 @@ export default function App() {
   const handleLateStartToggle = (record, checked) => {
     const recordKey = getRecordKey(record);
 
-    if (activeRecordKey !== recordKey) {
-      return;
-    }
-
     setSelectedLateStartEnabledByRecord(prev => ({
       ...prev,
       [recordKey]: checked,
@@ -4982,7 +4982,7 @@ export default function App() {
   const handleLateStartSelect = (record, lateStartMode) => {
     const recordKey = getRecordKey(record);
 
-    if (activeRecordKey !== recordKey || !selectedLateStartEnabledByRecord[recordKey]) {
+    if (!selectedLateStartEnabledByRecord[recordKey]) {
       return;
     }
 
@@ -5324,7 +5324,13 @@ const buildRegistrationData = formData => ({
    * Render individual category item
    */
   const renderCategoryItem = ({ item }) => (
-    <View style={{ width: responsiveLayout.categoryCardWidth, marginBottom: responsiveLayout.gridGap }}>
+    <View
+      style={{
+        width: responsiveLayout.categoryCardWidth,
+        paddingHorizontal: responsiveLayout.gridGap / 2,
+        marginBottom: responsiveLayout.gridGap,
+      }}
+    >
       <CategoryCard
         category={item}
         teamCount={item.teamCount || 0}
@@ -5744,14 +5750,17 @@ const buildRegistrationData = formData => ({
         contentContainerStyle={[
           styles.listContent,
           {
-            paddingHorizontal: responsiveLayout.shellPadding,
+            paddingHorizontal: Math.max(responsiveLayout.shellPadding - responsiveLayout.gridGap / 2, 0),
             paddingBottom: responsiveLayout.isTablet ? 28 : 20,
           },
         ]}
-        columnWrapperStyle={{
-          justifyContent: 'space-between',
-          marginBottom: responsiveLayout.gridGap,
-        }}
+        columnWrapperStyle={
+          responsiveLayout.categoryColumns > 1
+            ? {
+                justifyContent: 'flex-start',
+              }
+            : undefined
+        }
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       />
@@ -5761,7 +5770,6 @@ const buildRegistrationData = formData => ({
         category={selectedCategory}
         categoryTracks={selectedCategoryTracks}
         records={selectedCategoryRecords}
-        activeRecordKey={activeRecordKey}
         selectedTrackFilter={selectedCategoryTrack}
         onTrackCardSelect={handleTrackCardSelect}
         onTrackCardBack={handleTrackCardBack}
@@ -7397,33 +7405,36 @@ const styles = StyleSheet.create({
   card: {
     width: CARD_WIDTH,
     backgroundColor: '#111722',
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: '#cfdcf0',
-    minHeight: IS_TABLET ? 210 : 180,
+    minHeight: IS_TABLET ? 320 : 276,
     borderRadius: 22,
-    paddingHorizontal: IS_TABLET ? 16 : 12,
-    paddingVertical: IS_TABLET ? 18 : 14,
+    paddingHorizontal: IS_TABLET ? 12 : 10,
+    paddingVertical: IS_TABLET ? 12 : 10,
     elevation: 5, // Android shadow
     shadowColor: '#1f3b73', // iOS shadow
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.14,
     shadowRadius: 12,
+    alignSelf: 'center',
   },
 
   cardContent: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    alignItems: 'stretch',
+    justifyContent: 'flex-start',
   },
 
   // Icon box with color
   iconBox: {
-    width: IS_TABLET ? 64 : 56,
-    height: IS_TABLET ? 64 : 56,
+    width: '100%',
+    minHeight: IS_TABLET ? 188 : 156,
     borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: 16,
+    overflow: 'hidden',
+    position: 'relative',
   },
 
   // Category icon
@@ -7432,16 +7443,25 @@ const styles = StyleSheet.create({
   },
 
   categoryImageIcon: {
-    width: '92%',
-    height: '92%',
+    width: '100%',
+    height: '100%',
+  },
+
+  countPanelOverlay: {
+    position: 'absolute',
+    left: 8,
+    right: 8,
+    bottom: 8,
   },
 
   // Text content container
   textContent: {
     alignItems: 'center',
     justifyContent: 'center',
-    flex: 1,
+    flexShrink: 0,
     width: '100%',
+    paddingHorizontal: IS_TABLET ? 10 : 8,
+    paddingBottom: 4,
   },
 
   // Category name
@@ -7466,19 +7486,28 @@ const styles = StyleSheet.create({
   countBadgeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
+    justifyContent: 'space-between',
+    gap: 3,
     width: '100%',
   },
 
   countBadge: {
     backgroundColor: '#2196F3',
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    borderRadius: 7,
+    paddingHorizontal: 5,
+    paddingVertical: 4,
     justifyContent: 'center',
     alignItems: 'center',
-    minWidth: IS_TABLET ? 68 : 60,
+    minWidth: 0,
+    flex: 1,
+  },
+
+  countBadgeOverlay: {
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.14,
+    shadowRadius: 4,
+    elevation: 2,
   },
 
   countBadgeSecondary: {
@@ -7487,10 +7516,10 @@ const styles = StyleSheet.create({
   },
 
   countText: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: IS_TABLET ? 12 : 11,
+    fontWeight: '800',
     color: '#fff',
-    lineHeight: 20,
+    lineHeight: IS_TABLET ? 14 : 13,
   },
 
   countTextSecondary: {
@@ -7498,10 +7527,12 @@ const styles = StyleSheet.create({
   },
 
   countLabel: {
-    fontSize: 9,
+    fontSize: 6,
     color: '#fff',
-    fontWeight: '600',
-    marginTop: 2,
+    fontWeight: '700',
+    marginTop: 0,
+    textTransform: 'uppercase',
+    letterSpacing: 0,
   },
 
   countLabelSecondary: {
