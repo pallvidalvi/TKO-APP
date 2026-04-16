@@ -89,7 +89,12 @@ const loadVisionCamera = () => {
     return null;
   }
 
-  const hasVisionCameraNativeModule = Boolean(NativeModules?.CameraView);
+  const hasVisionCameraNativeModule = Boolean(
+    NativeModules?.VisionCamera ||
+      NativeModules?.VisionCameraProxy ||
+      NativeModules?.CameraView ||
+      NativeModules?.CameraViewManager
+  );
 
   if (!hasVisionCameraNativeModule) {
     return null;
@@ -113,8 +118,8 @@ const useVisionCameraPermission =
     requestPermission: async () => false,
   }));
 
-const isFaceRecognitionRuntimeSupported = ({ visionCameraView, visionCameraDevice }) =>
-  Boolean(visionCameraView && visionCameraDevice && faceDetectorModule?.detectFaces);
+const isFaceRecognitionRuntimeSupported = ({ visionCameraView }) =>
+  Boolean(visionCameraView && faceDetectorModule?.detectFaces);
 
 const detectFaces = async (...args) => {
   if (!faceDetectorModule?.detectFaces) {
@@ -1527,34 +1532,37 @@ const CategoryCard = ({ category, onPress, teamCount = 0, cardStyle, layout }) =
                 {category.icon}
               </Text>
             )}
-            <View style={styles.countPanelOverlay}>
-              <View style={styles.countBadgeRow}>
-                <View
-                  style={[
-                    styles.countBadge,
-                    styles.countBadgeOverlay,
-                    {
-                      backgroundColor: palette.badgeBackground,
-                    },
-                  ]}
-                >
-                  <Text style={styles.countText}>{teamCount}</Text>
-                  <Text style={styles.countLabel}>Teams</Text>
-                </View>
-                <View
-                  style={[
-                    styles.countBadge,
-                    styles.countBadgeSecondary,
-                    styles.countBadgeOverlay,
-                    {
-                      backgroundColor: palette.secondaryBadgeBackground,
-                      borderColor: palette.secondaryBadgeBorder,
-                    },
-                  ]}
-                >
-                  <Text style={[styles.countText, { color: palette.secondaryBadgeText }]}>{category.trackCount || 0}</Text>
-                  <Text style={[styles.countLabel, { color: palette.secondaryBadgeText }]}>Tracks</Text>
-                </View>
+          </View>
+
+          <View style={styles.countPanel}>
+            <View style={styles.countBadgeRow}>
+              <View
+                style={[
+                  styles.countBadge,
+                  styles.countBadgeStandalone,
+                  {
+                    backgroundColor: palette.badgeBackground,
+                  },
+                ]}
+              >
+                <Text style={styles.countText}>{teamCount}</Text>
+                <Text style={styles.countLabel}>Teams</Text>
+              </View>
+              <View
+                style={[
+                  styles.countBadge,
+                  styles.countBadgeSecondary,
+                  styles.countBadgeStandalone,
+                  {
+                    backgroundColor: palette.secondaryBadgeBackground,
+                    borderColor: palette.secondaryBadgeBorder,
+                  },
+                ]}
+              >
+                <Text style={[styles.countText, { color: palette.secondaryBadgeText }]}>
+                  {category.trackCount || 0}
+                </Text>
+                <Text style={[styles.countLabel, { color: palette.secondaryBadgeText }]}>Tracks</Text>
               </View>
             </View>
           </View>
@@ -3986,10 +3994,12 @@ export default function App() {
   const ignitionSequenceTimerRef = useRef(null);
   const lateStartActionCounterRef = useRef(0);
   const theme = useMemo(() => APP_THEMES[normalizeThemeMode(themeMode)], [themeMode]);
-  const visionCameraDevice = useVisionCameraDevice('front');
+  const frontVisionCameraDevice = useVisionCameraDevice('front');
+  const backVisionCameraDevice = useVisionCameraDevice('back');
+  const visionCameraDevice = frontVisionCameraDevice || backVisionCameraDevice;
+  const faceScannerCameraLabel = frontVisionCameraDevice ? 'front camera' : backVisionCameraDevice ? 'rear camera' : 'camera';
   const faceRecognitionSupported = isFaceRecognitionRuntimeSupported({
     visionCameraView: VisionCameraView,
-    visionCameraDevice,
   });
   const {
     hasPermission: hasVisionCameraPermission,
@@ -4639,12 +4649,12 @@ export default function App() {
   };
 
   const requestCameraAccessAsync = async () => {
-    if (!faceRecognitionSupported) {
+    if (!VisionCameraView || !faceDetectorModule?.detectFaces) {
       Alert.alert('Face Recognition Unavailable', VISION_CAMERA_ERROR_MESSAGE);
       return false;
     }
 
-    if (VisionCameraView && visionCameraDevice) {
+    if (VisionCameraView) {
       if (hasVisionCameraPermission) {
         return true;
       }
@@ -4754,11 +4764,19 @@ export default function App() {
       return processCapturedFaceUriAsync(capturedUri, { persistImage, purpose });
     }
 
+    if (VisionCameraView && !visionCameraDevice) {
+      Alert.alert(
+        'Face Recognition',
+        'No usable camera was detected on this device for face recognition.'
+      );
+      return null;
+    }
+
     const captureResult = await ImagePicker.launchCameraAsync({
       allowsEditing: false,
       quality: 0.8,
       mediaTypes: ['images'],
-      cameraType: ImagePicker.CameraType.front,
+      cameraType: frontVisionCameraDevice ? ImagePicker.CameraType.front : ImagePicker.CameraType.back,
       exif: false,
     });
 
@@ -6675,7 +6693,7 @@ const buildRegistrationData = formData => ({
             <View style={styles.faceScannerContent}>
               <Text style={styles.faceScannerTitle}>Face Lock</Text>
               <Text style={styles.faceScannerSubtitle}>
-                Align your face inside the frame to {faceScannerPurpose}.
+                Align your face inside the frame to {faceScannerPurpose} using the {faceScannerCameraLabel}.
               </Text>
 
               <View style={styles.faceScannerFrame}>
@@ -7472,9 +7490,8 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
     overflow: 'hidden',
-    position: 'relative',
   },
 
   // Category icon
@@ -7483,15 +7500,14 @@ const styles = StyleSheet.create({
   },
 
   categoryImageIcon: {
-    width: '100%',
-    height: '100%',
+    width: IS_TABLET ? '126%' : '118%',
+    height: IS_TABLET ? '112%' : '108%',
+    alignSelf: 'center',
   },
 
-  countPanelOverlay: {
-    position: 'absolute',
-    left: 8,
-    right: 8,
-    bottom: 8,
+  countPanel: {
+    width: '100%',
+    marginBottom: 12,
   },
 
   // Text content container
@@ -7527,22 +7543,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 3,
+    gap: 8,
     width: '100%',
   },
 
   countBadge: {
     backgroundColor: '#2196F3',
-    borderRadius: 7,
-    paddingHorizontal: 5,
-    paddingVertical: 4,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
     justifyContent: 'center',
     alignItems: 'center',
     minWidth: 0,
     flex: 1,
+    minHeight: IS_TABLET ? 58 : 54,
   },
 
-  countBadgeOverlay: {
+  countBadgeStandalone: {
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.14,
@@ -7556,10 +7573,10 @@ const styles = StyleSheet.create({
   },
 
   countText: {
-    fontSize: IS_TABLET ? 12 : 11,
+    fontSize: IS_TABLET ? 15 : 14,
     fontWeight: '800',
     color: '#fff',
-    lineHeight: IS_TABLET ? 14 : 13,
+    lineHeight: IS_TABLET ? 18 : 16,
   },
 
   countTextSecondary: {
@@ -7567,12 +7584,12 @@ const styles = StyleSheet.create({
   },
 
   countLabel: {
-    fontSize: 6,
+    fontSize: IS_TABLET ? 10 : 9,
     color: '#fff',
     fontWeight: '700',
-    marginTop: 0,
+    marginTop: 2,
     textTransform: 'uppercase',
-    letterSpacing: 0,
+    letterSpacing: 0.4,
   },
 
   countLabelSecondary: {

@@ -21,12 +21,16 @@
       },
       "package": "com.vehiclecategories.app",
       "versionCode": 2,
-      "permissions": [],
+      "permissions": [
+        "CAMERA"
+      ],
       "targetSdkVersion": 34,
       "minSdkVersion": 24
     },
     "web": {},
-    "plugins": [],
+    "plugins": [
+      "react-native-vision-camera"
+    ],
     "cli": {
       "appVersionSource": "local"
     },
