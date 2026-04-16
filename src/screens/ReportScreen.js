@@ -357,8 +357,12 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], the
               >
                 <Text style={[styles.actionButtonText, { color: theme.accent }]}>Refresh</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={onClose} activeOpacity={0.85}>
-                <Text style={[styles.closeButton, { color: theme.textPrimary }]}>X</Text>
+              <TouchableOpacity
+                style={[styles.closeButtonShell, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                onPress={onClose}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.closeButton, { color: theme.textPrimary }]}>Close</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -603,7 +607,7 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 40,
   },
   actionButton: {
     paddingHorizontal: 14,
@@ -619,9 +623,17 @@ const styles = StyleSheet.create({
     color: '#ffb15a',
     fontFamily: BODY_FONT,
   },
+  closeButtonShell: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: '#111722',
+    borderWidth: 1,
+    borderColor: '#2a3441',
+  },
   closeButton: {
-    fontSize: 18,
-    fontWeight: '900',
+    fontSize: 13,
+    fontWeight: '700',
     color: '#fff6ea',
     fontFamily: BODY_FONT,
   },
