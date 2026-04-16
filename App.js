@@ -68,6 +68,7 @@ const loadFaceDetector = () => {
   const hasVisionCameraNativeModule = Boolean(
     NativeModules?.VisionCamera ||
       NativeModules?.VisionCameraProxy ||
+      NativeModules?.CameraView ||
       NativeModules?.CameraViewManager
   );
 
@@ -118,8 +119,8 @@ const useVisionCameraPermission =
     requestPermission: async () => false,
   }));
 
-const isFaceRecognitionRuntimeSupported = ({ visionCameraView }) =>
-  Boolean(visionCameraView && faceDetectorModule?.detectFaces);
+const isFaceRecognitionRuntimeSupported = () =>
+  Boolean(Platform.OS !== 'web' && faceDetectorModule?.detectFaces);
 
 const detectFaces = async (...args) => {
   if (!faceDetectorModule?.detectFaces) {
@@ -4008,9 +4009,7 @@ export default function App() {
   const backVisionCameraDevice = useVisionCameraDevice('back');
   const visionCameraDevice = frontVisionCameraDevice || backVisionCameraDevice;
   const faceScannerCameraLabel = frontVisionCameraDevice ? 'front camera' : backVisionCameraDevice ? 'rear camera' : 'camera';
-  const faceRecognitionSupported = isFaceRecognitionRuntimeSupported({
-    visionCameraView: VisionCameraView,
-  });
+  const faceRecognitionSupported = isFaceRecognitionRuntimeSupported();
   const {
     hasPermission: hasVisionCameraPermission,
     requestPermission: requestVisionCameraPermission,
@@ -4659,7 +4658,7 @@ export default function App() {
   };
 
   const requestCameraAccessAsync = async () => {
-    if (!VisionCameraView || !faceDetectorModule?.detectFaces) {
+    if (!faceDetectorModule?.detectFaces) {
       Alert.alert('Face Recognition Unavailable', VISION_CAMERA_ERROR_MESSAGE);
       return false;
     }
@@ -4772,14 +4771,6 @@ export default function App() {
       }
 
       return processCapturedFaceUriAsync(capturedUri, { persistImage, purpose });
-    }
-
-    if (VisionCameraView && !visionCameraDevice) {
-      Alert.alert(
-        'Face Recognition',
-        'No usable camera was detected on this device for face recognition.'
-      );
-      return null;
     }
 
     const captureResult = await ImagePicker.launchCameraAsync({
