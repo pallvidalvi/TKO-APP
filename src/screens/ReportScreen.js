@@ -4,7 +4,6 @@ import {
   Text,
   Modal,
   FlatList,
-  TouchableOpacity,
   ActivityIndicator,
   useWindowDimensions,
   StyleSheet,
@@ -12,6 +11,8 @@ import {
   Platform,
 } from 'react-native';
 import { ResultsService, DisputesService } from '../services/dataService';
+import TouchableOpacity from '../components/FastTouchableOpacity';
+import { CloseActionButton, NavigationActionButton } from '../components/NavigationActionButton';
 import {
   isDnsResult,
   rankTrackResults,
@@ -44,15 +45,32 @@ const DEFAULT_THEME = {
 const getResponsiveLayout = (screenWidth, screenHeight) => {
   const shortestSide = Math.min(screenWidth, screenHeight);
   const isTablet = shortestSide >= 600;
-  const shellPadding = isTablet ? 24 : 16;
-  const shellMaxWidth = isTablet ? 1120 : screenWidth;
+  const isLargeTablet = shortestSide >= 720;
+  const isLandscape = screenWidth > screenHeight;
+  const shellPadding = isLargeTablet ? 28 : isTablet ? 24 : 16;
+  const shellMaxWidth = isTablet
+    ? Math.min(screenWidth - (isLandscape ? 40 : 32), isLargeTablet ? 1180 : 1080)
+    : screenWidth;
 
   return {
     isTablet,
+    isLargeTablet,
     shellPadding,
     shellMaxWidth,
+    listInitialNumToRender: isTablet ? 8 : 6,
+    listMaxToRenderPerBatch: isTablet ? 10 : 8,
+    listWindowSize: isTablet ? 7 : 5,
   };
 };
+
+const getVirtualizedListProps = (layout, overrides = {}) => ({
+  removeClippedSubviews: Platform.OS === 'android',
+  initialNumToRender: layout.listInitialNumToRender,
+  maxToRenderPerBatch: layout.listMaxToRenderPerBatch,
+  windowSize: layout.listWindowSize,
+  updateCellsBatchingPeriod: layout.isTablet ? 32 : 48,
+  ...overrides,
+});
 
 const parseRegistrationPayload = registration => {
   if (!registration || !registration.submission_json) {
@@ -327,7 +345,14 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], the
   }, [selectedTrack, trackCards]);
 
   return (
-    <Modal visible={visible} transparent={false} animationType="slide" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent={false}
+      animationType="slide"
+      onRequestClose={onClose}
+      hardwareAccelerated={Platform.OS === 'android'}
+      statusBarTranslucent={Platform.OS === 'android'}
+    >
       <View
         style={[
           styles.container,
@@ -357,9 +382,7 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], the
               >
                 <Text style={[styles.actionButtonText, { color: theme.accent }]}>Refresh</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={onClose} activeOpacity={0.85}>
-                <Text style={[styles.closeButton, { color: theme.textPrimary }]}>X</Text>
-              </TouchableOpacity>
+              <CloseActionButton onPress={onClose} textStyle={[styles.closeButton, { color: theme.textPrimary }]} />
             </View>
           </View>
 
@@ -375,6 +398,9 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], the
               data={categoryCards}
               keyExtractor={item => item.key}
               contentContainerStyle={styles.categoryRow}
+              {...getVirtualizedListProps(responsiveLayout, {
+                initialNumToRender: responsiveLayout.isTablet ? 8 : 6,
+              })}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={[styles.categoryCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
@@ -411,16 +437,15 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], the
                       : `${selectedTrackResults.length} ${selectedTrackResults.length === 1 ? 'record' : 'records'} in ${trackCards.find(item => item.key === selectedTrack)?.label || ''} | Points are calculated for this track only.`}
                   </Text>
                 </View>
-                <TouchableOpacity
-                  style={[styles.backButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                <NavigationActionButton
+                  label="Back to Categories"
                   onPress={() => {
                     setSelectedCategory('');
                     setSelectedTrack('');
                   }}
-                  activeOpacity={0.85}
-                >
-                  <Text style={[styles.backButtonText, { color: theme.accent }]}>Back to Categories</Text>
-                </TouchableOpacity>
+                  style={[styles.backButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  textStyle={[styles.backButtonText, { color: theme.accent }]}
+                />
               </View>
 
               {!selectedTrack ? (
@@ -428,6 +453,9 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], the
                   data={trackCards}
                   keyExtractor={item => item.key}
                   contentContainerStyle={styles.trackRow}
+                  {...getVirtualizedListProps(responsiveLayout, {
+                    initialNumToRender: responsiveLayout.isTablet ? 8 : 6,
+                  })}
                   renderItem={({ item }) => (
                     <TouchableOpacity
                       style={[styles.trackCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
@@ -452,19 +480,21 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], the
                 />
               ) : (
                 <>
-                  <TouchableOpacity
-                    style={[styles.trackBackButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  <NavigationActionButton
+                    label="Back to Tracks"
                     onPress={() => setSelectedTrack('')}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={[styles.trackBackButtonText, { color: theme.accent }]}>Back to Tracks</Text>
-                  </TouchableOpacity>
+                    style={[styles.trackBackButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                    textStyle={[styles.trackBackButtonText, { color: theme.accent }]}
+                  />
 
                   <FlatList
                     data={selectedTrackResults}
                     keyExtractor={(item, index) => `${item.id || 'result'}-${getResultIdentityKey(item)}-${index}`}
                     showsVerticalScrollIndicator={false}
                     contentContainerStyle={styles.listContent}
+                    {...getVirtualizedListProps(responsiveLayout, {
+                      initialNumToRender: responsiveLayout.isTablet ? 10 : 8,
+                    })}
                     ListHeaderComponent={
                       <View style={[styles.tableHeader, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                         <Text style={[styles.tableHeaderCell, styles.stickerCell, { color: theme.textSecondary }]}>Sticker No.</Text>

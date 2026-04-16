@@ -4,7 +4,6 @@ import {
   Text,
   Modal,
   FlatList,
-  TouchableOpacity,
   ActivityIndicator,
   useWindowDimensions,
   StyleSheet,
@@ -13,6 +12,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { ResultsService, DisputesService } from '../services/dataService';
+import TouchableOpacity from '../components/FastTouchableOpacity';
 import {
   getDayIdentity,
   getResultIdentityKey,
@@ -24,6 +24,7 @@ import {
   parseRegistrationPayload,
   rankTrackResults,
 } from '../utils/scoring';
+import { CloseActionButton, NavigationActionButton } from '../components/NavigationActionButton';
 
 const HEADING_FONT = Platform.select({
   ios: 'monospace',
@@ -53,19 +54,36 @@ const DEFAULT_THEME = {
 const getResponsiveLayout = (screenWidth, screenHeight) => {
   const shortestSide = Math.min(screenWidth, screenHeight);
   const isTablet = shortestSide >= 600;
-  const shellPadding = isTablet ? 24 : 16;
-  const shellMaxWidth = isTablet ? Math.min(screenWidth - 32, 1280) : screenWidth;
+  const isLargeTablet = shortestSide >= 720;
+  const isLandscape = screenWidth > screenHeight;
+  const shellPadding = isLargeTablet ? 28 : isTablet ? 24 : 16;
+  const shellMaxWidth = isTablet
+    ? Math.min(screenWidth - (isLandscape ? 40 : 32), isLargeTablet ? 1240 : 1160)
+    : screenWidth;
 
   return {
     isTablet,
+    isLargeTablet,
     shellPadding,
     shellMaxWidth,
-    stickerWidth: isTablet ? 104 : 92,
-    nameWidth: isTablet ? 182 : 154,
-    pointsWidth: isTablet ? 110 : 96,
-    trackWidth: isTablet ? 210 : 176,
+    stickerWidth: isLargeTablet ? 116 : isTablet ? 104 : 92,
+    nameWidth: isLargeTablet ? 196 : isTablet ? 182 : 154,
+    pointsWidth: isLargeTablet ? 120 : isTablet ? 110 : 96,
+    trackWidth: isLargeTablet ? 224 : isTablet ? 210 : 176,
+    listInitialNumToRender: isTablet ? 8 : 6,
+    listMaxToRenderPerBatch: isTablet ? 10 : 8,
+    listWindowSize: isTablet ? 7 : 5,
   };
 };
+
+const getVirtualizedListProps = (layout, overrides = {}) => ({
+  removeClippedSubviews: Platform.OS === 'android',
+  initialNumToRender: layout.listInitialNumToRender,
+  maxToRenderPerBatch: layout.listMaxToRenderPerBatch,
+  windowSize: layout.listWindowSize,
+  updateCellsBatchingPeriod: layout.isTablet ? 32 : 48,
+  ...overrides,
+});
 
 const getVehicleIdentityKey = source => {
   const categoryKey = normalizeCategoryKey(source?.category || '');
@@ -400,7 +418,14 @@ const LeaderboardScreen = ({
   }, [responsiveLayout, selectedCategoryConfig]);
 
   return (
-    <Modal visible={visible} transparent={false} animationType="slide" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent={false}
+      animationType="slide"
+      onRequestClose={onClose}
+      hardwareAccelerated={Platform.OS === 'android'}
+      statusBarTranslucent={Platform.OS === 'android'}
+    >
       <View
         style={[
           styles.container,
@@ -430,9 +455,7 @@ const LeaderboardScreen = ({
               >
                 <Text style={[styles.actionButtonText, { color: theme.accent }]}>Refresh</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={onClose} activeOpacity={0.85}>
-                <Text style={[styles.closeButton, { color: theme.textPrimary }]}>X</Text>
-              </TouchableOpacity>
+              <CloseActionButton onPress={onClose} textStyle={[styles.closeButton, { color: theme.textPrimary }]} />
             </View>
           </View>
 
@@ -450,6 +473,9 @@ const LeaderboardScreen = ({
               data={categoryCards}
               keyExtractor={item => item.key}
               contentContainerStyle={styles.categoryRow}
+              {...getVirtualizedListProps(responsiveLayout, {
+                initialNumToRender: responsiveLayout.isTablet ? 8 : 6,
+              })}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={[styles.categoryCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
@@ -485,13 +511,12 @@ const LeaderboardScreen = ({
                     points. Each track cell shows day-wise timing and points.
                   </Text>
                 </View>
-                <TouchableOpacity
-                  style={[styles.backButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                <NavigationActionButton
+                  label="Back to Categories"
                   onPress={() => setSelectedCategory('')}
-                  activeOpacity={0.85}
-                >
-                  <Text style={[styles.backButtonText, { color: theme.accent }]}>Back to Categories</Text>
-                </TouchableOpacity>
+                  style={[styles.backButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  textStyle={[styles.backButtonText, { color: theme.accent }]}
+                />
               </View>
 
               <View style={[styles.legendCard, { backgroundColor: theme.surfaceAlt || theme.surface, borderColor: theme.border }]}>
@@ -572,6 +597,9 @@ const LeaderboardScreen = ({
                       keyExtractor={item => item.vehicleKey}
                       showsVerticalScrollIndicator={false}
                       contentContainerStyle={styles.tableBodyContent}
+                      {...getVirtualizedListProps(responsiveLayout, {
+                        initialNumToRender: responsiveLayout.isTablet ? 10 : 8,
+                      })}
                       renderItem={({ item, index }) => (
                         <View
                           style={[

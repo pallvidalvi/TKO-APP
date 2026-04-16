@@ -4,7 +4,6 @@ import {
   Text,
   FlatList,
   StyleSheet,
-  TouchableOpacity,
   Animated,
   Dimensions,
   Modal,
@@ -24,6 +23,8 @@ import { initializeDatabase, seedDatabase } from './src/db/database';
 import { TeamsService, CategoriesService, ResultsService, DisputesService } from './src/services/dataService';
 import ReportScreen from './src/screens/ReportScreen';
 import LeaderboardScreen from './src/screens/LeaderboardScreen';
+import TouchableOpacity from './src/components/FastTouchableOpacity';
+import { CloseActionButton, NavigationActionButton } from './src/components/NavigationActionButton';
 
 const HEADING_FONT = Platform.select({
   ios: 'monospace',
@@ -210,12 +211,14 @@ const getResponsiveLayout = (screenWidth, screenHeight) => {
   const isSmallPhone = screenWidth < 390;
   const isLandscape = screenWidth > screenHeight;
   const isTabletLandscape = isTablet && isLandscape;
-  const categoryColumns = isSmallPhone ? 1 : screenWidth >= 1280 ? 4 : screenWidth >= 920 ? 3 : 2;
-  const penaltyColumns = screenWidth >= 980 ? 3 : screenWidth >= 600 ? 2 : 1;
+  const categoryColumns = isSmallPhone ? 1 : isTabletLandscape ? (screenWidth >= 1400 ? 4 : 3) : 2;
+  const penaltyColumns = isTabletLandscape ? 3 : isTablet ? 2 : 1;
   const useSplitLayout = isTabletLandscape && screenWidth >= 960;
-  const shellMaxWidth = isTablet ? Math.min(screenWidth - 24, 1320) : screenWidth;
-  const shellPadding = isLargeTablet ? 28 : isTablet ? 24 : isSmallPhone ? 12 : 16;
-  const gridGap = isLargeTablet ? 18 : isTablet ? 16 : 12;
+  const shellMaxWidth = isTablet
+    ? Math.min(screenWidth - (isTabletLandscape ? 40 : 32), screenWidth >= 1400 ? 1320 : 1180)
+    : screenWidth;
+  const shellPadding = isTabletLandscape ? 28 : isLargeTablet ? 26 : isTablet ? 24 : isSmallPhone ? 12 : 16;
+  const gridGap = isTabletLandscape ? 18 : isTablet ? 16 : 12;
   const usableWidth = Math.max(shellMaxWidth - shellPadding * 2, 0);
   const categoryCardWidth =
     usableWidth > 0
@@ -237,8 +240,20 @@ const getResponsiveLayout = (screenWidth, screenHeight) => {
     shellPadding,
     gridGap,
     categoryCardWidth,
+    listInitialNumToRender: isTablet ? 8 : 6,
+    listMaxToRenderPerBatch: isTablet ? 10 : 8,
+    listWindowSize: isTablet ? 7 : 5,
   };
 };
+
+const getVirtualizedListProps = (layout, overrides = {}) => ({
+  removeClippedSubviews: Platform.OS === 'android',
+  initialNumToRender: layout.listInitialNumToRender,
+  maxToRenderPerBatch: layout.listMaxToRenderPerBatch,
+  windowSize: layout.listWindowSize,
+  updateCellsBatchingPeriod: layout.isTablet ? 32 : 48,
+  ...overrides,
+});
 
 const INITIAL_LAYOUT = getResponsiveLayout(Dimensions.get('window').width, Dimensions.get('window').height);
 const IS_TABLET = INITIAL_LAYOUT.isTablet;
@@ -1455,7 +1470,9 @@ const CategoryCard = ({ category, onPress, teamCount = 0, cardStyle, layout }) =
 
   const handlePressIn = () => {
     Animated.spring(scaleAnim, {
-      toValue: 0.95,
+      toValue: 0.97,
+      tension: 260,
+      friction: 18,
       useNativeDriver: true,
     }).start();
   };
@@ -1463,6 +1480,8 @@ const CategoryCard = ({ category, onPress, teamCount = 0, cardStyle, layout }) =
   const handlePressOut = () => {
     Animated.spring(scaleAnim, {
       toValue: 1,
+      tension: 280,
+      friction: 20,
       useNativeDriver: true,
     }).start();
   };
@@ -1541,14 +1560,6 @@ const CategoryCard = ({ category, onPress, teamCount = 0, cardStyle, layout }) =
           </View>
 
           <View style={styles.textContent}>
-            <Text
-              style={[
-                styles.categoryName,
-                { fontSize: responsiveLayout.isTablet ? 16 : 14, color: palette.title },
-              ]}
-            >
-              {category.name}
-            </Text>
             <Text
               style={[
                 styles.categoryDescription,
@@ -2904,6 +2915,8 @@ const RegistrationForm = ({
         transparent={false}
         animationType="fade"
         onRequestClose={handleClose}
+        hardwareAccelerated={Platform.OS === 'android'}
+        statusBarTranslucent={Platform.OS === 'android'}
       >
         {category ? (
           <View style={styles.fullPageContainer}>
@@ -2935,9 +2948,7 @@ const RegistrationForm = ({
                 {category.name}
               </Text>
               {!hasTimerStarted ? (
-                <TouchableOpacity onPress={handleClose} hitSlop={TOUCH_HIT_SLOP}>
-                  <Text style={styles.closeButton}>✕</Text>
-                </TouchableOpacity>
+                <CloseActionButton onPress={handleClose} textStyle={styles.closeButton} />
               ) : null}
             </View>
 
@@ -3041,6 +3052,8 @@ const RegistrationForm = ({
         transparent
         animationType="fade"
         onRequestClose={handleDisputeModalClose}
+        hardwareAccelerated={Platform.OS === 'android'}
+        statusBarTranslucent={Platform.OS === 'android'}
       >
         <View style={styles.disputeModalOverlay}>
           <View style={styles.disputeModalCard}>
@@ -3203,6 +3216,8 @@ const CategoryRecordsModal = ({
       transparent={false}
       animationType="slide"
       onRequestClose={onClose}
+      hardwareAccelerated={Platform.OS === 'android'}
+      statusBarTranslucent={Platform.OS === 'android'}
     >
       <View
         style={[
@@ -3231,9 +3246,7 @@ const CategoryRecordsModal = ({
               : `${categoryTracks.length} ${categoryTracks.length === 1 ? 'track' : 'tracks'}`}
           </Text>
         </View>
-        <TouchableOpacity onPress={onClose}>
-          <Text style={styles.closeButton}>✕</Text>
-        </TouchableOpacity>
+        <CloseActionButton onPress={onClose} textStyle={styles.closeButton} />
       </View>
 
       {!selectedTrackFilter ? (
@@ -3274,6 +3287,9 @@ const CategoryRecordsModal = ({
             keyboardShouldPersistTaps="handled"
             nestedScrollEnabled
             showsVerticalScrollIndicator={false}
+            {...getVirtualizedListProps(responsiveLayout, {
+              initialNumToRender: responsiveLayout.isTablet ? 10 : 8,
+            })}
             ListEmptyComponent={
               <View style={styles.emptyStateCard}>
                 <Text style={styles.emptyStateTitle}>No vehicles found</Text>
@@ -3421,9 +3437,12 @@ const CategoryRecordsModal = ({
               );
             }}
           />
-          <TouchableOpacity style={styles.trackCardsBackButton} onPress={onTrackCardBack} activeOpacity={0.85} hitSlop={TOUCH_HIT_SLOP}>
-            <Text style={styles.trackCardsBackButtonText}>Change Track</Text>
-          </TouchableOpacity>
+          <NavigationActionButton
+            label="Change Track"
+            onPress={onTrackCardBack}
+            style={styles.trackCardsBackButton}
+            textStyle={styles.trackCardsBackButtonText}
+          />
         </>
       )}
         </View>
@@ -3601,16 +3620,15 @@ const DisputeRecordsPanel = ({
         </View>
       ) : !selectedTrackKey ? (
         <>
-          <TouchableOpacity
-            style={[styles.trackBackButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+          <NavigationActionButton
+            label="Back to Categories"
             onPress={() => {
               setSelectedCategoryKey('');
               setSelectedTrackKey('');
             }}
-            activeOpacity={0.85}
-          >
-            <Text style={[styles.trackBackButtonText, { color: theme.accent }]}>Back to Categories</Text>
-          </TouchableOpacity>
+            style={[styles.trackBackButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+            textStyle={[styles.trackBackButtonText, { color: theme.accent }]}
+          />
 
           <View style={styles.settingsTrackList}>
             {disputeTrackCards.length === 0 ? (
@@ -3642,13 +3660,12 @@ const DisputeRecordsPanel = ({
         </>
       ) : (
         <>
-          <TouchableOpacity
-            style={[styles.trackBackButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+          <NavigationActionButton
+            label="Back to Tracks"
             onPress={() => setSelectedTrackKey('')}
-            activeOpacity={0.85}
-          >
-            <Text style={[styles.trackBackButtonText, { color: theme.accent }]}>Back to Tracks</Text>
-          </TouchableOpacity>
+            style={[styles.trackBackButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+            textStyle={[styles.trackBackButtonText, { color: theme.accent }]}
+          />
 
           <View style={styles.recordsListContent}>
             {selectedTrackDisputes.length === 0 ? (
@@ -3741,7 +3758,10 @@ const RegistrationResultsModal = ({
 }) => {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const responsiveLayout = getResponsiveLayout(screenWidth, screenHeight);
-  const normalizedRegistrations = (registrations || []).map(parseRegistrationPayload);
+  const normalizedRegistrations = useMemo(
+    () => (registrations || []).map(parseRegistrationPayload),
+    [registrations]
+  );
 
   return (
     <Modal
@@ -3749,6 +3769,8 @@ const RegistrationResultsModal = ({
       transparent={false}
       animationType="slide"
       onRequestClose={onClose}
+      hardwareAccelerated={Platform.OS === 'android'}
+      statusBarTranslucent={Platform.OS === 'android'}
     >
       <View
         style={[
@@ -3780,9 +3802,7 @@ const RegistrationResultsModal = ({
               <TouchableOpacity onPress={onRefresh} style={styles.resultsHeaderButton} activeOpacity={0.85}>
                 <Text style={styles.resultsHeaderButtonText}>Refresh</Text>
               </TouchableOpacity>
-        <TouchableOpacity onPress={onClose}>
-          <Text style={[styles.closeButton, { color: theme.textPrimary }]}>âœ•</Text>
-        </TouchableOpacity>
+        <CloseActionButton onPress={onClose} textStyle={[styles.closeButton, { color: theme.textPrimary }]} />
       </View>
           </View>
 
@@ -3798,6 +3818,9 @@ const RegistrationResultsModal = ({
             showsVerticalScrollIndicator={false}
             refreshing={loading}
             onRefresh={onRefresh}
+            {...getVirtualizedListProps(responsiveLayout, {
+              initialNumToRender: responsiveLayout.isTablet ? 8 : 6,
+            })}
             ListEmptyComponent={
               <View style={styles.emptyStateCard}>
                 <Text style={styles.emptyStateTitle}>No saved submissions</Text>
@@ -3974,6 +3997,12 @@ export default function App() {
   } = useVisionCameraPermission();
 
   useEffect(() => {
+    if (appStage !== 'splash' && appStage !== 'day') {
+      glowPulseAnim.stopAnimation();
+      glowPulseAnim.setValue(0);
+      return undefined;
+    }
+
     const pulseLoop = Animated.loop(
       Animated.sequence([
         Animated.timing(glowPulseAnim, {
@@ -3994,8 +4023,9 @@ export default function App() {
     return () => {
       pulseLoop.stop();
       glowPulseAnim.stopAnimation();
+      glowPulseAnim.setValue(0);
     };
-  }, [glowPulseAnim]);
+  }, [appStage, glowPulseAnim]);
 
   useEffect(() => {
     let isMounted = true;
@@ -5603,18 +5633,18 @@ const buildRegistrationData = formData => ({
                 <Text style={[styles.selectedDayLabel, { color: theme.accent }]}>
                   {selectedDay.dayLabel} • {selectedDay.dateLabel}
                 </Text>
-                <TouchableOpacity
+                <NavigationActionButton
+                  label="Back"
+                  icon="<"
+                  onPress={handleBackToDayPage}
                   style={[
                     styles.topHeaderButton,
                     styles.backHeaderButton,
                     { backgroundColor: theme.surface, borderColor: theme.border, shadowColor: theme.shadow },
                   ]}
-                  onPress={handleBackToDayPage}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.backHeaderButtonIcon}>‹</Text>
-                  <Text style={styles.topHeaderButtonText}>Back</Text>
-                </TouchableOpacity>
+                  textStyle={styles.topHeaderButtonText}
+                  iconStyle={styles.backHeaderButtonIcon}
+                />
               </View>
             ) : null}
           </View>
@@ -5763,6 +5793,12 @@ const buildRegistrationData = formData => ({
         }
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
+        {...getVirtualizedListProps(responsiveLayout, {
+          initialNumToRender: Math.max(
+            responsiveLayout.categoryColumns * 2,
+            responsiveLayout.listInitialNumToRender
+          ),
+        })}
       />
 
       <CategoryRecordsModal
@@ -5816,6 +5852,8 @@ const buildRegistrationData = formData => ({
           setSettingsPasswordInput('');
           setSettingsPasswordError('');
         }}
+        hardwareAccelerated={Platform.OS === 'android'}
+        statusBarTranslucent={Platform.OS === 'android'}
       >
         <View style={[styles.settingsOverlay, { backgroundColor: theme.overlay }]}>
           <View style={[styles.settingsPasswordCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
@@ -5884,6 +5922,8 @@ const buildRegistrationData = formData => ({
             setSettingsView(getPreviousSettingsView(settingsView));
           }
         }}
+        hardwareAccelerated={Platform.OS === 'android'}
+        statusBarTranslucent={Platform.OS === 'android'}
       >
         <View style={[styles.fullPageContainer, { backgroundColor: theme.background }]}>
           <View style={[styles.settingsPageHeader, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
@@ -5916,21 +5956,19 @@ const buildRegistrationData = formData => ({
               </Text>
             </View>
             {settingsView === 'menu' ? (
-              <TouchableOpacity
-                style={[styles.settingsCloseButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
+              <NavigationActionButton
+                label="Close"
                 onPress={() => setSettingsVisible(false)}
-                activeOpacity={0.85}
-              >
-                <Text style={[styles.settingsCloseButtonText, { color: theme.accent }]}>Close</Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
                 style={[styles.settingsCloseButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
+                textStyle={[styles.settingsCloseButtonText, { color: theme.accent }]}
+              />
+            ) : (
+              <NavigationActionButton
+                label="Back"
                 onPress={() => setSettingsView(getPreviousSettingsView(settingsView))}
-                activeOpacity={0.85}
-              >
-                <Text style={[styles.settingsCloseButtonText, { color: theme.accent }]}>Back</Text>
-              </TouchableOpacity>
+                style={[styles.settingsCloseButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
+                textStyle={[styles.settingsCloseButtonText, { color: theme.accent }]}
+              />
             )}
           </View>
 
@@ -6526,6 +6564,8 @@ const buildRegistrationData = formData => ({
         transparent={false}
         animationType="slide"
         onRequestClose={() => setThemeVisible(false)}
+        hardwareAccelerated={Platform.OS === 'android'}
+        statusBarTranslucent={Platform.OS === 'android'}
       >
         <View style={[styles.fullPageContainer, { backgroundColor: theme.background }]}>
           <View style={[styles.settingsPageHeader, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
@@ -6535,13 +6575,12 @@ const buildRegistrationData = formData => ({
                 Choose between a brighter day theme and the darker night theme.
               </Text>
             </View>
-            <TouchableOpacity
-              style={[styles.settingsCloseButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
+            <NavigationActionButton
+              label="Back"
               onPress={() => setThemeVisible(false)}
-              activeOpacity={0.85}
-            >
-              <Text style={[styles.settingsCloseButtonText, { color: theme.accent }]}>Back</Text>
-            </TouchableOpacity>
+              style={[styles.settingsCloseButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
+              textStyle={[styles.settingsCloseButtonText, { color: theme.accent }]}
+            />
           </View>
 
           <ScrollView
@@ -6606,6 +6645,8 @@ const buildRegistrationData = formData => ({
         transparent={false}
         animationType="fade"
         onRequestClose={() => closeFaceScanner(null)}
+        hardwareAccelerated={Platform.OS === 'android'}
+        statusBarTranslucent={Platform.OS === 'android'}
       >
         <View style={styles.faceScannerScreen}>
           {VisionCameraView && visionCameraDevice ? (
@@ -6624,13 +6665,12 @@ const buildRegistrationData = formData => ({
           )}
 
           <View style={styles.faceScannerOverlay}>
-            <TouchableOpacity
-              style={styles.faceScannerCloseButton}
+            <NavigationActionButton
+              label="Close"
               onPress={() => closeFaceScanner(null)}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.faceScannerCloseButtonText}>Close</Text>
-            </TouchableOpacity>
+              style={styles.faceScannerCloseButton}
+              textStyle={styles.faceScannerCloseButtonText}
+            />
 
             <View style={styles.faceScannerContent}>
               <Text style={styles.faceScannerTitle}>Face Lock</Text>
