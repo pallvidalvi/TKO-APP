@@ -216,14 +216,22 @@ const getResponsiveLayout = (screenWidth, screenHeight) => {
   const isSmallPhone = screenWidth < 390;
   const isLandscape = screenWidth > screenHeight;
   const isTabletLandscape = isTablet && isLandscape;
-  const categoryColumns = isSmallPhone ? 1 : isTabletLandscape ? (screenWidth >= 1400 ? 4 : 3) : 2;
+  const categoryColumns = isSmallPhone
+    ? 1
+    : isTabletLandscape
+      ? screenWidth >= 1480
+        ? 4
+        : screenWidth >= 1320
+          ? 3
+          : 2
+      : 2;
   const penaltyColumns = isTabletLandscape ? 3 : isTablet ? 2 : 1;
   const useSplitLayout = isTabletLandscape && screenWidth >= 960;
   const shellMaxWidth = isTablet
     ? Math.min(screenWidth - (isTabletLandscape ? 40 : 32), screenWidth >= 1400 ? 1320 : 1180)
     : screenWidth;
   const shellPadding = isTabletLandscape ? 28 : isLargeTablet ? 26 : isTablet ? 24 : isSmallPhone ? 12 : 16;
-  const gridGap = isTabletLandscape ? 18 : isTablet ? 16 : 12;
+  const gridGap = isTabletLandscape ? 22 : isTablet ? 16 : 12;
   const usableWidth = Math.max(shellMaxWidth - shellPadding * 2, 0);
   const categoryCardWidth =
     usableWidth > 0
@@ -1502,9 +1510,9 @@ const CategoryCard = ({ category, onPress, teamCount = 0, cardStyle, layout }) =
           styles.card,
           {
             width: '100%',
-            minHeight: responsiveLayout.isTablet ? 320 : 276,
-            paddingHorizontal: responsiveLayout.isTablet ? 12 : 10,
-            paddingVertical: responsiveLayout.isTablet ? 12 : 10,
+            minHeight: responsiveLayout.isTablet ? 360 : 316,
+            paddingHorizontal: responsiveLayout.isTablet ? 14 : 12,
+            paddingVertical: responsiveLayout.isTablet ? 14 : 12,
             backgroundColor: palette.background,
             borderColor: palette.border,
           },
@@ -1516,7 +1524,7 @@ const CategoryCard = ({ category, onPress, teamCount = 0, cardStyle, layout }) =
             style={[
               styles.iconBox,
               {
-                minHeight: responsiveLayout.isTablet ? 188 : 156,
+                minHeight: responsiveLayout.isTablet ? 212 : 182,
                 backgroundColor: palette.iconBackground,
               },
             ]}
@@ -1569,6 +1577,8 @@ const CategoryCard = ({ category, onPress, teamCount = 0, cardStyle, layout }) =
 
           <View style={styles.textContent}>
             <Text
+              numberOfLines={3}
+              ellipsizeMode="tail"
               style={[
                 styles.categoryDescription,
                 {
@@ -5539,85 +5549,171 @@ const buildRegistrationData = formData => ({
   }
 
   if (appStage === 'day') {
-    return (
-      <View style={[styles.dayScreen, { backgroundColor: theme.background }]}>
-          <View style={[styles.dayScreenHeader, { backgroundColor: theme.background }]}>
-            <Animated.View
-              style={[
-                styles.splashLogoGround,
-                {
-                  opacity: glowPulseAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0.88, 1],
-                  }),
-                  transform: [
-                    {
-                      scale: glowPulseAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [1, 1.04],
-                      }),
-                    },
-                  ],
-                },
-              ]}
-            >
-              <View style={styles.splashLogoSideGlowLeft} />
-              <View style={styles.splashLogoSideGlowRight} />
-              <View style={[styles.splashLogoAmberGlow, styles.dayLogoAmberGlow]} />
-              <Image
-                source={require('./assets/welcome-logo-transparent.png')}
-                style={styles.splashLogo}
-                resizeMode="contain"
-              />
-            </Animated.View>
-            <Animated.View
-              style={[
-                styles.dayEventTitleShell,
-                {
-                  opacity: glowPulseAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0.82, 1],
-                  }),
-                  transform: [
-                    {
-                      scale: glowPulseAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [1, 1.02],
-                      }),
-                    },
-                  ],
-                },
-              ]}
-            >
-              <View style={styles.dayEventTitleStack}>
-                <Text
-                  style={styles.dayEventTitle}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.72}
-                >
-                  KARAD OFFROAD SEASON 2 - 2026
-                </Text>
-              </View>
-            </Animated.View>
-          </View>
+    const useDaySplitLayout = responsiveLayout.isTabletLandscape;
 
-          <View style={styles.dayList}>
-            {REPORT_DAYS.map(day => (
-              <TouchableOpacity
-                key={day.id}
-                style={styles.dayCard}
-                activeOpacity={0.88}
-                onPress={() => handleDaySelect(day)}
+    return (
+      <View
+        style={[
+          styles.dayScreen,
+          {
+            backgroundColor: theme.background,
+            paddingHorizontal: responsiveLayout.shellPadding,
+            paddingTop: useDaySplitLayout ? 24 : 60,
+            paddingBottom: useDaySplitLayout ? 20 : 28,
+          },
+        ]}
+      >
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{
+            flexGrow: 1,
+            justifyContent: 'center',
+          }}
+          showsVerticalScrollIndicator={false}
+        >
+          <View
+            style={{
+              width: '100%',
+              maxWidth: responsiveLayout.shellMaxWidth,
+              alignSelf: 'center',
+              flexDirection: useDaySplitLayout ? 'row' : 'column',
+              alignItems: useDaySplitLayout ? 'center' : 'stretch',
+              justifyContent: 'center',
+              gap: useDaySplitLayout ? 28 : 18,
+            }}
+          >
+            <View
+              style={[
+                styles.dayScreenHeader,
+                {
+                  backgroundColor: theme.background,
+                  width: useDaySplitLayout ? '46%' : '100%',
+                  marginBottom: useDaySplitLayout ? 0 : 30,
+                },
+              ]}
+            >
+              <Animated.View
+                style={[
+                  styles.splashLogoGround,
+                  {
+                    opacity: glowPulseAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.88, 1],
+                    }),
+                    transform: [
+                      {
+                        scale: glowPulseAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [1, 1.04],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
               >
-                <View style={styles.dayCardTextBlock}>
-                  <Text style={styles.dayCardLabel}>{String(day.dayLabel || '').toUpperCase()}</Text>
-                  <Text style={styles.dayCardDate}>{day.dateLabel}</Text>
+                <View style={styles.splashLogoSideGlowLeft} />
+                <View style={styles.splashLogoSideGlowRight} />
+                <View style={[styles.splashLogoAmberGlow, styles.dayLogoAmberGlow]} />
+                <Image
+                  source={require('./assets/welcome-logo-transparent.png')}
+                  style={styles.splashLogo}
+                  resizeMode="contain"
+                />
+              </Animated.View>
+              <Animated.View
+                style={[
+                  styles.dayEventTitleShell,
+                  {
+                    width: '100%',
+                    maxWidth: useDaySplitLayout ? 520 : 560,
+                    minHeight: useDaySplitLayout ? 76 : 88,
+                    paddingHorizontal: useDaySplitLayout ? 18 : 20,
+                    paddingVertical: useDaySplitLayout ? 14 : 16,
+                    opacity: glowPulseAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.82, 1],
+                    }),
+                    transform: [
+                      {
+                        scale: glowPulseAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [1, 1.02],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              >
+                <View style={styles.dayEventTitleStack}>
+                  <Text
+                    style={[
+                      styles.dayEventTitle,
+                      {
+                        fontSize: useDaySplitLayout ? 20 : 22,
+                      },
+                    ]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.72}
+                  >
+                    KARAD OFFROAD SEASON 2 - 2026
+                  </Text>
                 </View>
-              </TouchableOpacity>
-            ))}
+              </Animated.View>
+            </View>
+
+            <View
+              style={[
+                styles.dayList,
+                {
+                  width: '100%',
+                  maxWidth: useDaySplitLayout ? 560 : 520,
+                  flex: useDaySplitLayout ? 1 : 0,
+                },
+              ]}
+            >
+              {REPORT_DAYS.map(day => (
+                <TouchableOpacity
+                  key={day.id}
+                  style={[
+                    styles.dayCard,
+                    {
+                      paddingHorizontal: useDaySplitLayout ? 18 : 16,
+                      paddingVertical: useDaySplitLayout ? 14 : 16,
+                      minHeight: useDaySplitLayout ? 84 : 92,
+                    },
+                  ]}
+                  activeOpacity={0.88}
+                  onPress={() => handleDaySelect(day)}
+                >
+                  <View style={styles.dayCardTextBlock}>
+                    <Text
+                      style={[
+                        styles.dayCardLabel,
+                        {
+                          fontSize: useDaySplitLayout ? 17 : 18,
+                        },
+                      ]}
+                    >
+                      {String(day.dayLabel || '').toUpperCase()}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.dayCardDate,
+                        {
+                          fontSize: useDaySplitLayout ? 13 : 14,
+                        },
+                      ]}
+                    >
+                      {day.dateLabel}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
-        </View>
+        </ScrollView>
+      </View>
     );
   }
 
@@ -5805,7 +5901,8 @@ const buildRegistrationData = formData => ({
         columnWrapperStyle={
           responsiveLayout.categoryColumns > 1
             ? {
-                justifyContent: 'flex-start',
+                justifyContent: 'space-between',
+                alignItems: 'stretch',
               }
             : undefined
         }
@@ -7475,6 +7572,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.14,
     shadowRadius: 12,
     alignSelf: 'center',
+    overflow: 'hidden',
   },
 
   cardContent: {
@@ -7513,9 +7611,10 @@ const styles = StyleSheet.create({
   // Text content container
   textContent: {
     alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
+    justifyContent: 'flex-start',
+    flexShrink: 1,
     width: '100%',
+    flex: 1,
     paddingHorizontal: IS_TABLET ? 10 : 8,
     paddingBottom: 4,
   },
@@ -7536,6 +7635,8 @@ const styles = StyleSheet.create({
     fontWeight: '400',
     textAlign: 'center',
     lineHeight: IS_TABLET ? 18 : 16,
+    width: '100%',
+    flexShrink: 1,
   },
 
   // Count badge
