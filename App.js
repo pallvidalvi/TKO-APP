@@ -816,6 +816,42 @@ const buildDefaultCategoryActivationConfig = () =>
     return dayAcc;
   }, {});
 
+const TRACK_TIMER_MAX_SECONDS = 15 * 60;
+
+const clampTrackTimerSeconds = value => {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return 0;
+  }
+
+  return Math.min(TRACK_TIMER_MAX_SECONDS, Math.max(0, Math.round(numericValue)));
+};
+
+const formatTrackTimerLimit = totalSeconds => {
+  if (totalSeconds === null || totalSeconds === undefined) {
+    return 'Not set';
+  }
+
+  const clampedSeconds = clampTrackTimerSeconds(totalSeconds);
+  const minutes = Math.floor(clampedSeconds / 60);
+  const seconds = clampedSeconds % 60;
+
+  return `${minutes}:${seconds.toString().padStart(2, '0')}.0`;
+};
+
+const buildDefaultTrackTimerConfig = () =>
+  REPORT_DAYS.reduce((dayAcc, day) => {
+    dayAcc[day.id] = Object.keys(CATEGORY_TRACKS).reduce((categoryAcc, categoryKey) => {
+      categoryAcc[categoryKey] = (CATEGORY_TRACKS[categoryKey] || []).reduce((trackAcc, trackName) => {
+        trackAcc[trackName] = null;
+        return trackAcc;
+      }, {});
+      return categoryAcc;
+    }, {});
+    return dayAcc;
+  }, {});
+
 const normalizeTrackActivationConfig = storedConfig => {
   const fallback = buildDefaultTrackActivationConfig();
 
@@ -824,6 +860,23 @@ const normalizeTrackActivationConfig = storedConfig => {
       categoryAcc[categoryKey] = (CATEGORY_TRACKS[categoryKey] || []).reduce((trackAcc, trackName) => {
         const storedValue = storedConfig?.[day.id]?.[categoryKey]?.[trackName];
         trackAcc[trackName] = typeof storedValue === 'boolean' ? storedValue : true;
+        return trackAcc;
+      }, {});
+      return categoryAcc;
+    }, {});
+    return dayAcc;
+  }, fallback);
+};
+
+const normalizeTrackTimerConfig = storedConfig => {
+  const fallback = buildDefaultTrackTimerConfig();
+
+  return REPORT_DAYS.reduce((dayAcc, day) => {
+    dayAcc[day.id] = Object.keys(CATEGORY_TRACKS).reduce((categoryAcc, categoryKey) => {
+      categoryAcc[categoryKey] = (CATEGORY_TRACKS[categoryKey] || []).reduce((trackAcc, trackName) => {
+        const storedValue = storedConfig?.[day.id]?.[categoryKey]?.[trackName];
+        trackAcc[trackName] =
+          storedValue === null || storedValue === undefined ? null : clampTrackTimerSeconds(storedValue);
         return trackAcc;
       }, {});
       return categoryAcc;
@@ -876,12 +929,26 @@ const getActiveTracksForDayCategory = (trackActivationConfig, dayId, categoryNam
   return allTracks.filter(trackName => dayConfig[trackName] !== false);
 };
 
+const getTrackTimerLimitSeconds = (trackTimerConfig, dayId, categoryName, trackName) => {
+  const normalizedTrackName = String(trackName || '').trim();
+
+  if (!dayId || !normalizedTrackName) {
+    return null;
+  }
+
+  const categoryKey = normalizeCategoryKey(categoryName || '');
+  const storedValue = trackTimerConfig?.[dayId]?.[categoryKey]?.[normalizedTrackName];
+
+  return storedValue === null || storedValue === undefined ? null : clampTrackTimerSeconds(storedValue);
+};
+
 const loadStoredAppSettings = async () => {
   const fallback = {
     password: DEFAULT_SETTINGS_PASSWORD,
     pin: DEFAULT_SECURITY_PIN,
     categoryActivationConfig: buildDefaultCategoryActivationConfig(),
     trackActivationConfig: buildDefaultTrackActivationConfig(),
+    trackTimerConfig: buildDefaultTrackTimerConfig(),
     themeMode: DEFAULT_THEME_MODE,
   };
 
@@ -899,6 +966,7 @@ const loadStoredAppSettings = async () => {
         pin: normalizeSecurityPin(parsed?.pin),
         categoryActivationConfig: normalizeCategoryActivationConfig(parsed?.categoryActivationConfig),
         trackActivationConfig: normalizeTrackActivationConfig(parsed?.trackActivationConfig),
+        trackTimerConfig: normalizeTrackTimerConfig(parsed?.trackTimerConfig),
         themeMode: normalizeThemeMode(parsed?.themeMode),
       };
     }
@@ -918,6 +986,7 @@ const loadStoredAppSettings = async () => {
         pin: normalizeSecurityPin(parsed?.pin),
         categoryActivationConfig: normalizeCategoryActivationConfig(parsed?.categoryActivationConfig),
         trackActivationConfig: normalizeTrackActivationConfig(parsed?.trackActivationConfig),
+        trackTimerConfig: normalizeTrackTimerConfig(parsed?.trackTimerConfig),
         themeMode: normalizeThemeMode(parsed?.themeMode),
       };
     }
@@ -934,6 +1003,7 @@ const saveStoredAppSettings = async settings => {
     pin: normalizeSecurityPin(settings.pin),
     categoryActivationConfig: normalizeCategoryActivationConfig(settings.categoryActivationConfig),
     trackActivationConfig: normalizeTrackActivationConfig(settings.trackActivationConfig),
+    trackTimerConfig: normalizeTrackTimerConfig(settings.trackTimerConfig),
     themeMode: normalizeThemeMode(settings.themeMode),
   });
 
@@ -1372,6 +1442,8 @@ const DNFSelector = React.memo(function DNFSelector({
   onFourthAttemptChange,
   onTimeOverChange,
   onPointsChange,
+  timeOverLocked = false,
+  timeOverLimitLabel = '',
   disabled = false,
   layout,
 }) {
@@ -1447,15 +1519,24 @@ const DNFSelector = React.memo(function DNFSelector({
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.dnfCheckboxRow}
-            onPress={() => onTimeOverChange(!timeOverSelected)}
+            style={[styles.dnfCheckboxRow, timeOverLocked && styles.dnfCheckboxRowDisabled]}
+            onPress={() => {
+              if (!timeOverLocked) {
+                onTimeOverChange(!timeOverSelected);
+              }
+            }}
             activeOpacity={0.85}
             hitSlop={TOUCH_HIT_SLOP}
           >
             <View style={[styles.dnfCheckbox, timeOverSelected && styles.dnfCheckboxSelected]}>
               <Text style={styles.dnfCheckboxTick}>{timeOverSelected ? '✓' : ''}</Text>
             </View>
-            <Text style={styles.dnfCheckboxLabel}>Time Over</Text>
+            <View style={styles.dnfCheckboxContent}>
+              <Text style={[styles.dnfCheckboxLabel, timeOverLocked && styles.dnfCheckboxLabelDisabled]}>Time Over</Text>
+              {timeOverLocked && timeOverLimitLabel ? (
+                <Text style={styles.dnfCheckboxHint}>Auto at {timeOverLimitLabel}</Text>
+              ) : null}
+            </View>
           </TouchableOpacity>
 
           <View style={styles.dnfPointsSection}>
@@ -1768,6 +1849,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
   category,
   initialRecord,
   selectedDay,
+  trackTimerLimitSeconds = null,
   onClose,
   onSubmit,
   onHoldForDispute,
@@ -1841,6 +1923,15 @@ const RegistrationForm = React.memo(function RegistrationForm({
   const totalPenaltiesMilliseconds = totalPenaltiesTime * 1000;
   const lateStartPenaltyMilliseconds = lateStartPenaltyTime * 1000;
   const totalTimeMilliseconds = totalPenaltiesMilliseconds + lateStartPenaltyMilliseconds + stopwatchTime;
+  const normalizedTrackTimerLimitSeconds =
+    trackTimerLimitSeconds === null || trackTimerLimitSeconds === undefined
+      ? null
+      : clampTrackTimerSeconds(trackTimerLimitSeconds);
+  const trackTimerLimitMilliseconds =
+    normalizedTrackTimerLimitSeconds === null ? null : normalizedTrackTimerLimitSeconds * 1000;
+  const trackTimerLimitLabel =
+    normalizedTrackTimerLimitSeconds === null ? 'Not set' : formatTrackTimerLimit(normalizedTrackTimerLimitSeconds);
+  const isTrackTimerLocked = normalizedTrackTimerLimitSeconds !== null;
   const currentDisputeEntries = useMemo(
     () => getNormalizedDisputeDetailEntries(initialRecord),
     [initialRecord]
@@ -1926,6 +2017,35 @@ const RegistrationForm = React.memo(function RegistrationForm({
       setHasTimerStopped(true);
     }
   }, [isDNF, hasTimerStarted, stopwatchTime]);
+
+  useEffect(() => {
+    if (normalizedTrackTimerLimitSeconds === null) {
+      return;
+    }
+
+    if (timeOverSelected || wrongCourseSelected || fourthAttemptSelected) {
+      return;
+    }
+
+    if (!hasTimerStarted && stopwatchTime <= 0 && !isStopwatchRunning) {
+      return;
+    }
+
+    if (trackTimerLimitMilliseconds === null || stopwatchTime < trackTimerLimitMilliseconds) {
+      return;
+    }
+
+    setTimeOverSelected(true);
+  }, [
+    fourthAttemptSelected,
+    hasTimerStarted,
+    isStopwatchRunning,
+    normalizedTrackTimerLimitSeconds,
+    stopwatchTime,
+    timeOverSelected,
+    trackTimerLimitMilliseconds,
+    wrongCourseSelected,
+  ]);
 
   const toggleStopwatch = () => {
     if (isStopwatchRunning) {
@@ -2058,45 +2178,51 @@ const RegistrationForm = React.memo(function RegistrationForm({
     return () => backSubscription.remove();
   }, [visible, isStopwatchExitLocked]);
 
-  const buildFormData = () => ({
-    disputeId: initialRecord?.disputeId || initialRecord?.id || null,
-    source: initialRecord?.source || 'records',
-    selectedDayId: selectedDay?.id || initialRecord?.selectedDayId || initialRecord?.selected_day_id || '',
-    selectedDayLabel: selectedDay?.dayLabel || initialRecord?.selectedDayLabel || initialRecord?.selected_day_label || '',
-    selectedDayDate: selectedDay?.dateLabel || initialRecord?.selectedDayDate || initialRecord?.selected_day_date || '',
-    trackName,
-    category: category?.name || initialRecord?.category || '',
-    srNo,
-    stickerNumber,
-    driverName,
-    coDriverName,
-    completionTime: isDNF ? 'DNF' : formatTime(stopwatchTime),
-    completionTimeMilliseconds: stopwatchTime,
-    performanceTimeDisplay,
-    bustingCount,
-    seatbeltCount,
-    groundTouchCount,
-    lateStartMode,
-    lateStartStatus,
-    lateStartPenaltyTime,
-    attemptCount,
-    taskSkippedCount,
-    isDNF,
-    isDNS: false,
-    wrongCourseSelected,
-    fourthAttemptSelected,
-    timeOverSelected,
-    dnfSelection,
-    dnfPoints,
-    bustingPenaltyTime,
-    seatbeltPenaltyTime,
-    groundTouchPenaltyTime,
-    attemptPenaltyTime,
-    taskSkippedPenaltyTime,
-    totalPenaltiesTime,
-    totalTimeMilliseconds,
-    totalTimeDisplay,
-  });
+  const buildFormData = () => {
+    const isEditingDispute = initialRecord?.source === 'dispute';
+
+    return {
+      disputeId: isEditingDispute ? (initialRecord?.disputeId || initialRecord?.id || null) : null,
+      source: isEditingDispute ? 'dispute' : 'records',
+      selectedDayId: selectedDay?.id || initialRecord?.selectedDayId || initialRecord?.selected_day_id || '',
+      selectedDayLabel: selectedDay?.dayLabel || initialRecord?.selectedDayLabel || initialRecord?.selected_day_label || '',
+      selectedDayDate: selectedDay?.dateLabel || initialRecord?.selectedDayDate || initialRecord?.selected_day_date || '',
+      trackName,
+      category: category?.name || initialRecord?.category || '',
+      srNo,
+      stickerNumber,
+      driverName,
+      coDriverName,
+      completionTime: isDNF ? 'DNF' : formatTime(stopwatchTime),
+      completionTimeMilliseconds: stopwatchTime,
+      performanceTimeDisplay,
+      trackTimerLimitSeconds: normalizedTrackTimerLimitSeconds,
+      trackTimerLimitDisplay: trackTimerLimitLabel,
+      bustingCount,
+      seatbeltCount,
+      groundTouchCount,
+      lateStartMode,
+      lateStartStatus,
+      lateStartPenaltyTime,
+      attemptCount,
+      taskSkippedCount,
+      isDNF,
+      isDNS: false,
+      wrongCourseSelected,
+      fourthAttemptSelected,
+      timeOverSelected,
+      dnfSelection,
+      dnfPoints,
+      bustingPenaltyTime,
+      seatbeltPenaltyTime,
+      groundTouchPenaltyTime,
+      attemptPenaltyTime,
+      taskSkippedPenaltyTime,
+      totalPenaltiesTime,
+      totalTimeMilliseconds,
+      totalTimeDisplay,
+    };
+  };
 
   const validateSubmission = () => {
     if (!trackName.trim()) {
@@ -2370,6 +2496,14 @@ const RegistrationForm = React.memo(function RegistrationForm({
                 </Text>
               </TouchableOpacity>
             </View>
+            <Text
+              style={[
+                styles.timerLimitText,
+                { marginTop: responsiveLayout.isSmallPhone ? 10 : 12 },
+              ]}
+            >
+              {isTrackTimerLocked ? `Track Limit: ${trackTimerLimitLabel}` : 'Track Limit: Not set'}
+            </Text>
           </View>
         </View>
 
@@ -2505,6 +2639,8 @@ const RegistrationForm = React.memo(function RegistrationForm({
                 onFourthAttemptChange={setFourthAttemptSelected}
                 onTimeOverChange={setTimeOverSelected}
                 onPointsChange={setDnfSelection}
+                timeOverLocked={isTrackTimerLocked}
+                timeOverLimitLabel={trackTimerLimitLabel}
                 layout={responsiveLayout}
                 disabled={!hasTimerStarted && !isDNF}
               />
@@ -3719,6 +3855,7 @@ export default function App() {
   const [themeMode, setThemeMode] = useState(DEFAULT_THEME_MODE);
   const [categoryActivationConfig, setCategoryActivationConfig] = useState(() => buildDefaultCategoryActivationConfig());
   const [trackActivationConfig, setTrackActivationConfig] = useState(() => buildDefaultTrackActivationConfig());
+  const [trackTimerConfig, setTrackTimerConfig] = useState(() => buildDefaultTrackTimerConfig());
   const [settingsPasswordModalVisible, setSettingsPasswordModalVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [settingsView, setSettingsView] = useState('menu');
@@ -3727,6 +3864,9 @@ export default function App() {
   const [settingsPasswordError, setSettingsPasswordError] = useState('');
   const [settingsConfigDayId, setSettingsConfigDayId] = useState(REPORT_DAYS[0]?.id || '');
   const [settingsConfigCategoryKey, setSettingsConfigCategoryKey] = useState('EXTREME');
+  const [settingsTrackTimerTrack, setSettingsTrackTimerTrack] = useState('');
+  const [settingsTrackTimerMinutes, setSettingsTrackTimerMinutes] = useState(0);
+  const [settingsTrackTimerSeconds, setSettingsTrackTimerSeconds] = useState(0);
   const [disputeRecords, setDisputeRecords] = useState([]);
   const [disputesLoading, setDisputesLoading] = useState(false);
   const [currentPasswordInput, setCurrentPasswordInput] = useState('');
@@ -3827,6 +3967,7 @@ export default function App() {
       setSecurityPin(storedSettings.pin);
       setCategoryActivationConfig(storedSettings.categoryActivationConfig);
       setTrackActivationConfig(storedSettings.trackActivationConfig);
+      setTrackTimerConfig(storedSettings.trackTimerConfig);
       setThemeMode(storedSettings.themeMode);
       setSettingsLoaded(true);
     };
@@ -3848,11 +3989,12 @@ export default function App() {
       pin: securityPin,
       categoryActivationConfig,
       trackActivationConfig,
+      trackTimerConfig,
       themeMode,
     }).catch(error => {
       console.warn('Unable to save admin settings:', error);
     });
-  }, [categoryActivationConfig, securityPin, settingsLoaded, settingsPassword, themeMode, trackActivationConfig]);
+  }, [categoryActivationConfig, securityPin, settingsLoaded, settingsPassword, themeMode, trackActivationConfig, trackTimerConfig]);
 
   useEffect(() => {
     if (appStage !== 'splash') {
@@ -4246,6 +4388,22 @@ export default function App() {
     [settingsConfigCategoryKey]
   );
 
+  const selectedTrackTimerLimitSeconds = useMemo(() => {
+    const categoryName = selectedCategory?.name || selectedRecord?.category || '';
+    const trackName =
+      selectedRecord?.selectedTrack ||
+      selectedRecord?.trackName ||
+      selectedRecord?.track_name ||
+      '';
+
+    return getTrackTimerLimitSeconds(trackTimerConfig, selectedDay?.id, categoryName, trackName);
+  }, [selectedCategory?.name, selectedDay?.id, selectedRecord?.category, selectedRecord?.selectedTrack, selectedRecord?.trackName, selectedRecord?.track_name, trackTimerConfig]);
+
+  const appliedSettingsTrackTimerSeconds = useMemo(
+    () => getTrackTimerLimitSeconds(trackTimerConfig, settingsConfigDayId, settingsConfigCategoryKey, settingsTrackTimerTrack),
+    [settingsConfigCategoryKey, settingsConfigDayId, settingsTrackTimerTrack, trackTimerConfig]
+  );
+
   useEffect(() => {
     if (!settingsCategoryOptions.length) {
       return;
@@ -4255,6 +4413,24 @@ export default function App() {
       setSettingsConfigCategoryKey(settingsCategoryOptions[0].key);
     }
   }, [settingsCategoryOptions, settingsConfigCategoryKey]);
+
+  useEffect(() => {
+    if (!configurationTracks.length) {
+      setSettingsTrackTimerTrack('');
+      return;
+    }
+
+    if (!configurationTracks.includes(settingsTrackTimerTrack)) {
+      setSettingsTrackTimerTrack(configurationTracks[0]);
+    }
+  }, [configurationTracks, settingsTrackTimerTrack]);
+
+  useEffect(() => {
+    const nextTotalSeconds = appliedSettingsTrackTimerSeconds ?? 0;
+
+    setSettingsTrackTimerMinutes(Math.floor(nextTotalSeconds / 60));
+    setSettingsTrackTimerSeconds(nextTotalSeconds % 60);
+  }, [appliedSettingsTrackTimerSeconds, settingsTrackTimerTrack]);
 
   useEffect(() => {
     if (!selectedCategoryTrack) {
@@ -4350,6 +4526,18 @@ export default function App() {
     setSettingsPasswordModalVisible(true);
   };
 
+  const handleOpenConfiguration = () => {
+    setSettingsView('config');
+  };
+
+  const handleOpenTrackVisibilitySettings = () => {
+    setSettingsView('config-visibility');
+  };
+
+  const handleOpenTrackTimerSettings = () => {
+    setSettingsView('config-track-timer');
+  };
+
   const handleOpenDisputes = async () => {
     await refreshDisputes();
     setSettingsView('disputes');
@@ -4364,6 +4552,10 @@ export default function App() {
   const getPreviousSettingsView = currentView => {
     if (currentView === 'pin' || currentView === 'change-pin' || currentView === 'password') {
       return 'security';
+    }
+
+    if (currentView === 'config-visibility' || currentView === 'config-track-timer') {
+      return 'config';
     }
 
     return 'menu';
@@ -4520,6 +4712,60 @@ export default function App() {
         },
       };
     });
+  };
+
+  const adjustSettingsTrackTimer = (unit, delta) => {
+    const currentTotalSeconds = settingsTrackTimerMinutes * 60 + settingsTrackTimerSeconds;
+    const nextTotalSeconds =
+      unit === 'minutes'
+        ? currentTotalSeconds + delta * 60
+        : currentTotalSeconds + delta;
+    const clampedSeconds = clampTrackTimerSeconds(nextTotalSeconds);
+
+    setSettingsTrackTimerMinutes(Math.floor(clampedSeconds / 60));
+    setSettingsTrackTimerSeconds(clampedSeconds % 60);
+  };
+
+  const handleApplyTrackTimer = () => {
+    if (!settingsConfigDayId || !settingsConfigCategoryKey || !settingsTrackTimerTrack) {
+      Alert.alert('Track Timer', 'Select day, category, and track before applying a timer.');
+      return;
+    }
+
+    const nextTotalSeconds = clampTrackTimerSeconds(settingsTrackTimerMinutes * 60 + settingsTrackTimerSeconds);
+
+    setTrackTimerConfig(prev => ({
+      ...prev,
+      [settingsConfigDayId]: {
+        ...(prev?.[settingsConfigDayId] || {}),
+        [settingsConfigCategoryKey]: {
+          ...(prev?.[settingsConfigDayId]?.[settingsConfigCategoryKey] || {}),
+          [settingsTrackTimerTrack]: nextTotalSeconds,
+        },
+      },
+    }));
+
+    Alert.alert('Track Timer Saved', `${settingsTrackTimerTrack} is now set to ${formatTrackTimerLimit(nextTotalSeconds)}.`);
+  };
+
+  const handleClearTrackTimer = () => {
+    if (!settingsConfigDayId || !settingsConfigCategoryKey || !settingsTrackTimerTrack) {
+      return;
+    }
+
+    setTrackTimerConfig(prev => ({
+      ...prev,
+      [settingsConfigDayId]: {
+        ...(prev?.[settingsConfigDayId] || {}),
+        [settingsConfigCategoryKey]: {
+          ...(prev?.[settingsConfigDayId]?.[settingsConfigCategoryKey] || {}),
+          [settingsTrackTimerTrack]: null,
+        },
+      },
+    }));
+    setSettingsTrackTimerMinutes(0);
+    setSettingsTrackTimerSeconds(0);
+    Alert.alert('Track Timer Cleared', `${settingsTrackTimerTrack} no longer has a time limit.`);
   };
 
   const handleCategoryActivationToggle = (dayId, categoryKey) => {
@@ -4750,6 +4996,10 @@ const buildRegistrationData = formData => ({
     srNo: formData.srNo || null,
     track_name: formData.trackName,
     trackName: formData.trackName,
+    track_timer_limit_seconds: formData.trackTimerLimitSeconds ?? null,
+    trackTimerLimitSeconds: formData.trackTimerLimitSeconds ?? null,
+    track_timer_limit_display: formData.trackTimerLimitDisplay || null,
+    trackTimerLimitDisplay: formData.trackTimerLimitDisplay || null,
     sticker_number: formData.stickerNumber,
     stickerNumber: formData.stickerNumber,
     driver_name: formData.driverName,
@@ -4830,7 +5080,7 @@ const buildRegistrationData = formData => ({
 
   const finalizeRecordSubmission = async formData => {
     const completedTrack = formData.trackName;
-    const isDisputeRecord = formData.source === 'dispute' || Boolean(formData.disputeId);
+    const isDisputeRecord = formData.source === 'dispute';
     const recordKey = selectedRecord?.recordKey || getRecordKey(selectedRecord || {});
     const registrationData = buildRegistrationData(formData);
 
@@ -4859,7 +5109,7 @@ const buildRegistrationData = formData => ({
       return false;
     }
 
-    if (formData.disputeId) {
+    if (isDisputeRecord && formData.disputeId) {
       await DisputesService.deleteDisputeById(formData.disputeId);
       await refreshDisputes();
     }
@@ -4971,6 +5221,44 @@ const buildRegistrationData = formData => ({
     () => (selectedCategory ? getTeamsForCategory(teams, selectedCategory.name) : []),
     [selectedCategory, teams]
   );
+
+  const settingsPageTitle =
+    settingsView === 'menu'
+      ? 'Settings'
+      : settingsView === 'config'
+        ? 'Configuration'
+        : settingsView === 'config-visibility'
+          ? 'Track Visibility'
+          : settingsView === 'config-track-timer'
+            ? 'Track Timer'
+            : settingsView === 'security'
+              ? 'Security'
+              : settingsView === 'pin'
+                ? 'Pin Verification'
+                : settingsView === 'change-pin'
+                  ? 'Change PIN'
+                  : settingsView === 'disputes'
+                    ? 'Disputes'
+                    : 'Change Password';
+
+  const settingsPageSubtitle =
+    settingsView === 'config'
+      ? 'Choose which configuration tool you want to manage for the selected day.'
+      : settingsView === 'config-visibility'
+        ? 'Control which tracks are visible for each day and category.'
+        : settingsView === 'config-track-timer'
+          ? 'Assign a dedicated stopwatch limit to each day, category, and track.'
+          : settingsView === 'security'
+            ? 'Manage the protected tools used to verify race-day actions.'
+            : settingsView === 'pin'
+              ? 'Require a 4-digit PIN before Submit, DNS, and Confirm Dispute can continue.'
+              : settingsView === 'change-pin'
+                ? 'Update the 4-digit PIN used to approve protected record actions.'
+                : settingsView === 'disputes'
+                  ? 'Review and resolve disputed stopwatch records for the selected day.'
+                  : settingsView === 'password'
+                    ? 'Update the password used to open Settings.'
+                    : 'Protected tools for race-day configuration.';
 
   if (appStage === 'splash') {
     return (
@@ -5649,34 +5937,10 @@ const buildRegistrationData = formData => ({
           <View style={[styles.settingsPageHeader, { backgroundColor: theme.surface, borderBottomColor: theme.border }]}>
             <View style={styles.settingsPageHeaderLeft}>
               <Text style={[styles.settingsPageTitle, { color: theme.textPrimary }]}>
-                {settingsView === 'menu'
-                  ? 'Settings'
-                  : settingsView === 'config'
-                    ? 'Configuration'
-                    : settingsView === 'security'
-                      ? 'Security'
-                      : settingsView === 'pin'
-                        ? 'Pin Verification'
-                        : settingsView === 'change-pin'
-                          ? 'Change PIN'
-                          : settingsView === 'disputes'
-                      ? 'Disputes'
-                      : 'Change Password'}
+                {settingsPageTitle}
               </Text>
               <Text style={[styles.settingsPageSubtitle, { color: theme.textSecondary }]}>
-                {settingsView === 'config'
-                  ? 'Control which tracks are visible for each day and category.'
-                  : settingsView === 'security'
-                    ? 'Manage the protected tools used to verify race-day actions.'
-                    : settingsView === 'pin'
-                      ? 'Require a 4-digit PIN before Submit, DNS, and Confirm Dispute can continue.'
-                      : settingsView === 'change-pin'
-                        ? 'Update the 4-digit PIN used to approve protected record actions.'
-                        : settingsView === 'disputes'
-                          ? 'Review and resolve disputed stopwatch records for the selected day.'
-                          : settingsView === 'password'
-                      ? 'Update the password used to open Settings.'
-                      : 'Protected tools for race-day configuration.'}
+                {settingsPageSubtitle}
               </Text>
             </View>
             {settingsView === 'menu' ? (
@@ -5707,13 +5971,13 @@ const buildRegistrationData = formData => ({
               <View style={styles.settingsMenuGrid}>
                 <TouchableOpacity
                   style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
-                  onPress={() => setSettingsView('config')}
+                  onPress={handleOpenConfiguration}
                   activeOpacity={0.88}
                 >
                   <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Admin</Text>
                   <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Configuration</Text>
                   <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
-                    Activate or deactivate vehicle categories and tracks for each day.
+                    Manage track visibility and dedicated track timer rules for each day.
                   </Text>
                 </TouchableOpacity>
 
@@ -5772,6 +6036,34 @@ const buildRegistrationData = formData => ({
             ) : null}
 
             {settingsView === 'config' ? (
+              <View style={styles.settingsMenuGrid}>
+                <TouchableOpacity
+                  style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={handleOpenTrackVisibilitySettings}
+                  activeOpacity={0.88}
+                >
+                  <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Configuration</Text>
+                  <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Track Visibility</Text>
+                  <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
+                    Activate or deactivate vehicle categories and tracks for each selected day.
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={handleOpenTrackTimerSettings}
+                  activeOpacity={0.88}
+                >
+                  <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Configuration</Text>
+                  <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Track Timer</Text>
+                  <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
+                    Set a dedicated stopwatch limit for each day, category, and track.
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+
+            {settingsView === 'config-visibility' ? (
               <>
                 <View style={styles.settingsInfoCard}>
                   <Text style={[styles.settingsInfoTitle, { color: theme.accent }]}>Visibility Rules</Text>
@@ -5990,6 +6282,219 @@ const buildRegistrationData = formData => ({
                         </View>
                       );
                     })}
+                  </View>
+                </View>
+              </>
+            ) : null}
+
+            {settingsView === 'config-track-timer' ? (
+              <>
+                <View style={styles.settingsInfoCard}>
+                  <Text style={[styles.settingsInfoTitle, { color: theme.accent }]}>Track Timer</Text>
+                  <Text style={[styles.settingsInfoText, { color: theme.textSecondary }]}>
+                    Pick a day, category, and track, then apply a stopwatch limit between 0:00.0 and 15:00.0. When a running record reaches that limit, Time Over DNF is applied automatically and the user only needs to choose 20 or 50 points before submitting.
+                  </Text>
+                </View>
+
+                <View style={styles.settingsSection}>
+                  <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Select Day</Text>
+                  <View style={styles.settingsChipWrap}>
+                    {REPORT_DAYS.map(day => {
+                      const selected = settingsConfigDayId === day.id;
+
+                      return (
+                        <TouchableOpacity
+                          key={`timer-${day.id}`}
+                          style={[
+                            styles.settingsChip,
+                            { backgroundColor: theme.surface, borderColor: theme.border },
+                            selected && [styles.settingsChipSelected, { backgroundColor: theme.accent, borderColor: theme.accent }],
+                          ]}
+                          onPress={() => setSettingsConfigDayId(day.id)}
+                          activeOpacity={0.85}
+                        >
+                          <Text
+                            style={[
+                              styles.settingsChipText,
+                              { color: theme.textPrimary },
+                              selected && [styles.settingsChipTextSelected, { color: theme.accentText }],
+                            ]}
+                          >
+                            {day.dayLabel}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                <View style={styles.settingsSection}>
+                  <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Select Category</Text>
+                  <View style={styles.settingsChipWrap}>
+                    {settingsCategoryOptions.map(option => {
+                      const selected = settingsConfigCategoryKey === option.key;
+
+                      return (
+                        <TouchableOpacity
+                          key={`timer-category-${option.key}`}
+                          style={[
+                            styles.settingsChip,
+                            { backgroundColor: theme.surface, borderColor: theme.border },
+                            selected && [styles.settingsChipSelected, { backgroundColor: theme.accent, borderColor: theme.accent }],
+                          ]}
+                          onPress={() => setSettingsConfigCategoryKey(option.key)}
+                          activeOpacity={0.85}
+                        >
+                          <Text
+                            style={[
+                              styles.settingsChipText,
+                              { color: theme.textPrimary },
+                              selected && [styles.settingsChipTextSelected, { color: theme.accentText }],
+                            ]}
+                          >
+                            {option.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                <View style={styles.settingsSection}>
+                  <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Select Track</Text>
+                  <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                    {REPORT_DAYS.find(day => day.id === settingsConfigDayId)?.dayLabel || 'Selected Day'} ·{' '}
+                    {settingsCategoryOptions.find(option => option.key === settingsConfigCategoryKey)?.label || 'Category'}
+                  </Text>
+                  <View style={styles.settingsTrackList}>
+                    {configurationTracks.map(trackName => {
+                      const isSelected = settingsTrackTimerTrack === trackName;
+                      const appliedLimitSeconds = getTrackTimerLimitSeconds(
+                        trackTimerConfig,
+                        settingsConfigDayId,
+                        settingsConfigCategoryKey,
+                        trackName
+                      );
+
+                      return (
+                        <TouchableOpacity
+                          key={`timer-track-${settingsConfigDayId}-${settingsConfigCategoryKey}-${trackName}`}
+                          style={[
+                            styles.settingsTrackRow,
+                            { backgroundColor: theme.surface, borderColor: theme.border },
+                            isSelected && styles.settingsTrackRowSelected,
+                          ]}
+                          onPress={() => setSettingsTrackTimerTrack(trackName)}
+                          activeOpacity={0.85}
+                        >
+                          <View style={styles.settingsTrackInfo}>
+                            <View style={styles.settingsTrackNameRow}>
+                              <View
+                                style={[
+                                  styles.settingsTrackMarker,
+                                  isSelected ? styles.settingsTrackMarkerActive : styles.settingsTrackMarkerInactive,
+                                ]}
+                              />
+                              <Text
+                                style={[
+                                  styles.settingsTrackName,
+                                  isSelected ? styles.settingsTrackNameActive : { color: theme.textPrimary },
+                                ]}
+                              >
+                                {trackName}
+                              </Text>
+                            </View>
+                            <Text style={[styles.settingsTrackStatus, { color: theme.textSecondary }]}>
+                              {appliedLimitSeconds === null
+                                ? 'Timer not set'
+                                : `Applied limit: ${formatTrackTimerLimit(appliedLimitSeconds)}`}
+                            </Text>
+                          </View>
+                          <Text style={[styles.settingsSelectedBadge, isSelected && styles.settingsSelectedBadgeActive]}>
+                            {isSelected ? 'Selected' : 'Choose'}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                <View style={[styles.settingsFormCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                  <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Timer Limit</Text>
+                  <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                    Selected Track: {settingsTrackTimerTrack || 'None'} · Applied: {formatTrackTimerLimit(appliedSettingsTrackTimerSeconds)}
+                  </Text>
+                  <Text style={[styles.settingsTrackTimerPreview, { color: theme.accent }]}>
+                    {formatTrackTimerLimit(settingsTrackTimerMinutes * 60 + settingsTrackTimerSeconds)}
+                  </Text>
+
+                  <View style={styles.settingsTimerCounterGrid}>
+                    <View style={[styles.settingsTimerCounterCard, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}>
+                      <Text style={[styles.settingsTimerCounterLabel, { color: theme.textSecondary }]}>Minutes</Text>
+                      <View style={styles.settingsTimerCounterControls}>
+                        <TouchableOpacity
+                          style={[styles.settingsTimerAdjustButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                          onPress={() => adjustSettingsTrackTimer('minutes', -1)}
+                          activeOpacity={0.85}
+                        >
+                          <Text style={[styles.settingsTimerAdjustButtonText, { color: theme.accent }]}>-</Text>
+                        </TouchableOpacity>
+                        <Text style={[styles.settingsTimerCounterValue, { color: theme.textPrimary }]}>
+                          {settingsTrackTimerMinutes.toString().padStart(2, '0')}
+                        </Text>
+                        <TouchableOpacity
+                          style={[styles.settingsTimerAdjustButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                          onPress={() => adjustSettingsTrackTimer('minutes', 1)}
+                          activeOpacity={0.85}
+                        >
+                          <Text style={[styles.settingsTimerAdjustButtonText, { color: theme.accent }]}>+</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+
+                    <View style={[styles.settingsTimerCounterCard, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}>
+                      <Text style={[styles.settingsTimerCounterLabel, { color: theme.textSecondary }]}>Seconds</Text>
+                      <View style={styles.settingsTimerCounterControls}>
+                        <TouchableOpacity
+                          style={[styles.settingsTimerAdjustButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                          onPress={() => adjustSettingsTrackTimer('seconds', -1)}
+                          activeOpacity={0.85}
+                        >
+                          <Text style={[styles.settingsTimerAdjustButtonText, { color: theme.accent }]}>-</Text>
+                        </TouchableOpacity>
+                        <Text style={[styles.settingsTimerCounterValue, { color: theme.textPrimary }]}>
+                          {settingsTrackTimerSeconds.toString().padStart(2, '0')}
+                        </Text>
+                        <TouchableOpacity
+                          style={[styles.settingsTimerAdjustButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                          onPress={() => adjustSettingsTrackTimer('seconds', 1)}
+                          activeOpacity={0.85}
+                        >
+                          <Text style={[styles.settingsTimerAdjustButtonText, { color: theme.accent }]}>+</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+
+                  <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                    Minimum 0:00.0 · Maximum 15:00.0
+                  </Text>
+
+                  <View style={styles.settingsTrackTimerActionRow}>
+                    <TouchableOpacity
+                      style={[styles.settingsActionButton, styles.settingsSecondaryButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
+                      onPress={handleClearTrackTimer}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={[styles.settingsActionButtonText, styles.settingsSecondaryButtonText, { color: theme.textPrimary }]}>Clear</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.settingsActionButton, styles.settingsPrimaryButton, { backgroundColor: theme.accent }]}
+                      onPress={handleApplyTrackTimer}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={[styles.settingsActionButtonText, { color: theme.accentText }]}>Apply Timer</Text>
+                    </TouchableOpacity>
                   </View>
                 </View>
               </>
@@ -6448,6 +6953,7 @@ const buildRegistrationData = formData => ({
           category={selectedCategory}
           initialRecord={selectedRecord}
           selectedDay={selectedDay}
+          trackTimerLimitSeconds={selectedTrackTimerLimitSeconds}
           onClose={() => {
             setFormVisible(false);
             setSelectedRecord(null);
@@ -8040,6 +8546,14 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
 
+  timerLimitText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#cdbf9a',
+    fontFamily: BODY_FONT,
+    textAlign: 'center',
+  },
+
   stopwatchButton: {
     paddingVertical: IS_SMALL_PHONE ? 12 : 16,
     paddingHorizontal: IS_SMALL_PHONE ? 14 : 24,
@@ -8751,6 +9265,91 @@ const styles = StyleSheet.create({
     padding: 18,
   },
 
+  settingsTrackRowSelected: {
+    borderColor: '#ffb15a',
+    borderWidth: 2,
+  },
+
+  settingsSelectedBadge: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#cdbf9a',
+    fontFamily: BODY_FONT,
+  },
+
+  settingsSelectedBadgeActive: {
+    color: '#ffb15a',
+  },
+
+  settingsTrackTimerPreview: {
+    marginTop: 14,
+    fontSize: 32,
+    fontWeight: '900',
+    fontFamily: HEADING_FONT,
+    textAlign: 'center',
+  },
+
+  settingsTimerCounterGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 16,
+    marginBottom: 12,
+  },
+
+  settingsTimerCounterCard: {
+    flex: 1,
+    minWidth: 150,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
+  },
+
+  settingsTimerCounterLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    fontFamily: BODY_FONT,
+  },
+
+  settingsTimerCounterControls: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+
+  settingsTimerAdjustButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  settingsTimerAdjustButtonText: {
+    fontSize: 24,
+    fontWeight: '900',
+    fontFamily: BODY_FONT,
+    lineHeight: 28,
+  },
+
+  settingsTimerCounterValue: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 28,
+    fontWeight: '900',
+    fontFamily: HEADING_FONT,
+  },
+
+  settingsTrackTimerActionRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+
   settingsFormSaveButton: {
     marginTop: 18,
   },
@@ -9289,6 +9888,10 @@ const styles = StyleSheet.create({
     borderBottomColor: '#ffe4da',
   },
 
+  dnfCheckboxRowDisabled: {
+    opacity: 0.72,
+  },
+
   dnfCheckbox: {
     width: 22,
     height: 22,
@@ -9312,10 +9915,26 @@ const styles = StyleSheet.create({
     color: '#fff6ea',
   },
 
+  dnfCheckboxContent: {
+    flex: 1,
+  },
+
   dnfCheckboxLabel: {
     fontSize: 14,
     fontWeight: '600',
     color: '#374151',
+  },
+
+  dnfCheckboxLabelDisabled: {
+    color: '#6b7280',
+  },
+
+  dnfCheckboxHint: {
+    marginTop: 2,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#9a3412',
+    fontFamily: BODY_FONT,
   },
 
   dnfPointsSection: {
