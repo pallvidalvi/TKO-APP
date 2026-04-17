@@ -1,4 +1,6 @@
 export const TRACK_POINTS_BY_POSITION = [100, 95, 90, 87, 84, 81];
+export const DISPUTE_AUTO_SUBMIT_WINDOW_MS = 20 * 60 * 1000;
+export const DISPUTE_AUTO_SUBMIT_POLL_MS = 5000;
 
 export const parseRegistrationPayload = registration => {
   if (!registration || !registration.submission_json) {
@@ -13,6 +15,60 @@ export const parseRegistrationPayload = registration => {
   } catch (error) {
     return registration || {};
   }
+};
+
+export const parseStoredTimestamp = value => {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  const rawValue = String(value).trim();
+
+  if (!rawValue) {
+    return null;
+  }
+
+  const normalizedValue = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(rawValue)
+    ? `${rawValue.replace(' ', 'T')}Z`
+    : rawValue;
+  const parsedValue = Date.parse(normalizedValue);
+
+  return Number.isNaN(parsedValue) ? null : parsedValue;
+};
+
+export const formatCountdownLabel = milliseconds => {
+  const safeMilliseconds = Math.max(0, milliseconds || 0);
+  const totalSeconds = Math.ceil(safeMilliseconds / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+};
+
+export const getDisputeAutoSubmitStatus = (dispute, now = Date.now()) => {
+  const createdAtMs =
+    parseStoredTimestamp(
+      dispute?.created_at ||
+        dispute?.createdAt ||
+        dispute?.hold_created_at ||
+        dispute?.holdCreatedAt ||
+        dispute?.updated_at ||
+        dispute?.updatedAt
+    ) || now;
+  const expiresAtMs = createdAtMs + DISPUTE_AUTO_SUBMIT_WINDOW_MS;
+  const remainingMs = Math.max(0, expiresAtMs - now);
+
+  return {
+    createdAtMs,
+    expiresAtMs,
+    remainingMs,
+    remainingLabel: formatCountdownLabel(remainingMs),
+    isExpired: expiresAtMs <= now,
+  };
 };
 
 export const normalizeValue = value => String(value || '').trim().toLowerCase();

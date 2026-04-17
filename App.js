@@ -21,7 +21,14 @@ import {
 } from 'react-native';
 import { Audio } from 'expo-av';
 import { initializeDatabase, seedDatabase } from './src/db/database';
-import { TeamsService, CategoriesService, ResultsService, DisputesService } from './src/services/dataService';
+import {
+  TeamsService,
+  CategoriesService,
+  ResultsService,
+  DisputesService,
+  promoteExpiredDisputesToResults,
+} from './src/services/dataService';
+import { DISPUTE_AUTO_SUBMIT_POLL_MS, getDisputeAutoSubmitStatus } from './src/utils/scoring';
 import ReportScreen from './src/screens/ReportScreen';
 import LeaderboardScreen from './src/screens/LeaderboardScreen';
 import TouchableOpacity from './src/components/FastTouchableOpacity';
@@ -236,8 +243,8 @@ const REPORT_DAYS = [
 
 const CATEGORY_IMAGE_SOURCES = {
   EXTREME: require('./assets/Extreme.png'),
-  DIESEL_MODIFIED: require('./assets/DieselModified.png'),
-  PETROL_MODIFIED: require('./assets/PetrolModified.png'),
+  DIESEL_MODIFIED: require('./assets/DieselModifiedTransparent.png'),
+  PETROL_MODIFIED: require('./assets/PetrolModifiedTransparent.png'),
   DIESEL_EXPERT: require('./assets/DieselExpert.png'),
   PETROL_EXPERT: require('./assets/PetrolExpert.png'),
   THAR_SUV: require('./assets/TharSUV.png'),
@@ -1251,7 +1258,12 @@ const CategoryCard = React.memo(function CategoryCard({ category, onPress, teamC
             {category.imageSource ? (
               <Image
                 source={category.imageSource}
-                style={styles.categoryImageIcon}
+                style={[
+                  styles.categoryImageIcon,
+                  categoryKey === 'PETROL_MODIFIED' && styles.categoryImageIconPetrolModified,
+                  categoryKey === 'SUV_MODIFIED' && styles.categoryImageIconSuvModified,
+                  categoryKey === 'PETROL_EXPERT' && styles.categoryImageIconPetrolExpert,
+                ]}
                 resizeMode="contain"
               />
             ) : (
@@ -3201,11 +3213,22 @@ const DisputeRecordsPanel = React.memo(function DisputeRecordsPanel({
   const responsiveLayout = layout || INITIAL_LAYOUT;
   const [selectedCategoryKey, setSelectedCategoryKey] = useState('');
   const [selectedTrackKey, setSelectedTrackKey] = useState('');
+  const [nowTimestamp, setNowTimestamp] = useState(Date.now());
 
   useEffect(() => {
     setSelectedCategoryKey('');
     setSelectedTrackKey('');
   }, [selectedDay?.id]);
+
+  useEffect(() => {
+    setNowTimestamp(Date.now());
+
+    const timerId = setInterval(() => {
+      setNowTimestamp(Date.now());
+    }, 1000);
+
+    return () => clearInterval(timerId);
+  }, []);
 
   const normalizedDisputes = useMemo(
     () => (disputes || []).map(parseRegistrationPayload),
@@ -3416,6 +3439,7 @@ const DisputeRecordsPanel = React.memo(function DisputeRecordsPanel({
                 const driverName = item.driver_name || item.driverName || '--';
                 const coDriverName = item.codriver_name || item.coDriverName || '--';
                 const disputeEntries = getNormalizedDisputeDetailEntries(item);
+                const disputeStatus = getDisputeAutoSubmitStatus(item, nowTimestamp);
 
                 return (
                   <View key={`dispute-${item.id || stickerNumber}-${driverName}`} style={[styles.registrationCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
@@ -3442,6 +3466,12 @@ const DisputeRecordsPanel = React.memo(function DisputeRecordsPanel({
                       <View style={styles.registrationInfoCell}>
                         <Text style={styles.registrationInfoLabel}>Status</Text>
                         <Text style={[styles.registrationInfoValue, styles.disputedStatusText, { color: theme.accent }]}>Disputed</Text>
+                      </View>
+                      <View style={styles.registrationInfoCell}>
+                        <Text style={styles.registrationInfoLabel}>Remaining Time</Text>
+                        <Text style={[styles.registrationInfoValue, { color: theme.accent }]}>
+                          {disputeStatus.remainingLabel}
+                        </Text>
                       </View>
                     </View>
 
@@ -3731,6 +3761,7 @@ export default function App() {
   const splashStartTriggeredRef = useRef(false);
   const ignitionSequenceTimerRef = useRef(null);
   const lateStartActionCounterRef = useRef(0);
+  const disputeAutoSubmitInFlightRef = useRef(false);
   const theme = useMemo(() => APP_THEMES[normalizeThemeMode(themeMode)], [themeMode]);
   const visibleAuthHeight = Math.max(screenHeight - keyboardHeight - 40, 220);
 
@@ -3974,6 +4005,28 @@ export default function App() {
     setCompletedTracksByRecord(buildCompletedTracksMap(teamRecords, results, dayId, disputes));
   };
 
+  const processExpiredDisputes = useCallback(async () => {
+    if (disputeAutoSubmitInFlightRef.current) {
+      return { processedCount: 0, promotedCount: 0, removedDuplicateCount: 0, failedCount: 0 };
+    }
+
+    disputeAutoSubmitInFlightRef.current = true;
+
+    try {
+      const summary = await promoteExpiredDisputesToResults();
+
+      if (summary.processedCount > 0) {
+        await refreshCompletedTracks(teams, selectedDay?.id || '');
+        await refreshDisputes();
+        setLeaderboardRefreshKey(prev => prev + 1);
+      }
+
+      return summary;
+    } finally {
+      disputeAutoSubmitInFlightRef.current = false;
+    }
+  }, [selectedDay?.id, teams]);
+
   // Initialize database on app startup
   useEffect(() => {
     const setupDatabase = async () => {
@@ -3990,6 +4043,7 @@ export default function App() {
 
         await ensureResultsClearedOnce();
         await ResultsService.cleanupDuplicateResults();
+        await promoteExpiredDisputesToResults();
         
         // Load teams with native local DB preferred and API fallback
         const teamsData = await TeamsService.getAllTeams();
@@ -4015,6 +4069,20 @@ export default function App() {
 
     setupDatabase();
   }, []);
+
+  useEffect(() => {
+    if (!dbReady) {
+      return undefined;
+    }
+
+    const intervalId = setInterval(() => {
+      processExpiredDisputes().catch(error => {
+        console.warn('Unable to auto-submit expired disputes:', error);
+      });
+    }, DISPUTE_AUTO_SUBMIT_POLL_MS);
+
+    return () => clearInterval(intervalId);
+  }, [dbReady, processExpiredDisputes]);
 
   // Category data with colors
   const categories = [
@@ -4797,9 +4865,9 @@ const buildRegistrationData = formData => ({
     }
 
     if (recordKey && completedTrack) {
-      clearActiveRecordState(recordKey, false);
+      clearActiveRecordState(recordKey, isDisputeRecord);
     } else {
-      clearActiveRecordState('', false);
+      clearActiveRecordState('', isDisputeRecord);
     }
 
     await refreshCompletedTracks(teams, selectedDay?.id || '');
@@ -7143,6 +7211,21 @@ const styles = StyleSheet.create({
     width: IS_TABLET ? '130%' : '120%',
     height: IS_TABLET ? '112%' : '108%',
     alignSelf: 'center',
+  },
+
+  categoryImageIconSuvModified: {
+    width: IS_TABLET ? '106%' : '100%',
+    height: IS_TABLET ? '98%' : '94%',
+  },
+
+  categoryImageIconPetrolModified: {
+    width: IS_TABLET ? '110%' : '103%',
+    height: IS_TABLET ? '98%' : '95%',
+  },
+
+  categoryImageIconPetrolExpert: {
+    width: IS_TABLET ? '170%' : '160%',
+    height: IS_TABLET ? '142%' : '136%',
   },
 
   countPanel: {

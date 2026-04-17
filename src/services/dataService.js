@@ -28,6 +28,11 @@ import {
   clearAllResults as clearAllResultsDB,
   normalizeStoredDayPayload,
 } from '../db/database';
+import {
+  DISPUTE_AUTO_SUBMIT_WINDOW_MS,
+  getDisputeAutoSubmitStatus,
+  parseRegistrationPayload,
+} from '../utils/scoring';
 
 const API_BASE_URL = 'https://www.teamkaradoffroaders.online/api';
 const isWeb = Platform.OS === 'web';
@@ -68,6 +73,169 @@ const getDisputeDraftKey = item => {
   const identity = getNormalizedResultIdentity(item);
 
   return [identity.category, identity.trackName, identity.stickerNumber, identity.dayId].join('|');
+};
+const safeParseJsonObject = value => {
+  if (!value) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (error) {
+    return {};
+  }
+};
+
+const buildResultDataFromDispute = dispute => {
+  const parsedDispute = parseRegistrationPayload(dispute);
+  const sourcePayload = safeParseJsonObject(dispute?.submission_json);
+  const autoSubmittedAt = new Date().toISOString();
+  const normalizedFormPayload = {
+    ...sourcePayload,
+    trackName:
+      parsedDispute.track_name || parsedDispute.trackName || sourcePayload.trackName || '',
+    stickerNumber:
+      parsedDispute.sticker_number || parsedDispute.stickerNumber || sourcePayload.stickerNumber || '',
+    driverName:
+      parsedDispute.driver_name || parsedDispute.driverName || sourcePayload.driverName || '',
+    coDriverName:
+      parsedDispute.codriver_name || parsedDispute.coDriverName || sourcePayload.coDriverName || '',
+    category: parsedDispute.category || sourcePayload.category || '',
+    selectedDayId:
+      parsedDispute.selected_day_id || parsedDispute.selectedDayId || sourcePayload.selectedDayId || '',
+    selectedDayLabel:
+      parsedDispute.selected_day_label || parsedDispute.selectedDayLabel || sourcePayload.selectedDayLabel || '',
+    selectedDayDate:
+      parsedDispute.selected_day_date || parsedDispute.selectedDayDate || sourcePayload.selectedDayDate || '',
+    disputeId: dispute?.id || sourcePayload.disputeId || null,
+    source: 'dispute-auto-submit',
+    autoSubmittedFromDispute: true,
+    autoSubmittedAt,
+    disputeCreatedAt: dispute?.created_at || sourcePayload.disputeCreatedAt || null,
+    disputeAutoSubmitWindowMs: DISPUTE_AUTO_SUBMIT_WINDOW_MS,
+  };
+
+  return normalizeStoredDayPayload({
+    sr_no: parsedDispute.sr_no || parsedDispute.srNo || sourcePayload.srNo || null,
+    srNo: parsedDispute.sr_no || parsedDispute.srNo || sourcePayload.srNo || null,
+    track_name: normalizedFormPayload.trackName,
+    trackName: normalizedFormPayload.trackName,
+    sticker_number: normalizedFormPayload.stickerNumber,
+    stickerNumber: normalizedFormPayload.stickerNumber,
+    driver_name: normalizedFormPayload.driverName,
+    driverName: normalizedFormPayload.driverName,
+    codriver_name: normalizedFormPayload.coDriverName,
+    coDriverName: normalizedFormPayload.coDriverName,
+    category: normalizedFormPayload.category,
+    selected_day_id: normalizedFormPayload.selectedDayId || '',
+    selectedDayId: normalizedFormPayload.selectedDayId || '',
+    selected_day_label: normalizedFormPayload.selectedDayLabel || '',
+    selectedDayLabel: normalizedFormPayload.selectedDayLabel || '',
+    selected_day_date: normalizedFormPayload.selectedDayDate || '',
+    selectedDayDate: normalizedFormPayload.selectedDayDate || '',
+    bunting_count:
+      parsedDispute.bunting_count ?? parsedDispute.bustingCount ?? sourcePayload.bustingCount ?? 0,
+    bustingCount:
+      parsedDispute.bunting_count ?? parsedDispute.bustingCount ?? sourcePayload.bustingCount ?? 0,
+    seatbelt_count:
+      parsedDispute.seatbelt_count ?? parsedDispute.seatbeltCount ?? sourcePayload.seatbeltCount ?? 0,
+    seatbeltCount:
+      parsedDispute.seatbelt_count ?? parsedDispute.seatbeltCount ?? sourcePayload.seatbeltCount ?? 0,
+    ground_touch_count:
+      parsedDispute.ground_touch_count ?? parsedDispute.groundTouchCount ?? sourcePayload.groundTouchCount ?? 0,
+    groundTouchCount:
+      parsedDispute.ground_touch_count ?? parsedDispute.groundTouchCount ?? sourcePayload.groundTouchCount ?? 0,
+    late_start_count:
+      parsedDispute.late_start_count ??
+      parsedDispute.lateStartCount ??
+      sourcePayload.lateStartCount ??
+      (parsedDispute.lateStartMode || sourcePayload.lateStartMode ? 1 : 0),
+    lateStartCount:
+      parsedDispute.late_start_count ??
+      parsedDispute.lateStartCount ??
+      sourcePayload.lateStartCount ??
+      (parsedDispute.lateStartMode || sourcePayload.lateStartMode ? 1 : 0),
+    late_start_mode: parsedDispute.late_start_mode || parsedDispute.lateStartMode || sourcePayload.lateStartMode || null,
+    lateStartMode: parsedDispute.late_start_mode || parsedDispute.lateStartMode || sourcePayload.lateStartMode || null,
+    late_start_status:
+      parsedDispute.late_start_status || parsedDispute.lateStartStatus || sourcePayload.lateStartStatus || 'No',
+    lateStartStatus:
+      parsedDispute.late_start_status || parsedDispute.lateStartStatus || sourcePayload.lateStartStatus || 'No',
+    late_start_penalty_time:
+      parsedDispute.late_start_penalty_time ??
+      parsedDispute.lateStartPenaltyTime ??
+      sourcePayload.lateStartPenaltyTime ??
+      0,
+    lateStartPenaltyTime:
+      parsedDispute.late_start_penalty_time ??
+      parsedDispute.lateStartPenaltyTime ??
+      sourcePayload.lateStartPenaltyTime ??
+      0,
+    attempt_count:
+      parsedDispute.attempt_count ?? parsedDispute.attemptCount ?? sourcePayload.attemptCount ?? 0,
+    attemptCount:
+      parsedDispute.attempt_count ?? parsedDispute.attemptCount ?? sourcePayload.attemptCount ?? 0,
+    attempt_penalty_time:
+      parsedDispute.attempt_penalty_time ?? parsedDispute.attemptPenaltyTime ?? sourcePayload.attemptPenaltyTime ?? 0,
+    task_skipped_count:
+      parsedDispute.task_skipped_count ?? parsedDispute.taskSkippedCount ?? sourcePayload.taskSkippedCount ?? 0,
+    taskSkippedCount:
+      parsedDispute.task_skipped_count ?? parsedDispute.taskSkippedCount ?? sourcePayload.taskSkippedCount ?? 0,
+    task_skipped_penalty_time:
+      parsedDispute.task_skipped_penalty_time ??
+      parsedDispute.taskSkippedPenaltyTime ??
+      sourcePayload.taskSkippedPenaltyTime ??
+      0,
+    wrong_course_count:
+      parsedDispute.wrong_course_count ??
+      parsedDispute.wrongCourseCount ??
+      (parsedDispute.wrongCourseSelected || sourcePayload.wrongCourseSelected ? 1 : 0),
+    wrongCourseCount:
+      parsedDispute.wrong_course_count ??
+      parsedDispute.wrongCourseCount ??
+      (parsedDispute.wrongCourseSelected || sourcePayload.wrongCourseSelected ? 1 : 0),
+    wrong_course_selected:
+      parsedDispute.wrong_course_selected ?? parsedDispute.wrongCourseSelected ?? sourcePayload.wrongCourseSelected ?? false,
+    fourth_attempt_count:
+      parsedDispute.fourth_attempt_count ??
+      parsedDispute.fourthAttemptCount ??
+      (parsedDispute.fourthAttemptSelected || sourcePayload.fourthAttemptSelected ? 1 : 0),
+    fourthAttemptCount:
+      parsedDispute.fourth_attempt_count ??
+      parsedDispute.fourthAttemptCount ??
+      (parsedDispute.fourthAttemptSelected || sourcePayload.fourthAttemptSelected ? 1 : 0),
+    fourth_attempt_selected:
+      parsedDispute.fourth_attempt_selected ??
+      parsedDispute.fourthAttemptSelected ??
+      sourcePayload.fourthAttemptSelected ??
+      false,
+    time_over_selected:
+      parsedDispute.time_over_selected ?? parsedDispute.timeOverSelected ?? sourcePayload.timeOverSelected ?? false,
+    is_dnf: parsedDispute.is_dnf ?? parsedDispute.isDNF ?? sourcePayload.isDNF ?? false,
+    is_dns: parsedDispute.is_dns ?? parsedDispute.isDNS ?? sourcePayload.isDNS ?? false,
+    dnf_selection: parsedDispute.dnf_selection ?? parsedDispute.dnfSelection ?? sourcePayload.dnfSelection ?? null,
+    dnf_points: parsedDispute.dnf_points ?? parsedDispute.dnfPoints ?? sourcePayload.dnfPoints ?? 0,
+    bunting_penalty_time:
+      parsedDispute.bunting_penalty_time ?? parsedDispute.bustingPenaltyTime ?? sourcePayload.bustingPenaltyTime ?? 0,
+    seatbelt_penalty_time:
+      parsedDispute.seatbelt_penalty_time ?? parsedDispute.seatbeltPenaltyTime ?? sourcePayload.seatbeltPenaltyTime ?? 0,
+    ground_touch_penalty_time:
+      parsedDispute.ground_touch_penalty_time ??
+      parsedDispute.groundTouchPenaltyTime ??
+      sourcePayload.groundTouchPenaltyTime ??
+      0,
+    total_penalties_time:
+      parsedDispute.total_penalties_time ?? parsedDispute.totalPenaltiesTime ?? sourcePayload.totalPenaltiesTime ?? 0,
+    performance_time:
+      parsedDispute.performance_time || parsedDispute.performanceTimeDisplay || sourcePayload.performanceTimeDisplay || null,
+    performanceTimeDisplay:
+      parsedDispute.performance_time || parsedDispute.performanceTimeDisplay || sourcePayload.performanceTimeDisplay || null,
+    total_time: parsedDispute.total_time || parsedDispute.totalTimeDisplay || sourcePayload.totalTimeDisplay || null,
+    totalTimeDisplay:
+      parsedDispute.total_time || parsedDispute.totalTimeDisplay || sourcePayload.totalTimeDisplay || null,
+    submission_json: JSON.stringify(normalizedFormPayload),
+  });
 };
 const WEB_FALLBACK_TEAMS = SEEDED_TEAMS;
 
@@ -608,6 +776,74 @@ export const DisputesService = {
   },
 };
 
+export const promoteExpiredDisputesToResults = async () => {
+  try {
+    const disputes = await DisputesService.getAllDisputes();
+    let processedCount = 0;
+    let promotedCount = 0;
+    let removedDuplicateCount = 0;
+    let failedCount = 0;
+
+    for (const dispute of disputes) {
+      const disputeStatus = getDisputeAutoSubmitStatus(dispute);
+
+      if (!disputeStatus.isExpired) {
+        continue;
+      }
+
+      const resultData = buildResultDataFromDispute(dispute);
+
+      if (!resultData.track_name || !resultData.sticker_number || !resultData.category) {
+        failedCount += 1;
+        continue;
+      }
+
+      let shouldDeleteDispute = false;
+
+      try {
+        await ResultsService.addResult(resultData);
+        promotedCount += 1;
+        shouldDeleteDispute = true;
+      } catch (error) {
+        if (error?.code === 'DUPLICATE_RESULT') {
+          removedDuplicateCount += 1;
+          shouldDeleteDispute = true;
+        } else {
+          failedCount += 1;
+          console.error('Error auto-submitting expired dispute:', error);
+        }
+      }
+
+      if (!shouldDeleteDispute) {
+        continue;
+      }
+
+      try {
+        await DisputesService.deleteDisputeById(dispute.id);
+        processedCount += 1;
+      } catch (error) {
+        failedCount += 1;
+        console.error('Error deleting expired dispute after auto-submit:', error);
+      }
+    }
+
+    return {
+      processedCount,
+      promotedCount,
+      removedDuplicateCount,
+      failedCount,
+    };
+  } catch (error) {
+    console.error('Error processing expired disputes:', error);
+    return {
+      processedCount: 0,
+      promotedCount: 0,
+      removedDuplicateCount: 0,
+      failedCount: 1,
+    };
+  }
+};
+
 export default {
   TeamsService,
   PlayersService,
@@ -615,4 +851,5 @@ export default {
   RegistrationsService,
   ResultsService,
   DisputesService,
+  promoteExpiredDisputesToResults,
 };

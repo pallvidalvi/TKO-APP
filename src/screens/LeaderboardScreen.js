@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -11,10 +11,12 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
-import { ResultsService, DisputesService } from '../services/dataService';
+import { ResultsService, DisputesService, promoteExpiredDisputesToResults } from '../services/dataService';
 import TouchableOpacity from '../components/FastTouchableOpacity';
 import {
+  DISPUTE_AUTO_SUBMIT_POLL_MS,
   getDayIdentity,
+  getDisputeAutoSubmitStatus,
   getResultIdentityKey,
   getResultTimeValue,
   isDnfResult,
@@ -148,9 +150,10 @@ const getDayShortLabel = item => {
   return rawDate || 'Day';
 };
 
-const getTimingLabel = item => {
+const getTimingLabel = (item, nowTimestamp) => {
   if (item?.isDisputed) {
-    return 'HOLD';
+    const disputeStatus = getDisputeAutoSubmitStatus(item, nowTimestamp);
+    return `HOLD ${disputeStatus.remainingLabel}`;
   }
 
   if (isDnsResult(item)) {
@@ -192,10 +195,18 @@ const LeaderboardScreen = ({
   const [results, setResults] = useState([]);
   const [disputes, setDisputes] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('');
+  const [nowTimestamp, setNowTimestamp] = useState(Date.now());
 
-  const loadResults = async () => {
+  const loadResults = useCallback(async (showLoading = true, shouldProcessExpiredDisputes = true) => {
     try {
-      setLoading(true);
+      if (showLoading) {
+        setLoading(true);
+      }
+
+      if (shouldProcessExpiredDisputes) {
+        await promoteExpiredDisputesToResults();
+      }
+
       const [rows, disputeRows] = await Promise.all([
         ResultsService.getAllResults(),
         DisputesService.getAllDisputes(),
@@ -206,9 +217,11 @@ const LeaderboardScreen = ({
       console.error('Error loading leaderboard data:', error);
       Alert.alert('Leaderboard Error', 'Unable to load leaderboard data');
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (visible) {
@@ -217,7 +230,35 @@ const LeaderboardScreen = ({
     }
 
     setSelectedCategory('');
-  }, [dataRefreshKey, visible]);
+  }, [dataRefreshKey, loadResults, visible]);
+
+  useEffect(() => {
+    if (!visible) {
+      return undefined;
+    }
+
+    setNowTimestamp(Date.now());
+
+    const clockIntervalId = setInterval(() => {
+      setNowTimestamp(Date.now());
+    }, 1000);
+    const disputeIntervalId = setInterval(() => {
+      promoteExpiredDisputesToResults()
+        .then(summary => {
+          if (summary.processedCount > 0) {
+            loadResults(false, false);
+          }
+        })
+        .catch(error => {
+          console.warn('Unable to auto-submit expired disputes in leaderboard:', error);
+        });
+    }, DISPUTE_AUTO_SUBMIT_POLL_MS);
+
+    return () => {
+      clearInterval(clockIntervalId);
+      clearInterval(disputeIntervalId);
+    };
+  }, [loadResults, visible]);
 
   const normalizedResults = useMemo(() => results.map(parseRegistrationPayload), [results]);
 
@@ -378,7 +419,7 @@ const LeaderboardScreen = ({
           key: getResultIdentityKey(item),
           dayLabel: getDayShortLabel(item),
           dayOrder: getDayOrder(item),
-          timingLabel: getTimingLabel(item),
+          timingLabel: getTimingLabel(item, nowTimestamp),
           pointsLabel:
             item.reportPoints === null || item.reportPoints === undefined ? '--' : `${item.reportPoints} pts`,
           rankLabel: item.reportRankLabel || '--',
@@ -404,7 +445,7 @@ const LeaderboardScreen = ({
         }),
       }))
       .sort(compareRows);
-  }, [selectedCategoryConfig, teams, uniqueResults]);
+  }, [nowTimestamp, selectedCategoryConfig, teams, uniqueResults]);
 
   const tableWidth = useMemo(() => {
     const trackCount = selectedCategoryConfig?.tracks?.length || 0;
@@ -528,7 +569,7 @@ const LeaderboardScreen = ({
                 <Text style={[styles.legendTitle, { color: theme.textPrimary }]}>Cell Format</Text>
                 <Text style={[styles.legendText, { color: theme.textSecondary }]}>
                   `Track total points` on top, then day-wise rows like `D1: 02:14:32 | 100 pts | P1`. If a track was not
-                  played, the cell shows `NA`.
+                  played, the cell shows `NA`. Disputed holds display their remaining auto-submit timer.
                 </Text>
               </View>
 

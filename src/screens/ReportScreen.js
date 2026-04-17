@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -10,10 +10,12 @@ import {
   Alert,
   Platform,
 } from 'react-native';
-import { ResultsService, DisputesService } from '../services/dataService';
+import { ResultsService, DisputesService, promoteExpiredDisputesToResults } from '../services/dataService';
 import TouchableOpacity from '../components/FastTouchableOpacity';
 import { CloseActionButton, NavigationActionButton } from '../components/NavigationActionButton';
 import {
+  DISPUTE_AUTO_SUBMIT_POLL_MS,
+  getDisputeAutoSubmitStatus,
   isDnsResult,
   rankTrackResults,
 } from '../utils/scoring';
@@ -186,10 +188,18 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], the
   const [disputes, setDisputes] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedTrack, setSelectedTrack] = useState('');
+  const [nowTimestamp, setNowTimestamp] = useState(Date.now());
 
-  const loadResults = async () => {
+  const loadResults = useCallback(async (showLoading = true, shouldProcessExpiredDisputes = true) => {
     try {
-      setLoading(true);
+      if (showLoading) {
+        setLoading(true);
+      }
+
+      if (shouldProcessExpiredDisputes) {
+        await promoteExpiredDisputesToResults();
+      }
+
       const [rows, disputeRows] = await Promise.all([
         ResultsService.getAllResults(),
         DisputesService.getAllDisputes(),
@@ -200,9 +210,11 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], the
       console.error('Error loading report data:', error);
       Alert.alert('Report Error', 'Unable to load report data');
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (visible) {
@@ -211,7 +223,35 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], the
       setSelectedCategory('');
       setSelectedTrack('');
     }
-  }, [visible]);
+  }, [loadResults, visible]);
+
+  useEffect(() => {
+    if (!visible) {
+      return undefined;
+    }
+
+    setNowTimestamp(Date.now());
+
+    const clockIntervalId = setInterval(() => {
+      setNowTimestamp(Date.now());
+    }, 1000);
+    const disputeIntervalId = setInterval(() => {
+      promoteExpiredDisputesToResults()
+        .then(summary => {
+          if (summary.processedCount > 0) {
+            loadResults(false, false);
+          }
+        })
+        .catch(error => {
+          console.warn('Unable to auto-submit expired disputes in reports:', error);
+        });
+    }, DISPUTE_AUTO_SUBMIT_POLL_MS);
+
+    return () => {
+      clearInterval(clockIntervalId);
+      clearInterval(disputeIntervalId);
+    };
+  }, [loadResults, visible]);
 
   useEffect(() => {
     setSelectedCategory('');
@@ -520,14 +560,19 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], the
                       const driverName = item.driver_name || item.driverName || '--';
                       const coDriverName = item.codriver_name || item.coDriverName || '--';
                       const disputeDetailSummary = item.isDisputed ? formatDisputeEntriesInline(item) : '';
+                      const disputeStatus = item.isDisputed ? getDisputeAutoSubmitStatus(item, nowTimestamp) : null;
                       const totalTime = item.isDisputed
-                        ? 'Disputed'
+                        ? 'Hold'
                         : isDnsResult(item)
                         ? 'DNS'
                         : item.total_time || item.totalTimeDisplay || '--';
                       const pointsLabel =
                         item.reportPoints === null || item.reportPoints === undefined ? '--' : `${item.reportPoints}`;
-                      const resultMetaLabel = item.reportRankLabel ? `${item.reportRankLabel} | ${pointsLabel} pts` : `${pointsLabel} pts`;
+                      const resultMetaLabel = item.isDisputed
+                        ? `Auto-submit in ${disputeStatus?.remainingLabel || '00:00'}`
+                        : item.reportRankLabel
+                        ? `${item.reportRankLabel} | ${pointsLabel} pts`
+                        : `${pointsLabel} pts`;
 
                       if (item.isDisputed && disputeDetailSummary) {
                         return (
