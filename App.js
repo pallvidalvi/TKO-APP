@@ -2060,24 +2060,29 @@ const RegistrationForm = React.memo(function RegistrationForm({
   ]);
 
   const toggleStopwatch = () => {
-    if (isStopwatchRunning) {
-      const nextElapsed =
-        stopwatchStartTimestampRef.current !== null
-          ? Math.max(0, Date.now() - stopwatchStartTimestampRef.current)
-          : stopwatchElapsedRef.current;
+    try {
+      if (isStopwatchRunning) {
+        const nextElapsed =
+          stopwatchStartTimestampRef.current !== null
+            ? Math.max(0, Date.now() - stopwatchStartTimestampRef.current)
+            : stopwatchElapsedRef.current;
 
-      stopwatchElapsedRef.current = nextElapsed;
-      stopwatchStartTimestampRef.current = null;
-      setStopwatchTime(nextElapsed);
-      setIsStopwatchRunning(false);
-      setHasTimerStopped(true);
-      return;
-    }
+        stopwatchElapsedRef.current = nextElapsed;
+        stopwatchStartTimestampRef.current = null;
+        setStopwatchTime(nextElapsed);
+        setIsStopwatchRunning(false);
+        setHasTimerStopped(true);
+        return;
+      }
 
-    if (!hasTimerStarted && !hasTimerStopped) {
-      stopwatchStartTimestampRef.current = Date.now() - stopwatchElapsedRef.current;
-      setIsStopwatchRunning(true);
-      setHasTimerStarted(true);
+      if (!hasTimerStarted && !hasTimerStopped) {
+        stopwatchStartTimestampRef.current = Date.now() - stopwatchElapsedRef.current;
+        setIsStopwatchRunning(true);
+        setHasTimerStarted(true);
+      }
+    } catch (error) {
+      console.error('Unable to toggle stopwatch:', error);
+      Alert.alert('Error', 'Unable to start the timer.');
     }
   };
 
@@ -4573,8 +4578,13 @@ export default function App() {
   };
 
   const handleOpenDisputes = async () => {
-    await refreshDisputes();
-    setSettingsView('disputes');
+    try {
+      await refreshDisputes();
+      setSettingsView('disputes');
+    } catch (error) {
+      console.error('Unable to open disputes view:', error);
+      Alert.alert('Error', 'Unable to load disputed records.');
+    }
   };
 
   const handleThemeOpen = () => {
@@ -4596,16 +4606,21 @@ export default function App() {
   };
 
   const handleSettingsPasswordSubmit = () => {
-    if (settingsPasswordInput !== settingsPassword) {
-      setSettingsPasswordError('Wrong password. Please try again.');
-      return;
-    }
+    try {
+      if (settingsPasswordInput !== settingsPassword) {
+        setSettingsPasswordError('Wrong password. Please try again.');
+        return;
+      }
 
-    setSettingsPasswordModalVisible(false);
-    setSettingsPasswordInput('');
-    setSettingsPasswordError('');
-    setSettingsView('menu');
-    setSettingsVisible(true);
+      setSettingsPasswordModalVisible(false);
+      setSettingsPasswordInput('');
+      setSettingsPasswordError('');
+      setSettingsView('menu');
+      setSettingsVisible(true);
+    } catch (error) {
+      console.error('Unable to open settings:', error);
+      Alert.alert('Error', 'Unable to open settings right now.');
+    }
   };
 
   const handleOpenChangePassword = () => {
@@ -4816,18 +4831,27 @@ export default function App() {
     });
   };
 
-  const handleRecordStart = (record) => {
-    const recordKey = record.recordKey || getRecordKey(record);
-    setSelectedRecord({
-      ...record,
-      selectedTrack: selectedCategoryTrack,
-      lateStartMode: selectedLateStartEnabledByRecord[recordKey]
-        ? selectedLateStartByRecord[recordKey] || ''
-        : '',
-    });
-    setActiveRecordKey(recordKey);
-    setRecordsVisible(false);
-    setFormVisible(true);
+  const handleRecordStart = record => {
+    try {
+      const safeRecord = record || {};
+      const recordKey = safeRecord.recordKey || getRecordKey(safeRecord);
+
+      setSelectedRecord({
+        ...safeRecord,
+        selectedTrack: safeRecord.selectedTrack || selectedCategoryTrack || '',
+        lateStartMode: selectedLateStartEnabledByRecord[recordKey]
+          ? selectedLateStartByRecord[recordKey] || ''
+          : '',
+      });
+      setActiveRecordKey(recordKey);
+      setRecordsVisible(false);
+      requestAnimationFrame(() => {
+        setFormVisible(true);
+      });
+    } catch (error) {
+      console.error('Unable to open record form:', error);
+      Alert.alert('Error', 'Unable to open the record form.');
+    }
   };
 
   const handleRecordActivate = record => {
@@ -4897,46 +4921,30 @@ export default function App() {
   };
 
   const handleDNSRecordSubmit = async record => {
-    const didVerifyPin = await handleVerifyPinForRecord('submit this DNS record');
+    try {
+      const safeRecord = record || {};
+      const didVerifyPin = await handleVerifyPinForRecord('submit this DNS record');
 
-    if (!didVerifyPin) {
-      return;
-    }
+      if (!didVerifyPin) {
+        return false;
+      }
 
-    const nullValue = 'null';
-    const fileName = `${selectedCategory?.name || 'Category'} - ${record.selectedTrack || 'Track'} - DNS.csv`;
-    const dayPayload = {
-      selected_day_id: selectedDay?.id || '',
-      selectedDayId: selectedDay?.id || '',
-      selected_day_label: selectedDay?.dayLabel || '',
-      selectedDayLabel: selectedDay?.dayLabel || '',
-      selected_day_date: selectedDay?.dateLabel || '',
-      selectedDayDate: selectedDay?.dateLabel || '',
-    };
-    const dnsResultData = {
-      track_name: record.selectedTrack || '',
-      sticker_number: getTeamStickerNumber(record) || '',
-      driver_name: record.driver_name || record.driverName || '',
-      codriver_name: record.codriver_name || record.coDriverName || '',
-      category: selectedCategory?.name || '',
-      bunting_count: 0,
-      seatbelt_count: 0,
-      ground_touch_count: 0,
-      late_start_count: 0,
-      attempt_count: 0,
-      task_skipped_count: 0,
-      wrong_course_count: 0,
-      fourth_attempt_count: 0,
-      is_dns: true,
-      total_penalties_time: 0,
-      performance_time: '0',
-      total_time: '0',
-      ...dayPayload,
-      submission_json: JSON.stringify({
-        ...record,
+      const nullValue = 'null';
+      const fileName = `${selectedCategory?.name || 'Category'} - ${safeRecord.selectedTrack || 'Track'} - DNS.csv`;
+      const dayPayload = {
+        selected_day_id: selectedDay?.id || '',
+        selectedDayId: selectedDay?.id || '',
+        selected_day_label: selectedDay?.dayLabel || '',
+        selectedDayLabel: selectedDay?.dayLabel || '',
+        selected_day_date: selectedDay?.dateLabel || '',
+        selectedDayDate: selectedDay?.dateLabel || '',
+      };
+      const dnsResultData = {
+        track_name: safeRecord.selectedTrack || '',
+        sticker_number: getTeamStickerNumber(safeRecord) || '',
+        driver_name: safeRecord.driver_name || safeRecord.driverName || '',
+        codriver_name: safeRecord.codriver_name || safeRecord.coDriverName || '',
         category: selectedCategory?.name || '',
-        ...dayPayload,
-        is_dns: true,
         bunting_count: 0,
         seatbelt_count: 0,
         ground_touch_count: 0,
@@ -4945,47 +4953,64 @@ export default function App() {
         task_skipped_count: 0,
         wrong_course_count: 0,
         fourth_attempt_count: 0,
+        is_dns: true,
         total_penalties_time: 0,
         performance_time: '0',
         total_time: '0',
-      }),
-    };
+        ...dayPayload,
+        submission_json: JSON.stringify({
+          ...safeRecord,
+          category: selectedCategory?.name || '',
+          ...dayPayload,
+          is_dns: true,
+          bunting_count: 0,
+          seatbelt_count: 0,
+          ground_touch_count: 0,
+          late_start_count: 0,
+          attempt_count: 0,
+          task_skipped_count: 0,
+          wrong_course_count: 0,
+          fourth_attempt_count: 0,
+          total_penalties_time: 0,
+          performance_time: '0',
+          total_time: '0',
+        }),
+      };
 
-    const row = [[
-      record.selectedTrack || nullValue,
-      nullValue,
-      getTeamStickerNumber(record) || nullValue,
-      record.driver_name || record.driverName || nullValue,
-      record.codriver_name || record.coDriverName || nullValue,
-      nullValue,
-      nullValue,
-      nullValue,
-      nullValue,
-      nullValue,
-      nullValue,
-      nullValue,
-      nullValue,
-      nullValue,
-      nullValue,
-      nullValue,
-      nullValue,
-      nullValue,
-      nullValue,
-      nullValue,
-      nullValue,
-      nullValue,
-      nullValue,
-      nullValue,
-      nullValue,
-      nullValue,
-      nullValue,
-    ]];
+      const row = [[
+        safeRecord.selectedTrack || nullValue,
+        nullValue,
+        getTeamStickerNumber(safeRecord) || nullValue,
+        safeRecord.driver_name || safeRecord.driverName || nullValue,
+        safeRecord.codriver_name || safeRecord.coDriverName || nullValue,
+        nullValue,
+        nullValue,
+        nullValue,
+        nullValue,
+        nullValue,
+        nullValue,
+        nullValue,
+        nullValue,
+        nullValue,
+        nullValue,
+        nullValue,
+        nullValue,
+        nullValue,
+        nullValue,
+        nullValue,
+        nullValue,
+        nullValue,
+        nullValue,
+        nullValue,
+        nullValue,
+        nullValue,
+        nullValue,
+      ]];
 
-    try {
       const isDuplicate = await ResultsService.isDuplicateResult(dnsResultData);
       if (isDuplicate) {
         Alert.alert('Duplicate Record', 'This DNS record already exists for the same category, track, and sticker number.');
-        return;
+        return false;
       }
 
       await CSVExporter.downloadFile(fileName, RECORD_EXPORT_HEADERS, row);
@@ -4994,7 +5019,7 @@ export default function App() {
       await refreshCompletedTracks(teams, selectedDay?.id || '');
       setLeaderboardRefreshKey(prev => prev + 1);
 
-      const recordKey = record.recordKey || getRecordKey(record);
+      const recordKey = safeRecord.recordKey || getRecordKey(safeRecord);
 
       setSelectedLateStartByRecord(prev => ({
         ...prev,
@@ -5008,7 +5033,7 @@ export default function App() {
 
       Alert.alert(
         'DNS Submitted',
-        `Driver: ${record.driver_name || record.driverName || 'Unknown Driver'}\nCategory: ${selectedCategory?.name || ''}\nTrack: ${record.selectedTrack || ''}\nTotal Time: 0`,
+        `Driver: ${safeRecord.driver_name || safeRecord.driverName || 'Unknown Driver'}\nCategory: ${selectedCategory?.name || ''}\nTrack: ${safeRecord.selectedTrack || ''}\nTotal Time: 0`,
         [
           {
             text: 'OK',
@@ -5021,7 +5046,9 @@ export default function App() {
         ]
       );
     } catch (error) {
-      Alert.alert('Error', 'Failed to generate file: ' + error.message);
+      console.error('Unable to submit DNS record:', error);
+      Alert.alert('Error', 'Failed to generate file: ' + (error?.message || 'Unknown error'));
+      return false;
     }
   };
 
@@ -5113,72 +5140,82 @@ const buildRegistrationData = formData => ({
   };
 
   const finalizeRecordSubmission = async formData => {
-    const completedTrack = formData.trackName;
-    const isDisputeRecord = formData.source === 'dispute';
-    const recordKey = selectedRecord?.recordKey || getRecordKey(selectedRecord || {});
-    const registrationData = buildRegistrationData(formData);
+    try {
+      const safeFormData = formData || {};
+      const completedTrack = safeFormData.trackName;
+      const isDisputeRecord = safeFormData.source === 'dispute';
+      const recordKey = selectedRecord?.recordKey || getRecordKey(selectedRecord || {});
+      const registrationData = buildRegistrationData(safeFormData);
 
-    if (!isDisputeRecord) {
-      const didDownload = await downloadResultCsv(formData).then(() => true).catch(error => {
-        Alert.alert('Error', 'Failed to generate file: ' + error.message);
-        console.error('File generation error:', error);
-        return false;
-      });
+      if (!isDisputeRecord) {
+        const didDownload = await downloadResultCsv(safeFormData)
+          .then(() => true)
+          .catch(error => {
+            Alert.alert('Error', 'Failed to generate file: ' + error.message);
+            console.error('File generation error:', error);
+            return false;
+          });
 
-      if (!didDownload) {
+        if (!didDownload) {
+          return false;
+        }
+      }
+
+      const isDuplicate = await ResultsService.isDuplicateResult(registrationData);
+      if (isDuplicate) {
+        Alert.alert('Duplicate Record', 'This result already exists for the same category, track, and sticker number.');
         return false;
       }
-    }
 
-    const isDuplicate = await ResultsService.isDuplicateResult(registrationData);
-    if (isDuplicate) {
-      Alert.alert('Duplicate Record', 'This result already exists for the same category, track, and sticker number.');
+      const savedId = await ResultsService.addResult(registrationData);
+
+      if (!savedId) {
+        Alert.alert('Error', 'Registration was not saved to the database');
+        return false;
+      }
+
+      if (isDisputeRecord && safeFormData.disputeId) {
+        await DisputesService.deleteDisputeById(safeFormData.disputeId);
+        await refreshDisputes();
+      }
+
+      if (recordKey && completedTrack) {
+        clearActiveRecordState(recordKey, isDisputeRecord);
+      } else {
+        clearActiveRecordState('', isDisputeRecord);
+      }
+
+      await refreshCompletedTracks(teams, selectedDay?.id || '');
+      setLeaderboardRefreshKey(prev => prev + 1);
+      return true;
+    } catch (error) {
+      console.error('Unable to finalize record submission:', error);
+      Alert.alert('Error', 'Registration could not be completed.');
       return false;
     }
-
-    const savedId = await ResultsService.addResult(registrationData);
-
-    if (!savedId) {
-      Alert.alert('Error', 'Registration was not saved to the database');
-      return false;
-    }
-
-    if (isDisputeRecord && formData.disputeId) {
-      await DisputesService.deleteDisputeById(formData.disputeId);
-      await refreshDisputes();
-    }
-
-    if (recordKey && completedTrack) {
-      clearActiveRecordState(recordKey, isDisputeRecord);
-    } else {
-      clearActiveRecordState('', isDisputeRecord);
-    }
-
-    await refreshCompletedTracks(teams, selectedDay?.id || '');
-    setLeaderboardRefreshKey(prev => prev + 1);
-    return true;
   };
 
   const holdRecordForDispute = async formData => {
     try {
+      const safeFormData = formData || {};
       const disputePayload = {
-        id: formData.disputeId || undefined,
-        track_name: formData.trackName,
-        sticker_number: formData.stickerNumber,
-        driver_name: formData.driverName,
-        codriver_name: formData.coDriverName,
-        category: formData.category,
-        selected_day_id: formData.selectedDayId || '',
-        selectedDayId: formData.selectedDayId || '',
-        selected_day_label: formData.selectedDayLabel || '',
-        selectedDayLabel: formData.selectedDayLabel || '',
-        selected_day_date: formData.selectedDayDate || '',
-        selectedDayDate: formData.selectedDayDate || '',
-        dispute_details: formData.disputeDetails || [],
-        total_penalties_time: formData.totalPenaltiesTime || 0,
-        performance_time: formData.performanceTimeDisplay || null,
-        total_time: formData.totalTimeDisplay || null,
-        submission_json: JSON.stringify(formData),
+        id: safeFormData.disputeId || undefined,
+        track_name: safeFormData.trackName,
+        sticker_number: safeFormData.stickerNumber,
+        driver_name: safeFormData.driverName,
+        codriver_name: safeFormData.coDriverName,
+        category: safeFormData.category,
+        selected_day_id: safeFormData.selectedDayId || '',
+        selectedDayId: safeFormData.selectedDayId || '',
+        selected_day_label: safeFormData.selectedDayLabel || '',
+        selectedDayLabel: safeFormData.selectedDayLabel || '',
+        selected_day_date: safeFormData.selectedDayDate || '',
+        selectedDayDate: safeFormData.selectedDayDate || '',
+        dispute_details: safeFormData.disputeDetails || [],
+        total_penalties_time: safeFormData.totalPenaltiesTime || 0,
+        performance_time: safeFormData.performanceTimeDisplay || null,
+        total_time: safeFormData.totalTimeDisplay || null,
+        submission_json: JSON.stringify(safeFormData),
       };
 
       await DisputesService.saveDispute(disputePayload);
@@ -5188,28 +5225,35 @@ const buildRegistrationData = formData => ({
       clearActiveRecordState(selectedRecord?.recordKey || getRecordKey(selectedRecord || {}), false);
       return true;
     } catch (error) {
+      console.error('Unable to move record to disputes:', error);
       Alert.alert('Error', 'Record could not be moved to disputes');
       return false;
     }
   };
 
   const handleDisputeEdit = disputeRecord => {
-    const disputeCategory =
-      (categoriesWithCounts.length > 0 ? categoriesWithCounts : categories).find(
-        item => normalizeCategoryKey(item.name) === normalizeCategoryKey(disputeRecord.category || '')
-      ) || {
-        id: `dispute-${normalizeCategoryKey(disputeRecord.category || 'category')}`,
-        name: disputeRecord.category || 'Category',
-      };
+    try {
+      const safeDisputeRecord = disputeRecord || {};
+      const disputeCategory =
+        (categoriesWithCounts.length > 0 ? categoriesWithCounts : categories).find(
+          item => normalizeCategoryKey(item.name) === normalizeCategoryKey(safeDisputeRecord.category || '')
+        ) || {
+          id: `dispute-${normalizeCategoryKey(safeDisputeRecord.category || 'category')}`,
+          name: safeDisputeRecord.category || 'Category',
+        };
 
-    setReportsVisible(false);
-    setReportMenuVisible(false);
-    setRecordsVisible(false);
-    setSelectedCategory(disputeCategory);
-    setSelectedRecord(disputeRecord);
-    setFormVisible(true);
-    setSettingsVisible(true);
-    setSettingsView('disputes');
+      setReportsVisible(false);
+      setReportMenuVisible(false);
+      setRecordsVisible(false);
+      setSelectedCategory(disputeCategory);
+      setSelectedRecord(safeDisputeRecord);
+      setFormVisible(true);
+      setSettingsVisible(true);
+      setSettingsView('disputes');
+    } catch (error) {
+      console.error('Unable to edit dispute record:', error);
+      Alert.alert('Error', 'Unable to open dispute details.');
+    }
   };
 
   /**
@@ -5223,6 +5267,7 @@ const buildRegistrationData = formData => ({
         Alert.alert('Duplicate Record', 'This result already exists for the same category, track, and sticker number.');
         return false;
       }
+      console.error('Unable to submit form:', error);
       Alert.alert('Error', 'Registration was not saved to the database');
       return false;
     }
