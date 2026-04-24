@@ -2936,8 +2936,28 @@ const RegistrationForm = React.memo(function RegistrationForm({
         hardwareAccelerated={Platform.OS === 'android'}
         statusBarTranslucent={Platform.OS === 'android'}
       >
-        <View style={styles.disputeModalOverlay}>
-          <View style={styles.disputeModalCard}>
+        <View
+          style={[
+            styles.disputeModalOverlay,
+            keyboardHeight > 0 && styles.authModalOverlayKeyboardOpen,
+            keyboardHeight > 0 ? { paddingBottom: Math.max(keyboardHeight - 12, 0) } : null,
+          ]}
+        >
+          <KeyboardAvoidingView
+            style={styles.authModalKeyboardAvoid}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'android' ? 32 : 0}
+          >
+            <ScrollView
+              style={styles.authModalScroll}
+              contentContainerStyle={[
+                styles.authModalScrollContent,
+                keyboardHeight > 0 ? { minHeight: visibleAuthHeight } : null,
+              ]}
+              keyboardShouldPersistTaps="always"
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.disputeModalCard}>
             <Text style={styles.disputeModalTitle}>Dispute Details</Text>
             <Text style={styles.disputeModalSubtitle}>
               Select the dispute reasons and add details for each selected item.
@@ -3025,7 +3045,9 @@ const RegistrationForm = React.memo(function RegistrationForm({
                 )}
               </TouchableOpacity>
             </View>
-          </View>
+              </View>
+            </ScrollView>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
     </>

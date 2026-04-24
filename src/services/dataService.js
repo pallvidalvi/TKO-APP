@@ -561,18 +561,29 @@ const syncLeaderboardSnapshot = async snapshot => {
         },
       });
 
-      return response.data;
+      return {
+        synced: true,
+        endpoint: url,
+        response: response.data,
+      };
     } catch (error) {
       lastError = error;
       logAxiosError(`Leaderboard sync failed for ${url}`, error);
     }
   }
 
-  const syncError = new Error(
-    `Leaderboard sync failed${lastError?.response?.status ? ` with status ${lastError.response.status}` : ''}`
-  );
-  syncError.cause = lastError;
-  throw syncError;
+  const status = lastError?.response?.status || null;
+
+  return {
+    synced: false,
+    status,
+    reason: status === 404 ? 'not_found' : 'unavailable',
+    message:
+      status === 404
+        ? 'Leaderboard sync endpoint was not found on the server.'
+        : 'Leaderboard sync is unavailable right now.',
+    error: lastError,
+  };
 };
 
 const buildResultDataFromDispute = dispute => {
@@ -746,8 +757,11 @@ export const LeaderboardService = {
       snapshot.focusCategory = focusCategory;
     }
     saveWebLeaderboardSnapshot(snapshot);
-    await syncLeaderboardSnapshot(snapshot);
-    return snapshot;
+    const syncResult = await syncLeaderboardSnapshot(snapshot);
+    return {
+      ...snapshot,
+      syncResult,
+    };
   },
 
   buildLeaderboardExportSnapshot: async () => buildLeaderboardExportSnapshot(),

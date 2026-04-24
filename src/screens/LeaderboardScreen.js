@@ -9,6 +9,7 @@ import {
   StyleSheet,
   Alert,
   Platform,
+  KeyboardAvoidingView,
   ScrollView,
   TextInput,
 } from 'react-native';
@@ -438,10 +439,22 @@ const LeaderboardScreen = ({
   const handleExportLeaderboard = useCallback(async () => {
     try {
       setLoading(true);
-      await LeaderboardService.exportLeaderboardData({
+      const exportResult = await LeaderboardService.exportLeaderboardData({
         focusCategory: selectedCategory || categoryCards[0]?.key || '',
       });
-      Alert.alert('Published', 'Leaderboard data has been sent to the website.');
+      if (exportResult?.syncResult?.synced) {
+        Alert.alert('Published', 'Leaderboard data has been sent to the website.');
+      } else if (exportResult?.syncResult?.status === 404) {
+        Alert.alert(
+          'Saved locally',
+          'Leaderboard snapshot was created, but the sync endpoint returned 404. The generated data is still available in the app.'
+        );
+      } else {
+        Alert.alert(
+          'Saved locally',
+          'Leaderboard snapshot was created, but the website sync is currently unavailable.'
+        );
+      }
     } catch (error) {
       console.error('Unable to export leaderboard data:', error);
       Alert.alert('Publish failed', error?.message || 'Unable to publish leaderboard data');
@@ -865,6 +878,9 @@ const LeaderboardScreen = ({
                                       <Text style={[styles.trackEntryLine, { color: theme.textPrimary }]}>
                                         {entry.dayLabel}: {entry.timingLabel}
                                       </Text>
+                                      <Text style={[styles.trackEntryMeta, { color: theme.textSecondary }]}>
+                                        {entry.pointsLabel} | {entry.rankLabel}
+                                      </Text>
                                       <TouchableOpacity
                                         style={[
                                           styles.trackDetailButton,
@@ -884,9 +900,6 @@ const LeaderboardScreen = ({
                                           Details
                                         </Text>
                                       </TouchableOpacity>
-                                      <Text style={[styles.trackEntryMeta, { color: theme.textSecondary }]}>
-                                        {entry.pointsLabel} | {entry.rankLabel}
-                                      </Text>
                                     </View>
                                   ))}
                                 </>
@@ -910,55 +923,72 @@ const LeaderboardScreen = ({
           transparent
           animationType="fade"
           onRequestClose={closeExportPasswordModal}
+          presentationStyle="overFullScreen"
           hardwareAccelerated={Platform.OS === 'android'}
           statusBarTranslucent={Platform.OS === 'android'}
         >
           <View style={[styles.passwordOverlay, { backgroundColor: theme.overlay }]}>
-            <View style={[styles.passwordShell, { backgroundColor: theme.backgroundStrong, borderColor: theme.border }]}>
-              <Text style={[styles.passwordTitle, { color: theme.textPrimary }]}>Enter Password</Text>
-              <Text style={[styles.passwordSubtitle, { color: theme.textSecondary }]}>
-                Use the same password you use for Settings to export leaderboard data.
-              </Text>
+            <KeyboardAvoidingView
+              style={styles.passwordKeyboardShell}
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              keyboardVerticalOffset={Platform.OS === 'android' ? 40 : 0}
+            >
+              <ScrollView
+                style={styles.passwordScrollView}
+                contentContainerStyle={styles.passwordScrollContent}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                <View style={[styles.passwordShell, { backgroundColor: theme.backgroundStrong, borderColor: theme.border }]}>
+                  <Text style={[styles.passwordTitle, { color: theme.textPrimary }]}>Enter Password</Text>
+                  <Text style={[styles.passwordSubtitle, { color: theme.textSecondary }]}>
+                    Use the same password you use for Settings to export leaderboard data.
+                  </Text>
 
-              <TextInput
-                value={exportPasswordInput}
-                onChangeText={value => {
-                  setExportPasswordInput(value);
-                  if (exportPasswordError) {
-                    setExportPasswordError('');
-                  }
-                }}
-                placeholder="Password"
-                placeholderTextColor={theme.textTertiary}
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
-                style={[styles.passwordInput, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.textPrimary }]}
-                returnKeyType="done"
-                onSubmitEditing={handleExportPasswordSubmit}
-              />
+                  <TextInput
+                    value={exportPasswordInput}
+                    onChangeText={value => {
+                      setExportPasswordInput(value);
+                      if (exportPasswordError) {
+                        setExportPasswordError('');
+                      }
+                    }}
+                    placeholder="Password"
+                    placeholderTextColor={theme.textTertiary}
+                    secureTextEntry
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={[
+                      styles.passwordInput,
+                      { backgroundColor: theme.surface, borderColor: theme.border, color: theme.textPrimary },
+                    ]}
+                    returnKeyType="done"
+                    onSubmitEditing={handleExportPasswordSubmit}
+                  />
 
-              {exportPasswordError ? (
-                <Text style={[styles.passwordErrorText, { color: '#ff8d5c' }]}>{exportPasswordError}</Text>
-              ) : null}
+                  {exportPasswordError ? (
+                    <Text style={[styles.passwordErrorText, { color: '#ff8d5c' }]}>{exportPasswordError}</Text>
+                  ) : null}
 
-              <View style={styles.passwordActions}>
-                <TouchableOpacity
-                  style={[styles.passwordActionButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
-                  onPress={closeExportPasswordModal}
-                  activeOpacity={0.85}
-                >
-                  <Text style={[styles.passwordActionText, { color: theme.textPrimary }]}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.passwordActionButton, { backgroundColor: theme.accent, borderColor: theme.accent }]}
-                  onPress={handleExportPasswordSubmit}
-                  activeOpacity={0.85}
-                >
-                  <Text style={[styles.passwordActionText, { color: theme.accentText }]}>Export</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
+                  <View style={styles.passwordActions}>
+                    <TouchableOpacity
+                      style={[styles.passwordActionButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                      onPress={closeExportPasswordModal}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={[styles.passwordActionText, { color: theme.textPrimary }]}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.passwordActionButton, { backgroundColor: theme.accent, borderColor: theme.accent }]}
+                      onPress={handleExportPasswordSubmit}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={[styles.passwordActionText, { color: theme.accentText }]}>Export</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </ScrollView>
+            </KeyboardAvoidingView>
           </View>
         </Modal>
       ) : null}
@@ -1124,6 +1154,17 @@ const styles = StyleSheet.create({
   passwordOverlay: {
     flex: 1,
     paddingHorizontal: 16,
+    justifyContent: 'center',
+  },
+  passwordKeyboardShell: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  passwordScrollView: {
+    flex: 1,
+  },
+  passwordScrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
   },
   passwordShell: {
