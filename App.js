@@ -209,6 +209,51 @@ const USE_SPLIT_LAYOUT = INITIAL_LAYOUT.useSplitLayout;
 const USE_TWO_COLUMN_PENALTIES = INITIAL_LAYOUT.penaltyColumns > 1;
 const CARD_WIDTH = INITIAL_LAYOUT.categoryCardWidth;
 
+class FlowErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, info) {
+    console.error('Flow error boundary caught a render error:', error, info);
+  }
+
+  componentDidUpdate(prevProps) {
+    if (this.state.hasError && this.props.resetKey !== prevProps.resetKey) {
+      // Reset when the protected flow changes, so a fresh screen can mount.
+      // eslint-disable-next-line react/no-did-update-set-state
+      this.setState({ hasError: false, error: null });
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback || (
+        <View style={styles.flowErrorBoundaryCard}>
+          <Text style={styles.flowErrorBoundaryTitle}>Unable to open this screen</Text>
+          <Text style={styles.flowErrorBoundaryText}>
+            Something went wrong while loading the race stopwatch page.
+          </Text>
+          <TouchableOpacity
+            style={styles.flowErrorBoundaryButton}
+            onPress={this.props.onRetry}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.flowErrorBoundaryButtonText}>Try Again</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 const CATEGORY_TRACKS = {
   EXTREME: ['CHANDOLI', 'TADOBA', 'SUNDARBAN', 'RANTHAMBORE', 'KANHA', 'JIM CORBETT', 'KAZIRANGA'],
   DIESEL_MODIFIED: ['SHIVNERI', 'RAIGAD', 'PARATAPGAD', 'HARIHAR', 'VASOTA', 'LOHGAD', 'SARASGAD'],
@@ -1895,6 +1940,9 @@ const RegistrationForm = React.memo(function RegistrationForm({
   const [isPinVerificationInProgress, setIsPinVerificationInProgress] = useState(false);
   const stopwatchStartTimestampRef = useRef(null);
   const stopwatchElapsedRef = useRef(0);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const { height: screenHeight } = useWindowDimensions();
+  const visibleAuthHeight = Math.max(screenHeight - keyboardHeight - 40, 220);
 
   const PENALTY_VALUES = {
     busting: 20,
@@ -1925,6 +1973,27 @@ const RegistrationForm = React.memo(function RegistrationForm({
       ? 'Late Start'
       : 'No';
 
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+    const handleKeyboardShow = event => {
+      setKeyboardHeight(event?.endCoordinates?.height || 0);
+    };
+
+    const handleKeyboardHide = () => {
+      setKeyboardHeight(0);
+    };
+
+    const showSubscription = Keyboard.addListener(showEvent, handleKeyboardShow);
+    const hideSubscription = Keyboard.addListener(hideEvent, handleKeyboardHide);
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
+
   const totalPenaltiesTime =
     bustingPenaltyTime +
     seatbeltPenaltyTime +
@@ -1948,6 +2017,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
     () => getNormalizedDisputeDetailEntries(initialRecord),
     [initialRecord]
   );
+  const safeCategoryName = category?.name || initialRecord?.category || 'Category';
 
   useEffect(() => {
     if (!isStopwatchRunning) {
@@ -2169,6 +2239,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
   };
 
   const handleClose = () => {
+    clearPendingRecordFormOpen();
     setDisputeModalVisible(false);
     resetForm();
     resetStopwatch();
@@ -2849,7 +2920,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
                   { fontSize: responsiveLayout.isTablet ? 24 : responsiveLayout.isSmallPhone ? 18 : 20 },
                 ]}
               >
-                {category.name}
+                {safeCategoryName}
               </Text>
               {!hasTimerStarted ? (
                 <CloseActionButton onPress={handleClose} textStyle={styles.closeButton} />
@@ -3941,8 +4012,16 @@ export default function App() {
   const ignitionSequenceTimerRef = useRef(null);
   const lateStartActionCounterRef = useRef(0);
   const disputeAutoSubmitInFlightRef = useRef(false);
+  const recordFormOpenTimerRef = useRef(null);
   const theme = useMemo(() => APP_THEMES[normalizeThemeMode(themeMode)], [themeMode]);
   const visibleAuthHeight = Math.max(screenHeight - keyboardHeight - 40, 220);
+
+  const clearPendingRecordFormOpen = useCallback(() => {
+    if (recordFormOpenTimerRef.current) {
+      clearTimeout(recordFormOpenTimerRef.current);
+      recordFormOpenTimerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     if (appStage !== 'splash' && appStage !== 'day') {
@@ -3989,6 +4068,15 @@ export default function App() {
     return () => {
       showSubscription.remove();
       hideSubscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (recordFormOpenTimerRef.current) {
+        clearTimeout(recordFormOpenTimerRef.current);
+        recordFormOpenTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -4521,6 +4609,7 @@ export default function App() {
   }, []);
 
   const handleDaySelect = day => {
+    clearPendingRecordFormOpen();
     setSelectedDay(day);
     setSelectedCategory(null);
     setSelectedRecord(null);
@@ -4539,6 +4628,7 @@ export default function App() {
   };
 
   const handleBackToDayPage = () => {
+    clearPendingRecordFormOpen();
     setSearchText('');
     setRecordsVisible(false);
     setFormVisible(false);
@@ -4556,6 +4646,7 @@ export default function App() {
   };
 
   const handleSettingsOpen = () => {
+    clearPendingRecordFormOpen();
     setReportMenuVisible(false);
     setLeaderboardVisible(false);
     setSettingsPasswordInput('');
@@ -4835,19 +4926,33 @@ export default function App() {
     try {
       const safeRecord = record || {};
       const recordKey = safeRecord.recordKey || getRecordKey(safeRecord);
+      const trackName = String(safeRecord.selectedTrack || selectedCategoryTrack || '').trim();
+      const categoryName = String(safeRecord.category || selectedCategory?.name || '').trim();
+      const stickerNumber = String(getTeamStickerNumber(safeRecord) || '').trim();
+      const driverName = String(safeRecord.driver_name || safeRecord.driverName || '').trim();
+      const coDriverName = String(safeRecord.codriver_name || safeRecord.coDriverName || '').trim();
+
+      if (!trackName || !categoryName || !stickerNumber || !driverName || !coDriverName) {
+        Alert.alert('Error', 'Selected record is missing details required to open the stopwatch.');
+        return;
+      }
+
+      clearPendingRecordFormOpen();
 
       setSelectedRecord({
         ...safeRecord,
-        selectedTrack: safeRecord.selectedTrack || selectedCategoryTrack || '',
+        category: safeRecord.category || selectedCategory?.name || '',
+        selectedTrack: trackName,
         lateStartMode: selectedLateStartEnabledByRecord[recordKey]
           ? selectedLateStartByRecord[recordKey] || ''
           : '',
       });
       setActiveRecordKey(recordKey);
       setRecordsVisible(false);
-      requestAnimationFrame(() => {
+      recordFormOpenTimerRef.current = setTimeout(() => {
+        recordFormOpenTimerRef.current = null;
         setFormVisible(true);
-      });
+      }, 180);
     } catch (error) {
       console.error('Unable to open record form:', error);
       Alert.alert('Error', 'Unable to open the record form.');
@@ -5853,32 +5958,42 @@ const buildRegistrationData = formData => ({
       />
 
       {recordsVisible ? (
-        <CategoryRecordsModal
-          visible={recordsVisible}
-          category={selectedCategory}
-          categoryTracks={selectedCategoryTracks}
-          records={selectedCategoryRecords}
-          selectedTrackFilter={selectedCategoryTrack}
-          onTrackCardSelect={handleTrackCardSelect}
-          onTrackCardBack={handleTrackCardBack}
-          selectedLateStartEnabledByRecord={selectedLateStartEnabledByRecord}
-          selectedLateStartByRecord={selectedLateStartByRecord}
-          lateStartActionOrderByRecord={lateStartActionOrderByRecord}
-          completedTracksByRecord={completedTracksByRecord}
-          onClose={() => {
+        <FlowErrorBoundary
+          resetKey={`records-${selectedCategory?.id || selectedCategory?.name || 'none'}-${selectedCategoryTrack}`}
+          onRetry={() => {
             setRecordsVisible(false);
-            setSelectedCategory(null);
+            setSelectedRecord(null);
             setSelectedCategoryTrack('');
             setActiveRecordKey('');
           }}
-          onDNSPress={handleDNSRecordSubmit}
-          onRecordActivate={handleRecordActivate}
-          onLateStartToggle={handleLateStartToggle}
-          onLateStartSelect={handleLateStartSelect}
-          onStart={handleRecordStart}
-          layout={responsiveLayout}
-          theme={theme}
-        />
+        >
+          <CategoryRecordsModal
+            visible={recordsVisible}
+            category={selectedCategory}
+            categoryTracks={selectedCategoryTracks}
+            records={selectedCategoryRecords}
+            selectedTrackFilter={selectedCategoryTrack}
+            onTrackCardSelect={handleTrackCardSelect}
+            onTrackCardBack={handleTrackCardBack}
+            selectedLateStartEnabledByRecord={selectedLateStartEnabledByRecord}
+            selectedLateStartByRecord={selectedLateStartByRecord}
+            lateStartActionOrderByRecord={lateStartActionOrderByRecord}
+            completedTracksByRecord={completedTracksByRecord}
+            onClose={() => {
+              setRecordsVisible(false);
+              setSelectedCategory(null);
+              setSelectedCategoryTrack('');
+              setActiveRecordKey('');
+            }}
+            onDNSPress={handleDNSRecordSubmit}
+            onRecordActivate={handleRecordActivate}
+            onLateStartToggle={handleLateStartToggle}
+            onLateStartSelect={handleLateStartSelect}
+            onStart={handleRecordStart}
+            layout={responsiveLayout}
+            theme={theme}
+          />
+        </FlowErrorBoundary>
       ) : null}
 
       {reportsVisible ? (
@@ -7028,30 +7143,41 @@ const buildRegistrationData = formData => ({
 
       {/* Registration Form Modal */}
       {formVisible ? (
-        <RegistrationForm
-          visible={formVisible}
-          category={selectedCategory}
-          initialRecord={selectedRecord}
-          selectedDay={selectedDay}
-          trackTimerLimitSeconds={selectedTrackTimerLimitSeconds}
-          onClose={() => {
+        <FlowErrorBoundary
+          resetKey={`form-${selectedRecord?.recordKey || selectedRecord?.id || 'none'}`}
+          onRetry={() => {
             setFormVisible(false);
             setSelectedRecord(null);
             setActiveRecordKey('');
-            if (selectedRecord?.source === 'dispute') {
-              setRecordsVisible(false);
-              setSettingsVisible(true);
-              setSettingsView('disputes');
-            } else {
-              setRecordsVisible(true);
-            }
+            setRecordsVisible(true);
           }}
-          onSubmit={handleFormSubmit}
-          onHoldForDispute={holdRecordForDispute}
-          onVerifyPin={handleVerifyPinForRecord}
-          layout={responsiveLayout}
-          theme={theme}
-        />
+        >
+          <RegistrationForm
+            key={`form-${selectedRecord?.recordKey || selectedRecord?.id || selectedCategoryTrack || 'new'}`}
+            visible={formVisible}
+            category={selectedCategory}
+            initialRecord={selectedRecord}
+            selectedDay={selectedDay}
+            trackTimerLimitSeconds={selectedTrackTimerLimitSeconds}
+            onClose={() => {
+              setFormVisible(false);
+              setSelectedRecord(null);
+              setActiveRecordKey('');
+              if (selectedRecord?.source === 'dispute') {
+                setRecordsVisible(false);
+                setSettingsVisible(true);
+                setSettingsView('disputes');
+              } else {
+                setRecordsVisible(true);
+              }
+            }}
+            onSubmit={handleFormSubmit}
+            onHoldForDispute={holdRecordForDispute}
+            onVerifyPin={handleVerifyPinForRecord}
+            layout={responsiveLayout}
+            theme={theme}
+          />
+        </FlowErrorBoundary>
       ) : null}
     </View>
   );
@@ -8594,6 +8720,47 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#cdbf9a',
     textAlign: 'center',
+    fontFamily: BODY_FONT,
+  },
+
+  flowErrorBoundaryCard: {
+    flex: 1,
+    backgroundColor: '#111722',
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  flowErrorBoundaryTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#fff6ea',
+    textAlign: 'center',
+    fontFamily: HEADING_FONT,
+  },
+
+  flowErrorBoundaryText: {
+    marginTop: 10,
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#cdbf9a',
+    textAlign: 'center',
+    fontFamily: BODY_FONT,
+  },
+
+  flowErrorBoundaryButton: {
+    marginTop: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: '#ff7a00',
+  },
+
+  flowErrorBoundaryButtonText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#120a05',
     fontFamily: BODY_FONT,
   },
 

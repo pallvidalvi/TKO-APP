@@ -551,6 +551,7 @@ const buildLeaderboardExportSnapshot = async () => {
 
 const syncLeaderboardSnapshot = async snapshot => {
   let lastError = null;
+  let sawMissingEndpoint = false;
 
   for (const url of LEADERBOARD_SYNC_URLS) {
     try {
@@ -568,11 +569,19 @@ const syncLeaderboardSnapshot = async snapshot => {
       };
     } catch (error) {
       lastError = error;
+      const status = error?.response?.status || null;
+
+      if (status === 404) {
+        sawMissingEndpoint = true;
+        console.warn(`Leaderboard sync endpoint not found at ${url}`);
+        continue;
+      }
+
       logAxiosError(`Leaderboard sync failed for ${url}`, error);
     }
   }
 
-  const status = lastError?.response?.status || null;
+  const status = sawMissingEndpoint ? 404 : lastError?.response?.status || null;
 
   return {
     synced: false,
