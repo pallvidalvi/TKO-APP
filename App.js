@@ -217,7 +217,7 @@ const CATEGORY_TRACKS = {
   PETROL_EXPERT: ['KRISHNA', 'KOYANA', 'GODAVARI', 'GANGA', 'YAMUNA', 'SARASWATI', 'CHANDRABHAGA'],
   THAR_SUV: ['K2', 'EVEREST', 'SAHYADRI', 'HIMALAYA', 'KALASUBAI', 'VALMIKI', 'SATPUDA'],
   JIMNY_SUV: ['K2', 'EVEREST', 'SAHYADRI', 'HIMALAYA', 'KALASUBAI', 'VALMIKI', 'SATPUDA'],
-  SUV_MODIFIED: ['K2', 'EVEREST', 'SAHYADRI', 'HIMALAYA', 'KALASUBAI', 'VALMIKI', 'SATPUDA'],
+  SUV_MODIFIED: ['TAMHINI', 'AMBOLI', 'SAHYADRI', 'PASARANI', 'KALASUBAI', 'VALMIKI', 'SATPUDA'],
   STOCK_NDMS: ['K2', 'EVEREST', 'SAHYADRI', 'HIMALAYA', 'KALASUBAI', 'VALMIKI', 'SATPUDA'],
   LADIES: ['K2', 'EVEREST', 'SAHYADRI', 'HIMALAYA', 'KALASUBAI', 'VALMIKI', 'SATPUDA'],
   LADIES_CATEGORY: ['K2', 'EVEREST', 'SAHYADRI', 'HIMALAYA', 'KALASUBAI', 'VALMIKI', 'SATPUDA'],
@@ -539,49 +539,49 @@ const DEFAULT_THEME_MODE = 'dark';
 const APP_THEMES = {
   dark: {
     mode: 'dark',
-    background: '#1a2432',
-    backgroundStrong: '#0b111a',
-    surface: '#111722',
-    surfaceAlt: '#182131',
-    surfaceMuted: '#1f2a3b',
-    border: '#2a3441',
-    textPrimary: '#fff6ea',
-    textSecondary: '#cdbf9a',
-    textTertiary: '#8f9bad',
-    accent: '#ffb15a',
-    accentStrong: '#b45d16',
-    accentSoft: '#2b2013',
-    accentText: '#18120a',
-    primaryButton: '#3565df',
-    primaryButtonText: '#fff6ea',
-    inputBackground: '#0c111a',
-    timerBackground: '#161f36',
-    timerText: '#66a5ff',
-    overlay: 'rgba(0, 0, 0, 0.58)',
+    background: '#050505',
+    backgroundStrong: '#0b0b0b',
+    surface: '#111111',
+    surfaceAlt: '#171717',
+    surfaceMuted: '#1c1c1c',
+    border: '#2a1a0f',
+    textPrimary: '#fff7ef',
+    textSecondary: '#e1ad7a',
+    textTertiary: '#aa7a52',
+    accent: '#ff7a00',
+    accentStrong: '#ff920f',
+    accentSoft: '#231308',
+    accentText: '#120a05',
+    primaryButton: '#ff7a00',
+    primaryButtonText: '#120a05',
+    inputBackground: '#0b0b0b',
+    timerBackground: '#1a120a',
+    timerText: '#ff9b2f',
+    overlay: 'rgba(0, 0, 0, 0.72)',
     shadow: '#000000',
   },
   light: {
     mode: 'light',
-    background: '#efe6d8',
-    backgroundStrong: '#e3d7c4',
-    surface: '#fffaf2',
-    surfaceAlt: '#f5ede1',
-    surfaceMuted: '#f0e4d3',
-    border: '#d7c7b1',
-    textPrimary: '#1d2430',
-    textSecondary: '#6d5a44',
-    textTertiary: '#847563',
-    accent: '#b86b22',
-    accentStrong: '#c7772b',
-    accentSoft: '#f7ead8',
-    accentText: '#fffaf2',
-    primaryButton: '#2f61d7',
-    primaryButtonText: '#fffaf2',
-    inputBackground: '#fffdf8',
-    timerBackground: '#dfeafb',
-    timerText: '#244d92',
-    overlay: 'rgba(30, 24, 16, 0.22)',
-    shadow: '#6a5843',
+    background: '#050505',
+    backgroundStrong: '#0b0b0b',
+    surface: '#111111',
+    surfaceAlt: '#171717',
+    surfaceMuted: '#1c1c1c',
+    border: '#2a1a0f',
+    textPrimary: '#fff7ef',
+    textSecondary: '#e1ad7a',
+    textTertiary: '#aa7a52',
+    accent: '#ff7a00',
+    accentStrong: '#ff920f',
+    accentSoft: '#231308',
+    accentText: '#120a05',
+    primaryButton: '#ff7a00',
+    primaryButtonText: '#120a05',
+    inputBackground: '#0b0b0b',
+    timerBackground: '#1a120a',
+    timerText: '#ff9b2f',
+    overlay: 'rgba(0, 0, 0, 0.72)',
+    shadow: '#000000',
   },
 };
 
@@ -1450,6 +1450,19 @@ const DNFSelector = React.memo(function DNFSelector({
   const responsiveLayout = layout || INITIAL_LAYOUT;
   const [isOpen, setIsOpen] = useState(false);
   const hasSelection = wrongCourseSelected || fourthAttemptSelected || timeOverSelected;
+  const selectedReason = wrongCourseSelected
+    ? 'wrongCourse'
+    : fourthAttemptSelected
+      ? 'fourthAttempt'
+      : timeOverSelected
+        ? 'timeOver'
+        : '';
+
+  const setExclusiveReason = reason => {
+    onWrongCourseChange(reason === 'wrongCourse');
+    onFourthAttemptChange(reason === 'fourthAttempt');
+    onTimeOverChange(reason === 'timeOver');
+  };
 
   const handleToggle = () => {
     if (!disabled) {
@@ -1496,24 +1509,24 @@ const DNFSelector = React.memo(function DNFSelector({
         <View style={styles.dnfDropdownMenu}>
           <TouchableOpacity
             style={styles.dnfCheckboxRow}
-            onPress={() => onWrongCourseChange(!wrongCourseSelected)}
+            onPress={() => setExclusiveReason('wrongCourse')}
             activeOpacity={0.85}
             hitSlop={TOUCH_HIT_SLOP}
           >
-            <View style={[styles.dnfCheckbox, wrongCourseSelected && styles.dnfCheckboxSelected]}>
-              <Text style={styles.dnfCheckboxTick}>{wrongCourseSelected ? '✓' : ''}</Text>
+            <View style={[styles.dnfRadio, selectedReason === 'wrongCourse' && styles.dnfRadioSelected]}>
+              {selectedReason === 'wrongCourse' ? <View style={styles.dnfRadioDot} /> : null}
             </View>
             <Text style={styles.dnfCheckboxLabel}>Wrong Course</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.dnfCheckboxRow}
-            onPress={() => onFourthAttemptChange(!fourthAttemptSelected)}
+            onPress={() => setExclusiveReason('fourthAttempt')}
             activeOpacity={0.85}
             hitSlop={TOUCH_HIT_SLOP}
           >
-            <View style={[styles.dnfCheckbox, fourthAttemptSelected && styles.dnfCheckboxSelected]}>
-              <Text style={styles.dnfCheckboxTick}>{fourthAttemptSelected ? '✓' : ''}</Text>
+            <View style={[styles.dnfRadio, selectedReason === 'fourthAttempt' && styles.dnfRadioSelected]}>
+              {selectedReason === 'fourthAttempt' ? <View style={styles.dnfRadioDot} /> : null}
             </View>
             <Text style={styles.dnfCheckboxLabel}>4th Attempt</Text>
           </TouchableOpacity>
@@ -1522,14 +1535,14 @@ const DNFSelector = React.memo(function DNFSelector({
             style={[styles.dnfCheckboxRow, timeOverLocked && styles.dnfCheckboxRowDisabled]}
             onPress={() => {
               if (!timeOverLocked) {
-                onTimeOverChange(!timeOverSelected);
+                setExclusiveReason('timeOver');
               }
             }}
             activeOpacity={0.85}
             hitSlop={TOUCH_HIT_SLOP}
           >
-            <View style={[styles.dnfCheckbox, timeOverSelected && styles.dnfCheckboxSelected]}>
-              <Text style={styles.dnfCheckboxTick}>{timeOverSelected ? '✓' : ''}</Text>
+            <View style={[styles.dnfRadio, selectedReason === 'timeOver' && styles.dnfRadioSelected]}>
+              {selectedReason === 'timeOver' ? <View style={styles.dnfRadioDot} /> : null}
             </View>
             <View style={styles.dnfCheckboxContent}>
               <Text style={[styles.dnfCheckboxLabel, timeOverLocked && styles.dnfCheckboxLabelDisabled]}>Time Over</Text>
@@ -1541,29 +1554,29 @@ const DNFSelector = React.memo(function DNFSelector({
 
           <View style={styles.dnfPointsSection}>
             <Text style={styles.dnfPointsLabel}>Points</Text>
-          {DNF_OPTIONS.map(option => (
-            <TouchableOpacity
-              key={option}
-              style={[
-                styles.dnfDropdownItem,
-                !hasSelection && styles.dnfDropdownItemDisabled,
-              ]}
-              onPress={() => handleSelect(option)}
-              disabled={!hasSelection}
-              activeOpacity={0.85}
-              hitSlop={TOUCH_HIT_SLOP}
-            >
-              <Text
+            {DNF_OPTIONS.map(option => (
+              <TouchableOpacity
+                key={option}
                 style={[
-                  styles.dnfDropdownItemText,
-                  pointsValue === option && styles.dnfDropdownItemTextSelected,
-                  !hasSelection && styles.dnfDropdownItemTextDisabled,
+                  styles.dnfDropdownItem,
+                  !hasSelection && styles.dnfDropdownItemDisabled,
                 ]}
+                onPress={() => handleSelect(option)}
+                disabled={!hasSelection}
+                activeOpacity={0.85}
+                hitSlop={TOUCH_HIT_SLOP}
               >
-                {option}
-              </Text>
-            </TouchableOpacity>
-          ))}
+                <Text
+                  style={[
+                    styles.dnfDropdownItemText,
+                    pointsValue === option && styles.dnfDropdownItemTextSelected,
+                    !hasSelection && styles.dnfDropdownItemTextDisabled,
+                  ]}
+                >
+                  {option}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
           {hasSelection || pointsValue ? (
             <TouchableOpacity
@@ -1586,7 +1599,6 @@ const DNFSelector = React.memo(function DNFSelector({
     </View>
   );
 });
-
 const LATE_START_OPTIONS = [
   { value: 'late_start', label: 'Late Start with Penalty' },
   { value: 'late_start_with_approval', label: 'Late Start with Approval' },
@@ -4368,19 +4380,19 @@ export default function App() {
       activeSettingsCategoryOptions.map(category => ({
         key: category.key,
         label: category.label,
-        tracks: getActiveTracksForDayCategory(trackActivationConfig, selectedDay?.id, category.label),
+        tracks: getActiveTracksForDayCategory(trackActivationConfig, selectedDay?.id, category.key),
       })),
     [activeSettingsCategoryOptions, selectedDay?.id, trackActivationConfig]
   );
 
   const leaderboardCategoryOptions = useMemo(
     () =>
-      settingsCategoryOptions.map(category => ({
+      activeSettingsCategoryOptions.map(category => ({
         key: category.key,
         label: category.label,
         tracks: CATEGORY_TRACKS[category.key] || [],
       })),
-    [settingsCategoryOptions]
+    [activeSettingsCategoryOptions]
   );
 
   const configurationTracks = useMemo(
@@ -5819,6 +5831,7 @@ const buildRegistrationData = formData => ({
           categoryOptions={leaderboardCategoryOptions}
           teams={teams}
           dataRefreshKey={leaderboardRefreshKey}
+          settingsPassword={settingsPassword}
           theme={theme}
         />
       ) : null}
@@ -6546,7 +6559,7 @@ const buildRegistrationData = formData => ({
               <DisputeRecordsPanel
                 disputes={disputeRecords}
                 selectedDay={selectedDay}
-                categoryOptions={settingsCategoryOptions}
+                categoryOptions={activeSettingsCategoryOptions}
                 loading={disputesLoading}
                 onRefresh={refreshDisputes}
                 onEdit={handleDisputeEdit}
@@ -9892,6 +9905,29 @@ const styles = StyleSheet.create({
     opacity: 0.72,
   },
 
+  dnfRadio: {
+    width: 22,
+    height: 22,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    borderColor: '#ffb599',
+    backgroundColor: '#111722',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+
+  dnfRadioSelected: {
+    borderColor: '#ff5a1f',
+  },
+
+  dnfRadioDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: '#ff5a1f',
+  },
+
   dnfCheckbox: {
     width: 22,
     height: 22,
@@ -10149,3 +10185,4 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 8,
   },
 });
+

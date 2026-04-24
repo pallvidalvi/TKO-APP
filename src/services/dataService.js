@@ -31,13 +31,59 @@ import {
 import {
   DISPUTE_AUTO_SUBMIT_WINDOW_MS,
   getDisputeAutoSubmitStatus,
+  getDayIdentity,
+  getResultIdentityKey,
+  getResultTimeValue,
+  isDnfResult,
+  isDnsResult,
   parseRegistrationPayload,
+  rankTrackResults,
+  normalizeCategoryKey,
+  normalizeValue,
 } from '../utils/scoring';
 
 const API_BASE_URL = 'https://www.teamkaradoffroaders.online/api';
 const isWeb = Platform.OS === 'web';
 const WEB_RESULTS_KEY = 'tko_app_results';
 const WEB_DISPUTES_KEY = 'tko_app_disputes';
+const WEB_LEADERBOARD_KEY = 'tko_app_leaderboard';
+const DEFAULT_LEADERBOARD_SYNC_URLS = [
+  'https://www.teamkaradoffroaders.online/api/leaderboard',
+  'https://www.teamkaradoffroaders.online/api/leaderboard-sync',
+];
+const getDevFallbackBaseUrl = () => {
+  if (!__DEV__) {
+    return '';
+  }
+
+  if (Platform.OS === 'android') {
+    return 'http://10.0.2.2:3000';
+  }
+
+  return 'http://localhost:3000';
+};
+
+const resolveLeaderboardSyncUrls = () => {
+  const configuredUrl = String(process.env.EXPO_PUBLIC_LEADERBOARD_SYNC_URL || '').trim();
+  const devFallbackBaseUrl = getDevFallbackBaseUrl();
+
+  if (!configuredUrl) {
+    if (devFallbackBaseUrl) {
+      return [`${devFallbackBaseUrl}/api/leaderboard`, `${devFallbackBaseUrl}/api/leaderboard-sync`];
+    }
+
+    return DEFAULT_LEADERBOARD_SYNC_URLS;
+  }
+
+  const normalizedUrl = configuredUrl.replace(/\/$/, '');
+
+  if (/\/api\/leaderboard(?:-sync)?\/?$/.test(normalizedUrl)) {
+    return [normalizedUrl];
+  }
+
+  return [`${normalizedUrl}/api/leaderboard`, `${normalizedUrl}/api/leaderboard-sync`];
+};
+const LEADERBOARD_SYNC_URLS = resolveLeaderboardSyncUrls();
 const normalizeResultKey = value => String(value || '').trim().toLowerCase();
 const getNormalizedResultIdentity = item => {
   const normalizedItem = normalizeStoredDayPayload(item);
@@ -85,6 +131,448 @@ const safeParseJsonObject = value => {
   } catch (error) {
     return {};
   }
+};
+
+const formatCategoryLabel = value =>
+  String(value || '')
+    .trim()
+    .replace(/_/g, ' ')
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, letter => letter.toUpperCase()) || 'Category';
+
+const getVehicleIdentityKey = source => {
+  const categoryKey = normalizeCategoryKey(source?.category || '');
+  const stickerKey = normalizeValue(
+    source?.sticker_number || source?.stickerNumber || source?.car_number || source?.carNumber || ''
+  );
+  const driverKey = normalizeValue(source?.driver_name || source?.driverName || '');
+
+  return [categoryKey, stickerKey || driverKey].join('|');
+};
+
+const getVehicleDisplayData = source => ({
+  stickerNumber:
+    source?.sticker_number ||
+    source?.stickerNumber ||
+    source?.car_number ||
+    source?.carNumber ||
+    '--',
+  driverName: source?.driver_name || source?.driverName || '--',
+  coDriverName: source?.codriver_name || source?.coDriverName || '--',
+});
+
+const getDayShortLabel = item => {
+  const rawLabel = String(item?.selected_day_label || item?.selectedDayLabel || '').trim();
+
+  if (rawLabel) {
+    const match = rawLabel.match(/day\s*(\d+)/i);
+    return match ? `D${match[1]}` : rawLabel;
+  }
+
+  const rawId = String(item?.selected_day_id || item?.selectedDayId || '').trim();
+  const rawIdMatch = rawId.match(/(\d+)/);
+
+  if (rawIdMatch) {
+    return `D${rawIdMatch[1]}`;
+  }
+
+  const rawDate = String(item?.selected_day_date || item?.selectedDayDate || '').trim();
+  return rawDate || 'Day';
+};
+
+const getDayOrder = item => {
+  const rawCandidates = [
+    item?.selected_day_id,
+    item?.selectedDayId,
+    item?.selected_day_label,
+    item?.selectedDayLabel,
+  ];
+
+  for (const candidate of rawCandidates) {
+    const match = String(candidate || '').match(/(\d+)/);
+
+    if (match) {
+      return Number(match[1]);
+    }
+  }
+
+  return Number.MAX_SAFE_INTEGER;
+};
+
+const getTimingLabel = item => {
+  if (item?.isDisputed) {
+    const disputeStatus = getDisputeAutoSubmitStatus(item);
+    return `HOLD ${disputeStatus.remainingLabel}`;
+  }
+
+  if (isDnsResult(item)) {
+    return 'DNS';
+  }
+
+  if (isDnfResult(item)) {
+    return 'DNF';
+  }
+
+  return item?.total_time || item?.totalTimeDisplay || '--';
+};
+
+const compareRows = (a, b) => {
+  if (a.totalPoints !== b.totalPoints) {
+    return b.totalPoints - a.totalPoints;
+  }
+
+  if (a.totalTimingMs !== b.totalTimingMs) {
+    return a.totalTimingMs - b.totalTimingMs;
+  }
+
+  return String(a.stickerNumber || '').localeCompare(String(b.stickerNumber || ''), undefined, {
+    numeric: true,
+  });
+};
+
+const uniqueByKey = (items, getKey) => {
+  const seen = new Set();
+  const nextItems = [];
+
+  for (const item of items) {
+    const key = getKey(item);
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    nextItems.push(item);
+  }
+
+  return nextItems;
+};
+
+const normalizeCategoryOption = option => ({
+  key: normalizeCategoryKey(option?.key || option?.category || option?.name || option?.label || ''),
+  label:
+    String(option?.label || option?.name || option?.title || option?.key || option?.category || '')
+      .trim() || formatCategoryLabel(option?.key || option?.category || option?.name || option?.label),
+  tracks: Array.isArray(option?.tracks) ? option.tracks.filter(Boolean) : [],
+});
+
+const inferCategoryOptions = ({ teams = [], results = [], disputes = [] } = {}) => {
+  const optionsByKey = new Map();
+
+  const addOption = (rawCategory, trackName = '') => {
+    const key = normalizeCategoryKey(rawCategory || '');
+
+    if (!key) {
+      return;
+    }
+
+    const existing = optionsByKey.get(key) || {
+      key,
+      label: formatCategoryLabel(rawCategory || key),
+      tracks: [],
+    };
+
+    if (trackName) {
+      const normalizedTrack = String(trackName || '').trim();
+      if (normalizedTrack && !existing.tracks.includes(normalizedTrack)) {
+        existing.tracks.push(normalizedTrack);
+      }
+    }
+
+    optionsByKey.set(key, existing);
+  };
+
+  teams.forEach(team => addOption(team?.category));
+  [...results, ...disputes].forEach(item => addOption(item?.category, item?.track_name || item?.trackName || ''));
+
+  return Array.from(optionsByKey.values())
+    .map(option => ({
+      ...option,
+      tracks: option.tracks,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+};
+
+const mergeCategoryOptions = (primaryOptions = [], fallbackOptions = []) => {
+  const mergedMap = new Map();
+
+  [...fallbackOptions, ...primaryOptions].forEach(option => {
+    if (!option?.key) {
+      return;
+    }
+
+    const existing = mergedMap.get(option.key) || {
+      key: option.key,
+      label: option.label,
+      tracks: [],
+    };
+
+    if (option.label && existing.label === option.key) {
+      existing.label = option.label;
+    }
+
+    const nextTracks = Array.isArray(option.tracks) ? option.tracks.filter(Boolean) : [];
+    nextTracks.forEach(track => {
+      if (!existing.tracks.includes(track)) {
+        existing.tracks.push(track);
+      }
+    });
+
+    mergedMap.set(option.key, existing);
+  });
+
+  return Array.from(mergedMap.values()).sort((a, b) => a.label.localeCompare(b.label));
+};
+
+const filterLeaderboardSnapshotByCategory = (snapshot, focusCategory = '') => {
+  const normalizedFocusCategory = normalizeCategoryKey(focusCategory || '');
+
+  if (!normalizedFocusCategory) {
+    return snapshot;
+  }
+
+  const categoryOptions = Array.isArray(snapshot?.categoryOptions)
+    ? snapshot.categoryOptions.filter(option => normalizeCategoryKey(option?.key || '') === normalizedFocusCategory)
+    : [];
+  const teams = Array.isArray(snapshot?.teams)
+    ? snapshot.teams.filter(team => normalizeCategoryKey(team?.category || '') === normalizedFocusCategory)
+    : [];
+  const results = Array.isArray(snapshot?.results)
+    ? snapshot.results.filter(result => normalizeCategoryKey(result?.category || '') === normalizedFocusCategory)
+    : [];
+  const disputes = Array.isArray(snapshot?.disputes)
+    ? snapshot.disputes.filter(dispute => normalizeCategoryKey(dispute?.category || '') === normalizedFocusCategory)
+    : [];
+  const leaderboardCategories = Array.isArray(snapshot?.leaderboard?.categories)
+    ? snapshot.leaderboard.categories.filter(
+        category => normalizeCategoryKey(category?.key || category?.category || '') === normalizedFocusCategory
+      )
+    : [];
+
+  return {
+    ...snapshot,
+    focusCategory: normalizedFocusCategory,
+    teams,
+    results,
+    disputes,
+    categoryOptions,
+    leaderboard: {
+      ...(snapshot?.leaderboard || {}),
+      categories: leaderboardCategories,
+    },
+  };
+};
+
+const buildLeaderboardRows = (categoryOption, teams = [], uniqueResults = []) => {
+  const rowsByVehicle = new Map();
+  const tracks = categoryOption?.tracks || [];
+
+  const ensureVehicleRow = source => {
+    const vehicleKey = getVehicleIdentityKey(source);
+
+    if (!rowsByVehicle.has(vehicleKey)) {
+      rowsByVehicle.set(vehicleKey, {
+        vehicleKey,
+        ...getVehicleDisplayData(source),
+        totalPoints: 0,
+        totalTimingMs: Number.POSITIVE_INFINITY,
+        trackMap: tracks.reduce((acc, trackLabel) => {
+          acc[normalizeValue(trackLabel)] = {
+            trackLabel,
+            totalPoints: 0,
+            entries: [],
+          };
+          return acc;
+        }, {}),
+      });
+    }
+
+    return rowsByVehicle.get(vehicleKey);
+  };
+
+  teams
+    .filter(team => normalizeCategoryKey(team?.category || '') === categoryOption.key)
+    .forEach(team => {
+      ensureVehicleRow({
+        category: team.category,
+        car_number: team.car_number || team.carNumber,
+        driver_name: team.driver_name || team.driverName,
+        codriver_name: team.codriver_name || team.coDriverName,
+      });
+    });
+
+  const categoryResults = uniqueResults.filter(
+    item => normalizeCategoryKey(item?.category || '') === categoryOption.key
+  );
+
+  const trackSessions = new Map();
+
+  categoryResults.forEach(item => {
+    ensureVehicleRow(item);
+
+    const trackName = String(item.track_name || item.trackName || '').trim();
+    const trackKey = normalizeValue(trackName);
+
+    if (!trackKey) {
+      return;
+    }
+
+    const dayIdentity = getDayIdentity(item);
+    const dayKey = dayIdentity.dayId || dayIdentity.dayLabel || dayIdentity.dayDate || 'undated';
+    const sessionKey = `${trackKey}|${dayKey}`;
+
+    if (!trackSessions.has(sessionKey)) {
+      trackSessions.set(sessionKey, {
+        trackKey,
+        items: [],
+      });
+    }
+
+    trackSessions.get(sessionKey).items.push(item);
+  });
+
+  trackSessions.forEach(session => {
+    rankTrackResults(session.items).forEach(item => {
+      const row = ensureVehicleRow(item);
+      const trackKey = session.trackKey;
+
+      if (!row.trackMap[trackKey]) {
+        row.trackMap[trackKey] = {
+          trackLabel: item.track_name || item.trackName || 'Track',
+          totalPoints: 0,
+          entries: [],
+        };
+      }
+
+      if (!Number.isFinite(row.totalTimingMs)) {
+        row.totalTimingMs = 0;
+      }
+
+      const timingMs = getResultTimeValue(item);
+      const pointsValue =
+        typeof item.reportPoints === 'number' && Number.isFinite(item.reportPoints) ? item.reportPoints : 0;
+
+      if (item.reportPoints !== null && item.reportPoints !== undefined) {
+        row.totalPoints += pointsValue;
+        row.trackMap[trackKey].totalPoints += pointsValue;
+      }
+
+      if (Number.isFinite(timingMs)) {
+        row.totalTimingMs += timingMs;
+      }
+
+      row.trackMap[trackKey].entries.push({
+        key: getResultIdentityKey(item),
+        dayLabel: getDayShortLabel(item),
+        dayOrder: getDayOrder(item),
+        timingLabel: getTimingLabel(item),
+        pointsLabel:
+          item.reportPoints === null || item.reportPoints === undefined ? '--' : `${item.reportPoints} pts`,
+        rankLabel: item.reportRankLabel || '--',
+      });
+    });
+  });
+
+  return Array.from(rowsByVehicle.values())
+    .map(row => ({
+      ...row,
+      totalTimingMs: Number.isFinite(row.totalTimingMs) ? row.totalTimingMs : Number.POSITIVE_INFINITY,
+      trackSummaries: tracks.map(trackLabel => {
+        const summary = row.trackMap[normalizeValue(trackLabel)] || {
+          trackLabel,
+          totalPoints: 0,
+          entries: [],
+        };
+
+        return {
+          ...summary,
+          entries: [...summary.entries].sort((a, b) => a.dayOrder - b.dayOrder),
+        };
+      }),
+    }))
+    .sort(compareRows);
+};
+
+const buildLeaderboardExportSnapshot = async () => {
+  const [results, disputes, teams, categories] = await Promise.all([
+    ResultsService.getAllResults(),
+    DisputesService.getAllDisputes(),
+    TeamsService.getAllTeams(),
+    CategoriesService.getAllCategories(),
+  ]);
+
+  const normalizedResults = results.map(item => normalizeStoredDayPayload(item));
+  const normalizedDisputes = disputes.map(item => normalizeStoredDayPayload(item));
+  const parsedResults = normalizedResults.map(item => ({
+    ...parseRegistrationPayload(item),
+    isDisputed: false,
+  }));
+  const parsedDisputes = normalizedDisputes.map(item => ({
+    ...parseRegistrationPayload(item),
+    isDisputed: true,
+  }));
+  const uniqueResults = uniqueByKey([...parsedResults, ...parsedDisputes], item => getResultIdentityKey(item));
+
+  const fallbackCategoryOptions = inferCategoryOptions({
+    teams,
+    results: normalizedResults,
+    disputes: normalizedDisputes,
+  });
+  const categoryOptions = mergeCategoryOptions(
+    Array.isArray(categories) ? categories.map(normalizeCategoryOption) : [],
+    fallbackCategoryOptions
+  ).map(option => ({
+    ...option,
+    tracks:
+      option.tracks.length > 0
+        ? option.tracks
+        : fallbackCategoryOptions.find(item => item.key === option.key)?.tracks || [],
+  }));
+
+  const leaderboard = {
+    categories: categoryOptions.map(categoryOption => ({
+      ...categoryOption,
+      rows: buildLeaderboardRows(categoryOption, teams, uniqueResults),
+    })),
+  };
+
+  return {
+    generatedAt: new Date().toISOString(),
+    source: 'tko-app',
+    schemaVersion: 1,
+    teams,
+    results: normalizedResults,
+    disputes: normalizedDisputes,
+    categoryOptions,
+    leaderboard,
+  };
+};
+
+const syncLeaderboardSnapshot = async snapshot => {
+  let lastError = null;
+
+  for (const url of LEADERBOARD_SYNC_URLS) {
+    try {
+      const response = await axios.post(url, snapshot, {
+        timeout: 15000,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      return response.data;
+    } catch (error) {
+      lastError = error;
+      logAxiosError(`Leaderboard sync failed for ${url}`, error);
+    }
+  }
+
+  const syncError = new Error(
+    `Leaderboard sync failed${lastError?.response?.status ? ` with status ${lastError.response.status}` : ''}`
+  );
+  syncError.cause = lastError;
+  throw syncError;
 };
 
 const buildResultDataFromDispute = dispute => {
@@ -238,6 +726,42 @@ const buildResultDataFromDispute = dispute => {
   });
 };
 const WEB_FALLBACK_TEAMS = SEEDED_TEAMS;
+
+const saveWebLeaderboardSnapshot = snapshot => {
+  if (!isWeb) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(WEB_LEADERBOARD_KEY, JSON.stringify(snapshot));
+  } catch (error) {
+    console.warn('Unable to cache leaderboard snapshot in web storage:', error);
+  }
+};
+
+export const LeaderboardService = {
+  exportLeaderboardData: async ({ focusCategory = '' } = {}) => {
+    const snapshot = await buildLeaderboardExportSnapshot();
+    if (focusCategory) {
+      snapshot.focusCategory = focusCategory;
+    }
+    saveWebLeaderboardSnapshot(snapshot);
+    await syncLeaderboardSnapshot(snapshot);
+    return snapshot;
+  },
+
+  buildLeaderboardExportSnapshot: async () => buildLeaderboardExportSnapshot(),
+
+  syncLeaderboardData: async () => {
+    const snapshot = await buildLeaderboardExportSnapshot();
+    saveWebLeaderboardSnapshot(snapshot);
+    return {
+      synced: true,
+      cached: true,
+      snapshot,
+    };
+  },
+};
 
 const logAxiosError = (label, error) => {
   const status = error?.response?.status;

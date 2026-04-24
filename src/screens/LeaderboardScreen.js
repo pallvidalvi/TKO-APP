@@ -10,8 +10,14 @@ import {
   Alert,
   Platform,
   ScrollView,
+  TextInput,
 } from 'react-native';
-import { ResultsService, DisputesService, promoteExpiredDisputesToResults } from '../services/dataService';
+import {
+  ResultsService,
+  DisputesService,
+  LeaderboardService,
+  promoteExpiredDisputesToResults,
+} from '../services/dataService';
 import TouchableOpacity from '../components/FastTouchableOpacity';
 import {
   DISPUTE_AUTO_SUBMIT_POLL_MS,
@@ -43,13 +49,22 @@ const BODY_FONT = Platform.select({
 });
 
 const DEFAULT_THEME = {
-  background: '#080b10',
-  surface: '#111722',
-  border: '#2a3441',
-  textPrimary: '#fff6ea',
-  textSecondary: '#cdbf9a',
-  accent: '#ffb15a',
-  primaryButton: '#2f6fed',
+  background: '#050505',
+  backgroundStrong: '#0b0b0b',
+  surface: '#111111',
+  surfaceAlt: '#171717',
+  border: '#2a1a0f',
+  textPrimary: '#fff7ef',
+  textSecondary: '#e1ad7a',
+  textTertiary: '#aa7a52',
+  accent: '#ff7a00',
+  accentStrong: '#ff920f',
+  accentSoft: '#231308',
+  accentText: '#120a05',
+  primaryButton: '#ff7a00',
+  primaryButtonText: '#120a05',
+  inputBackground: '#0b0b0b',
+  overlay: 'rgba(0, 0, 0, 0.72)',
   shadow: '#000000',
 };
 
@@ -181,6 +196,84 @@ const compareRows = (a, b) => {
   });
 };
 
+const normalizeDetailValue = value => {
+  if (value === null || value === undefined || value === '') {
+    return '--';
+  }
+
+  return String(value);
+};
+
+const getYesNoLabel = value => (value ? 'Yes' : 'No');
+
+const buildDetailSections = record => [
+  {
+    title: 'Timing Summary',
+    items: [
+      { label: 'Performance Time', value: record?.performance_time || record?.performanceTimeDisplay },
+      { label: 'Total Penalties', value: record?.total_penalties_time || record?.totalPenaltiesTime },
+      { label: 'Total Time', value: record?.total_time || record?.totalTimeDisplay },
+    ],
+  },
+  {
+    title: 'Late Start',
+    items: [
+      { label: 'Status', value: record?.late_start_status || record?.lateStartStatus },
+      { label: 'Mode', value: record?.late_start_mode || record?.lateStartMode },
+      { label: 'Count', value: record?.late_start_count || record?.lateStartCount },
+      { label: 'Penalty Time', value: record?.late_start_penalty_time || record?.lateStartPenaltyTime },
+    ],
+  },
+  {
+    title: 'Penalty Breakdown',
+    items: [
+      { label: 'Bunting Count', value: record?.bunting_count ?? record?.bustingCount },
+      { label: 'Bunting Penalty', value: record?.bunting_penalty_time ?? record?.bustingPenaltyTime },
+      { label: 'Seatbelt Count', value: record?.seatbelt_count ?? record?.seatbeltCount },
+      { label: 'Seatbelt Penalty', value: record?.seatbelt_penalty_time ?? record?.seatbeltPenaltyTime },
+      { label: 'Ground Touch Count', value: record?.ground_touch_count ?? record?.groundTouchCount },
+      { label: 'Ground Touch Penalty', value: record?.ground_touch_penalty_time ?? record?.groundTouchPenaltyTime },
+      { label: 'Attempt Count', value: record?.attempt_count ?? record?.attemptCount },
+      { label: 'Attempt Penalty', value: record?.attempt_penalty_time ?? record?.attemptPenaltyTime },
+      { label: 'Task Skipped Count', value: record?.task_skipped_count ?? record?.taskSkippedCount },
+      { label: 'Task Skipped Penalty', value: record?.task_skipped_penalty_time ?? record?.taskSkippedPenaltyTime },
+    ],
+  },
+  {
+    title: 'DNF / DNS',
+    items: [
+      { label: 'Result Type', value: record?.isDisputed ? 'Hold' : isDnsResult(record) ? 'DNS' : isDnfResult(record) ? 'DNF' : record?.late_start_status || 'Completed' },
+      { label: 'Wrong Course', value: getYesNoLabel(record?.wrong_course_selected ?? record?.wrongCourseSelected) },
+      { label: '4th Attempt', value: getYesNoLabel(record?.fourth_attempt_selected ?? record?.fourthAttemptSelected) },
+      { label: 'Time Over', value: getYesNoLabel(record?.time_over_selected ?? record?.timeOverSelected) },
+      { label: 'DNF Selection', value: record?.dnf_selection ?? record?.dnfSelection },
+      { label: 'DNF Points', value: record?.dnf_points ?? record?.dnfPoints },
+    ],
+  },
+];
+
+const buildDetailIndex = (resultRows = [], disputeRows = []) => {
+  const index = new Map();
+
+  const addRecord = (record, sourceType) => {
+    const parsedRecord = parseRegistrationPayload(record);
+    const key = getResultIdentityKey(parsedRecord);
+    const existing = index.get(key) || {};
+    index.set(key, {
+      ...existing,
+      [sourceType]: {
+        ...parsedRecord,
+        isDisputed: sourceType === 'dispute' ? true : Boolean(parsedRecord?.isDisputed),
+      },
+    });
+  };
+
+  resultRows.forEach(record => addRecord(record, 'result'));
+  disputeRows.forEach(record => addRecord(record, 'dispute'));
+
+  return index;
+};
+
 const LeaderboardScreen = ({
   visible,
   onClose,
@@ -188,6 +281,7 @@ const LeaderboardScreen = ({
   teams = [],
   dataRefreshKey = 0,
   theme = DEFAULT_THEME,
+  settingsPassword = '',
 }) => {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const responsiveLayout = getResponsiveLayout(screenWidth, screenHeight);
@@ -196,6 +290,10 @@ const LeaderboardScreen = ({
   const [disputes, setDisputes] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('');
   const [nowTimestamp, setNowTimestamp] = useState(Date.now());
+  const [selectedDetail, setSelectedDetail] = useState(null);
+  const [exportPasswordModalVisible, setExportPasswordModalVisible] = useState(false);
+  const [exportPasswordInput, setExportPasswordInput] = useState('');
+  const [exportPasswordError, setExportPasswordError] = useState('');
 
   const loadResults = useCallback(async (showLoading = true, shouldProcessExpiredDisputes = true) => {
     try {
@@ -213,6 +311,7 @@ const LeaderboardScreen = ({
       ]);
       setResults(rows);
       setDisputes(disputeRows);
+
     } catch (error) {
       console.error('Error loading leaderboard data:', error);
       Alert.alert('Leaderboard Error', 'Unable to load leaderboard data');
@@ -221,7 +320,7 @@ const LeaderboardScreen = ({
         setLoading(false);
       }
     }
-  }, []);
+  }, [categoryOptions, teams]);
 
   useEffect(() => {
     if (visible) {
@@ -271,6 +370,8 @@ const LeaderboardScreen = ({
     [disputes]
   );
 
+  const detailIndex = useMemo(() => buildDetailIndex(results, disputes), [results, disputes]);
+
   const uniqueResults = useMemo(() => {
     const seen = new Set();
 
@@ -310,6 +411,68 @@ const LeaderboardScreen = ({
 
   const selectedCategoryConfig =
     categoryCards.find(item => item.key === selectedCategory) || null;
+
+  const openTrackDetails = useCallback(
+    ({ row, trackLabel, summary, entry }) => {
+      const sourceGroup = detailIndex.get(entry.key) || {};
+      const record = entry?.rankLabel === 'Hold'
+        ? sourceGroup.dispute || sourceGroup.result || null
+        : sourceGroup.result || sourceGroup.dispute || null;
+
+      setSelectedDetail({
+        categoryLabel: selectedCategoryConfig?.label || 'Leaderboard',
+        trackLabel,
+        row,
+        summary,
+        entry,
+        record,
+      });
+    },
+    [detailIndex, selectedCategoryConfig?.label]
+  );
+
+  const closeTrackDetails = useCallback(() => {
+    setSelectedDetail(null);
+  }, []);
+
+  const handleExportLeaderboard = useCallback(async () => {
+    try {
+      setLoading(true);
+      await LeaderboardService.exportLeaderboardData({
+        focusCategory: selectedCategory || categoryCards[0]?.key || '',
+      });
+      Alert.alert('Published', 'Leaderboard data has been sent to the website.');
+    } catch (error) {
+      console.error('Unable to export leaderboard data:', error);
+      Alert.alert('Publish failed', error?.message || 'Unable to publish leaderboard data');
+    } finally {
+      setLoading(false);
+    }
+  }, [categoryCards, selectedCategory]);
+
+  const openExportPasswordModal = useCallback(() => {
+    setExportPasswordInput('');
+    setExportPasswordError('');
+    setExportPasswordModalVisible(true);
+  }, []);
+
+  const closeExportPasswordModal = useCallback(() => {
+    setExportPasswordModalVisible(false);
+    setExportPasswordInput('');
+    setExportPasswordError('');
+  }, []);
+
+  const handleExportPasswordSubmit = useCallback(() => {
+    if (exportPasswordInput !== settingsPassword) {
+      setExportPasswordError('Incorrect password. Please try again.');
+      return;
+    }
+
+    setExportPasswordModalVisible(false);
+    setExportPasswordInput('');
+    setExportPasswordError('');
+    handleExportLeaderboard();
+  }, [exportPasswordInput, handleExportLeaderboard, settingsPassword]);
 
   const leaderboardRows = useMemo(() => {
     if (!selectedCategoryConfig) {
@@ -557,12 +720,21 @@ const LeaderboardScreen = ({
                     points. Each track cell shows day-wise timing and points.
                   </Text>
                 </View>
-                <NavigationActionButton
-                  label="Back to Categories"
-                  onPress={() => setSelectedCategory('')}
-                  style={[styles.backButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
-                  textStyle={[styles.backButtonText, { color: theme.accent }]}
-                />
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end' }}>
+                  <TouchableOpacity
+                    style={[styles.actionButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                    onPress={openExportPasswordModal}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={[styles.actionButtonText, { color: theme.accent }]}>Export</Text>
+                  </TouchableOpacity>
+                  <NavigationActionButton
+                    label="Back to Categories"
+                    onPress={() => setSelectedCategory('')}
+                    style={[styles.backButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                    textStyle={[styles.backButtonText, { color: theme.accent }]}
+                  />
+                </View>
               </View>
 
               <View style={[styles.legendCard, { backgroundColor: theme.surfaceAlt || theme.surface, borderColor: theme.border }]}>
@@ -693,6 +865,25 @@ const LeaderboardScreen = ({
                                       <Text style={[styles.trackEntryLine, { color: theme.textPrimary }]}>
                                         {entry.dayLabel}: {entry.timingLabel}
                                       </Text>
+                                      <TouchableOpacity
+                                        style={[
+                                          styles.trackDetailButton,
+                                          { borderColor: theme.border, backgroundColor: theme.backgroundStrong },
+                                        ]}
+                                        onPress={() =>
+                                          openTrackDetails({
+                                            row: item,
+                                            trackLabel: summary.trackLabel,
+                                            summary,
+                                            entry,
+                                          })
+                                        }
+                                        activeOpacity={0.85}
+                                      >
+                                        <Text style={[styles.trackDetailButtonText, { color: theme.accent }]}>
+                                          Details
+                                        </Text>
+                                      </TouchableOpacity>
                                       <Text style={[styles.trackEntryMeta, { color: theme.textSecondary }]}>
                                         {entry.pointsLabel} | {entry.rankLabel}
                                       </Text>
@@ -712,6 +903,156 @@ const LeaderboardScreen = ({
           )}
         </View>
       </View>
+
+      {exportPasswordModalVisible ? (
+        <Modal
+          visible
+          transparent
+          animationType="fade"
+          onRequestClose={closeExportPasswordModal}
+          hardwareAccelerated={Platform.OS === 'android'}
+          statusBarTranslucent={Platform.OS === 'android'}
+        >
+          <View style={[styles.passwordOverlay, { backgroundColor: theme.overlay }]}>
+            <View style={[styles.passwordShell, { backgroundColor: theme.backgroundStrong, borderColor: theme.border }]}>
+              <Text style={[styles.passwordTitle, { color: theme.textPrimary }]}>Enter Password</Text>
+              <Text style={[styles.passwordSubtitle, { color: theme.textSecondary }]}>
+                Use the same password you use for Settings to export leaderboard data.
+              </Text>
+
+              <TextInput
+                value={exportPasswordInput}
+                onChangeText={value => {
+                  setExportPasswordInput(value);
+                  if (exportPasswordError) {
+                    setExportPasswordError('');
+                  }
+                }}
+                placeholder="Password"
+                placeholderTextColor={theme.textTertiary}
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={[styles.passwordInput, { backgroundColor: theme.surface, borderColor: theme.border, color: theme.textPrimary }]}
+                returnKeyType="done"
+                onSubmitEditing={handleExportPasswordSubmit}
+              />
+
+              {exportPasswordError ? (
+                <Text style={[styles.passwordErrorText, { color: '#ff8d5c' }]}>{exportPasswordError}</Text>
+              ) : null}
+
+              <View style={styles.passwordActions}>
+                <TouchableOpacity
+                  style={[styles.passwordActionButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={closeExportPasswordModal}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.passwordActionText, { color: theme.textPrimary }]}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.passwordActionButton, { backgroundColor: theme.accent, borderColor: theme.accent }]}
+                  onPress={handleExportPasswordSubmit}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.passwordActionText, { color: theme.accentText }]}>Export</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      ) : null}
+
+      {selectedDetail ? (
+        <Modal
+          visible
+          transparent
+          animationType="fade"
+          onRequestClose={closeTrackDetails}
+          hardwareAccelerated={Platform.OS === 'android'}
+          statusBarTranslucent={Platform.OS === 'android'}
+        >
+          <View style={[styles.detailOverlay, { backgroundColor: theme.overlay }]}>
+            <View style={[styles.detailShell, { backgroundColor: theme.backgroundStrong, borderColor: theme.border }]}>
+              <View style={[styles.detailHeader, { borderBottomColor: theme.border }]}>
+                <View style={styles.detailHeaderText}>
+                  <Text style={[styles.detailKicker, { color: theme.accent }]}>Track Details</Text>
+                  <Text style={[styles.detailTitle, { color: theme.textPrimary }]}>{selectedDetail.trackLabel}</Text>
+                  <Text style={[styles.detailSubtitle, { color: theme.textSecondary }]}>
+                    {selectedDetail.categoryLabel} | #{selectedDetail.row?.stickerNumber || '--'} |{' '}
+                    {selectedDetail.row?.driverName || '--'}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.detailCloseButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={closeTrackDetails}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.detailCloseButtonText, { color: theme.textPrimary }]}>Close</Text>
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView contentContainerStyle={styles.detailScrollContent} showsVerticalScrollIndicator={false}>
+                <View style={styles.detailTopGrid}>
+                  {[
+                    { label: 'Day', value: selectedDetail.entry?.dayLabel || '--' },
+                    { label: 'Timing', value: selectedDetail.entry?.timingLabel || '--' },
+                    { label: 'Points', value: selectedDetail.entry?.pointsLabel || '--' },
+                    { label: 'Rank', value: selectedDetail.entry?.rankLabel || '--' },
+                  ].map(item => (
+                    <View key={item.label} style={[styles.detailSummaryCard, { backgroundColor: theme.surface }]}>
+                      <Text style={[styles.detailSummaryLabel, { color: theme.textSecondary }]}>{item.label}</Text>
+                      <Text style={[styles.detailSummaryValue, { color: theme.textPrimary }]}>{item.value}</Text>
+                    </View>
+                  ))}
+                </View>
+
+                <View style={styles.detailSectionGrid}>
+                  {buildDetailSections(selectedDetail.record || {}).map(section => (
+                    <View
+                      key={section.title}
+                      style={[styles.detailSectionCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                    >
+                      <Text style={[styles.detailSectionTitle, { color: theme.accent }]}>{section.title}</Text>
+                      <View style={styles.detailFieldGrid}>
+                        {section.items.map(item => (
+                          <View key={item.label} style={[styles.detailFieldCard, { backgroundColor: theme.backgroundStrong }]}>
+                            <Text style={[styles.detailFieldLabel, { color: theme.textSecondary }]}>{item.label}</Text>
+                            <Text style={[styles.detailFieldValue, { color: theme.textPrimary }]}>
+                              {normalizeDetailValue(item.value)}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  ))}
+                </View>
+
+                <View style={[styles.detailRawCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                  <Text style={[styles.detailSectionTitle, { color: theme.accent }]}>Raw Record</Text>
+                  <View style={styles.detailRawGrid}>
+                    {[
+                      { label: 'Performance Time', value: selectedDetail.record?.performance_time || selectedDetail.record?.performanceTimeDisplay },
+                      { label: 'Total Penalties', value: selectedDetail.record?.total_penalties_time || selectedDetail.record?.totalPenaltiesTime },
+                      { label: 'Total Time', value: selectedDetail.record?.total_time || selectedDetail.record?.totalTimeDisplay },
+                      { label: 'Late Start Status', value: selectedDetail.record?.late_start_status || selectedDetail.record?.lateStartStatus },
+                      { label: 'Late Start Penalty', value: selectedDetail.record?.late_start_penalty_time || selectedDetail.record?.lateStartPenaltyTime },
+                      { label: 'DNF Points', value: selectedDetail.record?.dnf_points ?? selectedDetail.record?.dnfPoints },
+                    ].map(item => (
+                      <View key={item.label} style={[styles.detailFieldCard, { backgroundColor: theme.backgroundStrong }]}>
+                        <Text style={[styles.detailFieldLabel, { color: theme.textSecondary }]}>{item.label}</Text>
+                        <Text style={[styles.detailFieldValue, { color: theme.textPrimary }]}>
+                          {normalizeDetailValue(item.value)}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      ) : null}
     </Modal>
   );
 };
@@ -755,18 +1096,21 @@ const styles = StyleSheet.create({
     gap: 28,
   },
   actionButton: {
-    paddingHorizontal: 14,
+    paddingHorizontal: 18,
     paddingVertical: 10,
     borderRadius: 999,
     backgroundColor: '#111722',
     borderWidth: 1,
     borderColor: '#2a3441',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   actionButtonText: {
     fontSize: 13,
     fontWeight: '700',
     color: '#ffb15a',
     fontFamily: BODY_FONT,
+    textAlign: 'center',
   },
   closeButton: {
     fontSize: 13,
@@ -776,6 +1120,66 @@ const styles = StyleSheet.create({
   },
   closeActionButton: {
     minWidth: 104,
+  },
+  passwordOverlay: {
+    flex: 1,
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+  },
+  passwordShell: {
+    width: '100%',
+    maxWidth: 520,
+    alignSelf: 'center',
+    borderWidth: 1,
+    borderRadius: 20,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+    gap: 12,
+  },
+  passwordTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    fontFamily: HEADING_FONT,
+    textTransform: 'uppercase',
+  },
+  passwordSubtitle: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontFamily: BODY_FONT,
+  },
+  passwordInput: {
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 14,
+    fontFamily: BODY_FONT,
+  },
+  passwordErrorText: {
+    fontSize: 12,
+    fontWeight: '700',
+    fontFamily: BODY_FONT,
+  },
+  passwordActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 4,
+  },
+  passwordActionButton: {
+    minWidth: 100,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  passwordActionText: {
+    fontSize: 13,
+    fontWeight: '800',
+    fontFamily: BODY_FONT,
+    textAlign: 'center',
   },
   loadingState: {
     alignItems: 'center',
@@ -840,6 +1244,13 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 13,
     fontFamily: BODY_FONT,
+  },
+  stageHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    justifyContent: 'flex-end',
+    flexWrap: 'wrap',
   },
   backButton: {
     paddingHorizontal: 14,
@@ -971,6 +1382,21 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontFamily: BODY_FONT,
   },
+  trackDetailButton: {
+    alignSelf: 'flex-start',
+    marginTop: 4,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  trackDetailButtonText: {
+    fontSize: 9,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    fontFamily: BODY_FONT,
+    letterSpacing: 0.8,
+  },
   naValue: {
     fontSize: 13,
     fontWeight: '800',
@@ -991,6 +1417,150 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontSize: 13,
     fontFamily: BODY_FONT,
+  },
+  detailOverlay: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 24,
+    justifyContent: 'center',
+  },
+  detailShell: {
+    width: '100%',
+    maxWidth: 980,
+    alignSelf: 'center',
+    borderWidth: 1,
+    borderRadius: 20,
+    overflow: 'hidden',
+    maxHeight: '92%',
+  },
+  detailHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    gap: 12,
+  },
+  detailHeaderText: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  detailKicker: {
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 1.4,
+  },
+  detailTitle: {
+    marginTop: 6,
+    fontSize: 22,
+    fontWeight: '900',
+    fontFamily: HEADING_FONT,
+    textTransform: 'uppercase',
+  },
+  detailSubtitle: {
+    marginTop: 6,
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    fontFamily: BODY_FONT,
+  },
+  detailCloseButton: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  detailCloseButtonText: {
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    fontFamily: BODY_FONT,
+  },
+  detailScrollContent: {
+    padding: 16,
+    gap: 14,
+  },
+  detailTopGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  detailSummaryCard: {
+    minWidth: 150,
+    flexGrow: 1,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  detailSummaryLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 1.1,
+    fontFamily: BODY_FONT,
+  },
+  detailSummaryValue: {
+    marginTop: 6,
+    fontSize: 18,
+    fontWeight: '900',
+    fontFamily: HEADING_FONT,
+    textTransform: 'uppercase',
+  },
+  detailSectionGrid: {
+    gap: 12,
+  },
+  detailSectionCard: {
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 14,
+  },
+  detailSectionTitle: {
+    fontSize: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 1.3,
+    fontFamily: HEADING_FONT,
+  },
+  detailFieldGrid: {
+    marginTop: 12,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  detailFieldCard: {
+    minWidth: 150,
+    flexGrow: 1,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  detailFieldLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    fontFamily: BODY_FONT,
+  },
+  detailFieldValue: {
+    marginTop: 6,
+    fontSize: 13,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    fontFamily: BODY_FONT,
+  },
+  detailRawCard: {
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 14,
+  },
+  detailRawGrid: {
+    marginTop: 12,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
   },
 });
 

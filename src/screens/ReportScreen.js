@@ -35,13 +35,23 @@ const BODY_FONT = Platform.select({
 });
 
 const DEFAULT_THEME = {
-  background: '#080b10',
-  surface: '#111722',
-  border: '#2a3441',
-  textPrimary: '#fff6ea',
-  textSecondary: '#cdbf9a',
-  accent: '#ffb15a',
-  primaryButton: '#2f6fed',
+  background: '#050505',
+  backgroundStrong: '#0b0b0b',
+  surface: '#111111',
+  surfaceAlt: '#171717',
+  border: '#2a1a0f',
+  textPrimary: '#fff7ef',
+  textSecondary: '#e1ad7a',
+  textTertiary: '#aa7a52',
+  accent: '#ff7a00',
+  accentStrong: '#ff920f',
+  accentSoft: '#231308',
+  accentText: '#120a05',
+  primaryButton: '#ff7a00',
+  primaryButtonText: '#120a05',
+  inputBackground: '#0b0b0b',
+  overlay: 'rgba(0, 0, 0, 0.72)',
+  shadow: '#000000',
 };
 
 const getResponsiveLayout = (screenWidth, screenHeight) => {
