@@ -47,9 +47,20 @@ const isWeb = Platform.OS === 'web';
 const WEB_RESULTS_KEY = 'tko_app_results';
 const WEB_DISPUTES_KEY = 'tko_app_disputes';
 const WEB_LEADERBOARD_KEY = 'tko_app_leaderboard';
-const DEFAULT_LEADERBOARD_SYNC_URLS = [
-  'https://www.teamkaradoffroaders.online/api/leaderboard',
-  'https://www.teamkaradoffroaders.online/api/leaderboard-sync',
+const DEFAULT_LEADERBOARD_SYNC_BASES = [
+  'https://teamkaradoffroaders.online',
+  'https://www.teamkaradoffroaders.online',
+];
+const LOCAL_LEADERBOARD_SYNC_BASES = [
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://10.0.2.2:3000',
+];
+const DEFAULT_LEADERBOARD_SYNC_PATHS = [
+  '/api/leaderboard',
+  '/api/leaderboard-sync',
+  '/api/leaderboards',
+  '/api/leaderboard/sync',
 ];
 const getDevFallbackBaseUrl = () => {
   if (!__DEV__) {
@@ -64,24 +75,52 @@ const getDevFallbackBaseUrl = () => {
 };
 
 const resolveLeaderboardSyncUrls = () => {
-  const configuredUrl = String(process.env.EXPO_PUBLIC_LEADERBOARD_SYNC_URL || '').trim();
+  const configuredUrl = String(
+    process.env.EXPO_PUBLIC_LEADERBOARD_SYNC_BASE_URL ||
+    process.env.EXPO_PUBLIC_LEADERBOARD_SYNC_URL ||
+      process.env.EXPO_PUBLIC_LEADERBOARD_SYNC_URLS ||
+      ''
+  ).trim();
   const devFallbackBaseUrl = getDevFallbackBaseUrl();
 
   if (!configuredUrl) {
     if (devFallbackBaseUrl) {
-      return [`${devFallbackBaseUrl}/api/leaderboard`, `${devFallbackBaseUrl}/api/leaderboard-sync`];
+      return [
+        devFallbackBaseUrl,
+        ...LOCAL_LEADERBOARD_SYNC_BASES.filter(base => base !== devFallbackBaseUrl),
+        ...DEFAULT_LEADERBOARD_SYNC_BASES,
+      ].flatMap(base => DEFAULT_LEADERBOARD_SYNC_PATHS.map(path => `${base}${path}`));
     }
 
-    return DEFAULT_LEADERBOARD_SYNC_URLS;
+    return DEFAULT_LEADERBOARD_SYNC_BASES.flatMap(base =>
+      DEFAULT_LEADERBOARD_SYNC_PATHS.map(path => `${base}${path}`)
+    );
   }
 
-  const normalizedUrl = configuredUrl.replace(/\/$/, '');
+  const configuredUrls = configuredUrl
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean);
 
-  if (/\/api\/leaderboard(?:-sync)?\/?$/.test(normalizedUrl)) {
+  if (configuredUrls.length > 1) {
+    return configuredUrls.flatMap(url => resolveLeaderboardSyncUrlsForBase(url));
+  }
+
+  return resolveLeaderboardSyncUrlsForBase(configuredUrls[0]);
+};
+
+const resolveLeaderboardSyncUrlsForBase = baseUrl => {
+  const normalizedUrl = String(baseUrl || '').replace(/\/$/, '');
+
+  if (!normalizedUrl) {
+    return [];
+  }
+
+  if (/\/api\/leaderboard(?:-sync|s|\/sync)?\/?$/.test(normalizedUrl)) {
     return [normalizedUrl];
   }
 
-  return [`${normalizedUrl}/api/leaderboard`, `${normalizedUrl}/api/leaderboard-sync`];
+  return DEFAULT_LEADERBOARD_SYNC_PATHS.map(path => `${normalizedUrl}${path}`);
 };
 const LEADERBOARD_SYNC_URLS = resolveLeaderboardSyncUrls();
 const normalizeResultKey = value => String(value || '').trim().toLowerCase();
