@@ -576,6 +576,7 @@ const IGNITION_VIBRATION_PATTERN = Platform.OS === 'android'
   : 220;
 const RESULTS_RESET_TOKEN = '2026-04-09-clear-report-records';
 const DEFAULT_SETTINGS_PASSWORD = 'admin123';
+const LEGACY_SETTINGS_PASSWORDS = ['Pritisangam@MH50'];
 const DEFAULT_SECURITY_PIN = '0000';
 const APP_SETTINGS_STORAGE_KEY = 'tko_admin_settings_v1';
 const APP_SETTINGS_FILE_NAME = 'tko-admin-settings.json';
@@ -999,6 +1000,16 @@ const normalizeLeaderboardSyncBaseUrl = value => {
   return withProtocol.replace(/\/+$/, '');
 };
 
+const normalizeStoredSettingsPassword = value => {
+  const password = String(value || '').trim();
+
+  if (!password || LEGACY_SETTINGS_PASSWORDS.includes(password)) {
+    return DEFAULT_SETTINGS_PASSWORD;
+  }
+
+  return password;
+};
+
 const loadStoredAppSettings = async () => {
   const fallback = {
     password: DEFAULT_SETTINGS_PASSWORD,
@@ -1020,7 +1031,7 @@ const loadStoredAppSettings = async () => {
 
       const parsed = JSON.parse(raw);
       return {
-        password: parsed?.password || DEFAULT_SETTINGS_PASSWORD,
+        password: normalizeStoredSettingsPassword(parsed?.password),
         pin: normalizeSecurityPin(parsed?.pin),
         categoryActivationConfig: normalizeCategoryActivationConfig(parsed?.categoryActivationConfig),
         trackActivationConfig: normalizeTrackActivationConfig(parsed?.trackActivationConfig),
@@ -1041,7 +1052,7 @@ const loadStoredAppSettings = async () => {
       const raw = await FileSystem.readAsStringAsync(filePath);
       const parsed = JSON.parse(raw);
       return {
-        password: parsed?.password || DEFAULT_SETTINGS_PASSWORD,
+        password: normalizeStoredSettingsPassword(parsed?.password),
         pin: normalizeSecurityPin(parsed?.pin),
         categoryActivationConfig: normalizeCategoryActivationConfig(parsed?.categoryActivationConfig),
         trackActivationConfig: normalizeTrackActivationConfig(parsed?.trackActivationConfig),
@@ -6227,6 +6238,24 @@ const buildRegistrationData = formData => ({
             {settingsView === 'menu' ? (
               <View style={styles.settingsMenuGrid}>
                 <TouchableOpacity
+                  style={[
+                    styles.settingsMenuCard,
+                    styles.settingsMenuCardFeatured,
+                    { backgroundColor: theme.surface, borderColor: theme.border },
+                  ]}
+                  onPress={handleOpenLeaderboardSyncSettings}
+                  activeOpacity={0.88}
+                >
+                  <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Network</Text>
+                  <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Leaderboard Sync</Text>
+                  <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]} numberOfLines={2}>
+                    {leaderboardSyncBaseUrl
+                      ? `Current sync host: ${leaderboardSyncBaseUrl}`
+                      : 'No custom sync host set. Tap to configure the website address.'}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
                   style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
                   onPress={handleOpenConfiguration}
                   activeOpacity={0.88}
@@ -9400,6 +9429,15 @@ const styles = StyleSheet.create({
     borderColor: '#2a3441',
     backgroundColor: '#111722',
     padding: 18,
+  },
+
+  settingsMenuCardFeatured: {
+    borderColor: '#ff7a00',
+    shadowColor: '#ff7a00',
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
   },
 
   settingsMenuCardEyebrow: {
