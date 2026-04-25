@@ -52,6 +52,7 @@ const DEFAULT_LEADERBOARD_SYNC_BASES = [
   'https://teamkaradoffroaders.online',
   'https://www.teamkaradoffroaders.online',
 ];
+const ANDROID_LOCALHOST_SYNC_BASE_URL = 'http://192.168.29.96:3000';
 const LOCAL_LEADERBOARD_SYNC_BASES = [
   'http://localhost:3000',
   'http://127.0.0.1:3000',
@@ -118,6 +119,13 @@ const resolveLeaderboardSyncUrlsForBase = baseUrl => {
 
   if (!normalizedUrl) {
     return [];
+  }
+
+  if (
+    Platform.OS === 'android' &&
+    /^(https?:\/\/)?(localhost|127\.0\.0\.1|10\.0\.2\.2)(:\d+)?(\/.*)?$/i.test(normalizedUrl)
+  ) {
+    return DEFAULT_LEADERBOARD_SYNC_PATHS.map(path => `${ANDROID_LOCALHOST_SYNC_BASE_URL}${path}`);
   }
 
   if (/\/api\/leaderboard(?:-sync|s|\/sync)?\/?$/.test(normalizedUrl)) {

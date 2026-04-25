@@ -581,6 +581,7 @@ const DEFAULT_SECURITY_PIN = '0000';
 const APP_SETTINGS_STORAGE_KEY = 'tko_admin_settings_v1';
 const APP_SETTINGS_FILE_NAME = 'tko-admin-settings.json';
 const DEFAULT_LEADERBOARD_SYNC_BASE_URL = 'http://192.168.29.96:3000';
+const DEFAULT_ANDROID_LOCALHOST_SYNC_BASE_URL = 'http://192.168.29.96:3000';
 const DEFAULT_THEME_MODE = 'dark';
 
 const APP_THEMES = {
@@ -997,7 +998,13 @@ const normalizeLeaderboardSyncBaseUrl = value => {
   }
 
   const withProtocol = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`;
-  return withProtocol.replace(/\/+$/, '');
+  const normalized = withProtocol.replace(/\/+$/, '');
+
+  if (Platform.OS === 'android' && /^(https?:\/\/)?(localhost|127\.0\.0\.1|10\.0\.2\.2)(:\d+)?(\/.*)?$/i.test(raw)) {
+    return DEFAULT_ANDROID_LOCALHOST_SYNC_BASE_URL;
+  }
+
+  return normalized;
 };
 
 const normalizeStoredSettingsPassword = value => {
