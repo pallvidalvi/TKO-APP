@@ -48,6 +48,7 @@ const WEB_RESULTS_KEY = 'tko_app_results';
 const WEB_DISPUTES_KEY = 'tko_app_disputes';
 const WEB_LEADERBOARD_KEY = 'tko_app_leaderboard';
 const DEFAULT_LEADERBOARD_SYNC_BASES = [
+  'http://192.168.29.96:3000',
   'https://teamkaradoffroaders.online',
   'https://www.teamkaradoffroaders.online',
 ];
