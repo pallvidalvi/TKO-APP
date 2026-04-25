@@ -468,16 +468,17 @@ const LeaderboardScreen = ({
         syncBaseUrl: leaderboardSyncBaseUrl,
       });
       if (exportResult?.syncResult?.synced) {
-        Alert.alert('Published', 'Leaderboard data has been sent to the website.');
+        const endpointLabel = exportResult?.syncResult?.endpoint ? `\n\nEndpoint: ${exportResult.syncResult.endpoint}` : '';
+        Alert.alert('Published', `Leaderboard data has been sent to the website.${endpointLabel}`);
       } else if (exportResult?.syncResult?.status === 404) {
         Alert.alert(
-          'Saved locally',
-          'Leaderboard snapshot was created, but the sync endpoint returned 404. The generated data is still available in the app.'
+          'Sync failed',
+          'The leaderboard endpoint was not found on the server. Please make sure the backend server is running and reachable from the phone.'
         );
       } else {
         Alert.alert(
-          'Saved locally',
-          'Leaderboard snapshot was created, but the website sync is currently unavailable.'
+          'Sync failed',
+          `Leaderboard data could not be published. ${exportResult?.syncResult?.message || 'The website sync is currently unavailable.'}`
         );
       }
     } catch (error) {
