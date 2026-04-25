@@ -470,10 +470,10 @@ const LeaderboardScreen = ({
       if (exportResult?.syncResult?.synced) {
         const endpointLabel = exportResult?.syncResult?.endpoint ? `\n\nEndpoint: ${exportResult.syncResult.endpoint}` : '';
         Alert.alert('Published', `Leaderboard data has been sent to the website.${endpointLabel}`);
-      } else if (exportResult?.syncResult?.status === 404) {
+      } else if (exportResult?.syncResult?.status === 404 || exportResult?.syncResult?.status === 405) {
         Alert.alert(
           'Sync failed',
-          'The leaderboard endpoint was not found on the server. Please make sure the backend server is running and reachable from the phone.'
+          'The leaderboard endpoint is not usable on the server. Please make sure the backend route accepts POST requests and is reachable from the phone.'
         );
       } else {
         Alert.alert(

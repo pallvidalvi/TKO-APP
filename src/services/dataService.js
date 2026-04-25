@@ -59,11 +59,11 @@ const LOCAL_LEADERBOARD_SYNC_BASES = [
   'http://10.0.2.2:3000',
 ];
 const DEFAULT_LEADERBOARD_SYNC_PATHS = [
-  '/leaderboard',
   '/api/leaderboard',
   '/api/leaderboard-sync',
   '/api/leaderboards',
   '/api/leaderboard/sync',
+  '/leaderboard',
 ];
 const getDevFallbackBaseUrl = () => {
   if (!__DEV__) {
@@ -627,9 +627,9 @@ const syncLeaderboardSnapshotWithBaseUrl = async (snapshot, syncBaseUrl = '') =>
       lastError = error;
       const status = error?.response?.status || null;
 
-      if (status === 404) {
+      if (status === 404 || status === 405) {
         sawMissingEndpoint = true;
-        console.warn(`Leaderboard sync endpoint not found at ${url}`);
+        console.warn(`Leaderboard sync endpoint not usable at ${url}`);
         continue;
       }
 
@@ -637,15 +637,15 @@ const syncLeaderboardSnapshotWithBaseUrl = async (snapshot, syncBaseUrl = '') =>
     }
   }
 
-  const status = sawMissingEndpoint ? 404 : lastError?.response?.status || null;
+  const status = sawMissingEndpoint ? (lastError?.response?.status || 404) : lastError?.response?.status || null;
 
   return {
     synced: false,
     status,
-    reason: status === 404 ? 'not_found' : 'unavailable',
+    reason: status === 404 || status === 405 ? 'not_found' : 'unavailable',
     message:
-      status === 404
-        ? 'Leaderboard sync endpoint was not found on the server.'
+      status === 404 || status === 405
+        ? 'Leaderboard sync endpoint was not usable on the server.'
         : 'Leaderboard sync is unavailable right now.',
     error: lastError,
   };
