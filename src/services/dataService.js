@@ -57,6 +57,7 @@ const LOCAL_LEADERBOARD_SYNC_BASES = [
   'http://10.0.2.2:3000',
 ];
 const DEFAULT_LEADERBOARD_SYNC_PATHS = [
+  '/leaderboard',
   '/api/leaderboard',
   '/api/leaderboard-sync',
   '/api/leaderboards',

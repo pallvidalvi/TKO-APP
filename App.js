@@ -575,7 +575,7 @@ const IGNITION_VIBRATION_PATTERN = Platform.OS === 'android'
   ? [0, 70, 60, 110, 70, 160, 90, 220]
   : 220;
 const RESULTS_RESET_TOKEN = '2026-04-09-clear-report-records';
-const DEFAULT_SETTINGS_PASSWORD = 'Pritisangam@MH50';
+const DEFAULT_SETTINGS_PASSWORD = 'admin123';
 const DEFAULT_SECURITY_PIN = '0000';
 const APP_SETTINGS_STORAGE_KEY = 'tko_admin_settings_v1';
 const APP_SETTINGS_FILE_NAME = 'tko-admin-settings.json';
@@ -6259,6 +6259,18 @@ const buildRegistrationData = formData => ({
                   <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Security</Text>
                   <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
                     Manage PIN verification for record actions and update the password required to access Settings.
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={handleOpenLeaderboardSyncSettings}
+                  activeOpacity={0.88}
+                >
+                  <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Network</Text>
+                  <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Leaderboard Sync</Text>
+                  <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]} numberOfLines={3}>
+                    Set the website address used to publish leaderboard exports from the phone build.
                   </Text>
                 </TouchableOpacity>
               </View>
