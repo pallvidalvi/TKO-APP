@@ -74,16 +74,18 @@ const getDevFallbackBaseUrl = () => {
   return 'http://localhost:3000';
 };
 
-const resolveLeaderboardSyncUrls = () => {
+const resolveLeaderboardSyncUrls = (overrideBaseUrl = '') => {
+  const normalizedOverrideBaseUrl = String(overrideBaseUrl || '').trim();
   const configuredUrl = String(
     process.env.EXPO_PUBLIC_LEADERBOARD_SYNC_BASE_URL ||
     process.env.EXPO_PUBLIC_LEADERBOARD_SYNC_URL ||
       process.env.EXPO_PUBLIC_LEADERBOARD_SYNC_URLS ||
       ''
   ).trim();
+  const effectiveConfiguredUrl = normalizedOverrideBaseUrl || configuredUrl;
   const devFallbackBaseUrl = getDevFallbackBaseUrl();
 
-  if (!configuredUrl) {
+  if (!effectiveConfiguredUrl) {
     if (devFallbackBaseUrl) {
       return [
         devFallbackBaseUrl,
@@ -97,7 +99,7 @@ const resolveLeaderboardSyncUrls = () => {
     );
   }
 
-  const configuredUrls = configuredUrl
+  const configuredUrls = effectiveConfiguredUrl
     .split(',')
     .map(value => value.trim())
     .filter(Boolean);
@@ -589,10 +591,15 @@ const buildLeaderboardExportSnapshot = async () => {
 };
 
 const syncLeaderboardSnapshot = async snapshot => {
+  return syncLeaderboardSnapshotWithBaseUrl(snapshot, '');
+};
+
+const syncLeaderboardSnapshotWithBaseUrl = async (snapshot, syncBaseUrl = '') => {
   let lastError = null;
   let sawMissingEndpoint = false;
+  const syncUrls = resolveLeaderboardSyncUrls(syncBaseUrl);
 
-  for (const url of LEADERBOARD_SYNC_URLS) {
+  for (const url of syncUrls) {
     try {
       const response = await axios.post(url, snapshot, {
         timeout: 15000,
@@ -799,13 +806,13 @@ const saveWebLeaderboardSnapshot = snapshot => {
 };
 
 export const LeaderboardService = {
-  exportLeaderboardData: async ({ focusCategory = '' } = {}) => {
+  exportLeaderboardData: async ({ focusCategory = '', syncBaseUrl = '' } = {}) => {
     const snapshot = await buildLeaderboardExportSnapshot();
     if (focusCategory) {
       snapshot.focusCategory = focusCategory;
     }
     saveWebLeaderboardSnapshot(snapshot);
-    const syncResult = await syncLeaderboardSnapshot(snapshot);
+    const syncResult = await syncLeaderboardSnapshotWithBaseUrl(snapshot, syncBaseUrl);
     return {
       ...snapshot,
       syncResult,

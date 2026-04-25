@@ -284,6 +284,7 @@ const LeaderboardScreen = ({
   dataRefreshKey = 0,
   theme = DEFAULT_THEME,
   settingsPassword = '',
+  leaderboardSyncBaseUrl = '',
 }) => {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const responsiveLayout = getResponsiveLayout(screenWidth, screenHeight);
@@ -464,6 +465,7 @@ const LeaderboardScreen = ({
       setLoading(true);
       const exportResult = await LeaderboardService.exportLeaderboardData({
         focusCategory: selectedCategory || categoryCards[0]?.key || '',
+        syncBaseUrl: leaderboardSyncBaseUrl,
       });
       if (exportResult?.syncResult?.synced) {
         Alert.alert('Published', 'Leaderboard data has been sent to the website.');
@@ -484,7 +486,7 @@ const LeaderboardScreen = ({
     } finally {
       setLoading(false);
     }
-  }, [categoryCards, selectedCategory]);
+  }, [categoryCards, leaderboardSyncBaseUrl, selectedCategory]);
 
   const openExportPasswordModal = useCallback(() => {
     setExportPasswordInput('');

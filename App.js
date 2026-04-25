@@ -579,6 +579,7 @@ const DEFAULT_SETTINGS_PASSWORD = 'Pritisangam@MH50';
 const DEFAULT_SECURITY_PIN = '0000';
 const APP_SETTINGS_STORAGE_KEY = 'tko_admin_settings_v1';
 const APP_SETTINGS_FILE_NAME = 'tko-admin-settings.json';
+const DEFAULT_LEADERBOARD_SYNC_BASE_URL = 'http://192.168.29.96:3000';
 const DEFAULT_THEME_MODE = 'dark';
 
 const APP_THEMES = {
@@ -987,6 +988,17 @@ const getTrackTimerLimitSeconds = (trackTimerConfig, dayId, categoryName, trackN
   return storedValue === null || storedValue === undefined ? null : clampTrackTimerSeconds(storedValue);
 };
 
+const normalizeLeaderboardSyncBaseUrl = value => {
+  const raw = String(value || '').trim();
+
+  if (!raw) {
+    return '';
+  }
+
+  const withProtocol = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`;
+  return withProtocol.replace(/\/+$/, '');
+};
+
 const loadStoredAppSettings = async () => {
   const fallback = {
     password: DEFAULT_SETTINGS_PASSWORD,
@@ -995,6 +1007,7 @@ const loadStoredAppSettings = async () => {
     trackActivationConfig: buildDefaultTrackActivationConfig(),
     trackTimerConfig: buildDefaultTrackTimerConfig(),
     themeMode: DEFAULT_THEME_MODE,
+    leaderboardSyncBaseUrl: DEFAULT_LEADERBOARD_SYNC_BASE_URL,
   };
 
   try {
@@ -1013,6 +1026,7 @@ const loadStoredAppSettings = async () => {
         trackActivationConfig: normalizeTrackActivationConfig(parsed?.trackActivationConfig),
         trackTimerConfig: normalizeTrackTimerConfig(parsed?.trackTimerConfig),
         themeMode: normalizeThemeMode(parsed?.themeMode),
+        leaderboardSyncBaseUrl: normalizeLeaderboardSyncBaseUrl(parsed?.leaderboardSyncBaseUrl),
       };
     }
 
@@ -1033,6 +1047,7 @@ const loadStoredAppSettings = async () => {
         trackActivationConfig: normalizeTrackActivationConfig(parsed?.trackActivationConfig),
         trackTimerConfig: normalizeTrackTimerConfig(parsed?.trackTimerConfig),
         themeMode: normalizeThemeMode(parsed?.themeMode),
+        leaderboardSyncBaseUrl: normalizeLeaderboardSyncBaseUrl(parsed?.leaderboardSyncBaseUrl),
       };
     }
   } catch (error) {
@@ -1050,6 +1065,7 @@ const saveStoredAppSettings = async settings => {
     trackActivationConfig: normalizeTrackActivationConfig(settings.trackActivationConfig),
     trackTimerConfig: normalizeTrackTimerConfig(settings.trackTimerConfig),
     themeMode: normalizeThemeMode(settings.themeMode),
+    leaderboardSyncBaseUrl: normalizeLeaderboardSyncBaseUrl(settings.leaderboardSyncBaseUrl),
   });
 
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -3963,6 +3979,7 @@ export default function App() {
   const [settingsPassword, setSettingsPassword] = useState(DEFAULT_SETTINGS_PASSWORD);
   const [securityPin, setSecurityPin] = useState(DEFAULT_SECURITY_PIN);
   const [themeMode, setThemeMode] = useState(DEFAULT_THEME_MODE);
+  const [leaderboardSyncBaseUrl, setLeaderboardSyncBaseUrl] = useState(DEFAULT_LEADERBOARD_SYNC_BASE_URL);
   const [categoryActivationConfig, setCategoryActivationConfig] = useState(() => buildDefaultCategoryActivationConfig());
   const [trackActivationConfig, setTrackActivationConfig] = useState(() => buildDefaultTrackActivationConfig());
   const [trackTimerConfig, setTrackTimerConfig] = useState(() => buildDefaultTrackTimerConfig());
@@ -3972,6 +3989,8 @@ export default function App() {
   const [themeVisible, setThemeVisible] = useState(false);
   const [settingsPasswordInput, setSettingsPasswordInput] = useState('');
   const [settingsPasswordError, setSettingsPasswordError] = useState('');
+  const [leaderboardSyncBaseUrlInput, setLeaderboardSyncBaseUrlInput] = useState('');
+  const [leaderboardSyncError, setLeaderboardSyncError] = useState('');
   const [settingsConfigDayId, setSettingsConfigDayId] = useState(REPORT_DAYS[0]?.id || '');
   const [settingsConfigCategoryKey, setSettingsConfigCategoryKey] = useState('EXTREME');
   const [settingsTrackTimerTrack, setSettingsTrackTimerTrack] = useState('');
@@ -4096,6 +4115,8 @@ export default function App() {
       setTrackActivationConfig(storedSettings.trackActivationConfig);
       setTrackTimerConfig(storedSettings.trackTimerConfig);
       setThemeMode(storedSettings.themeMode);
+      setLeaderboardSyncBaseUrl(storedSettings.leaderboardSyncBaseUrl || DEFAULT_LEADERBOARD_SYNC_BASE_URL);
+      setLeaderboardSyncBaseUrlInput(storedSettings.leaderboardSyncBaseUrl || DEFAULT_LEADERBOARD_SYNC_BASE_URL);
       setSettingsLoaded(true);
     };
 
@@ -4118,10 +4139,11 @@ export default function App() {
       trackActivationConfig,
       trackTimerConfig,
       themeMode,
+      leaderboardSyncBaseUrl,
     }).catch(error => {
       console.warn('Unable to save admin settings:', error);
     });
-  }, [categoryActivationConfig, securityPin, settingsLoaded, settingsPassword, themeMode, trackActivationConfig, trackTimerConfig]);
+  }, [categoryActivationConfig, leaderboardSyncBaseUrl, securityPin, settingsLoaded, settingsPassword, themeMode, trackActivationConfig, trackTimerConfig]);
 
   useEffect(() => {
     if (appStage !== 'splash') {
@@ -4685,7 +4707,7 @@ export default function App() {
   };
 
   const getPreviousSettingsView = currentView => {
-    if (currentView === 'pin' || currentView === 'change-pin' || currentView === 'password') {
+    if (currentView === 'pin' || currentView === 'change-pin' || currentView === 'password' || currentView === 'leaderboard-sync') {
       return 'security';
     }
 
@@ -4738,6 +4760,41 @@ export default function App() {
   };
 
   const handleOpenSecurity = () => {
+    setSettingsView('security');
+  };
+
+  const handleOpenLeaderboardSyncSettings = () => {
+    setLeaderboardSyncBaseUrlInput(leaderboardSyncBaseUrl);
+    setLeaderboardSyncError('');
+    setSettingsView('leaderboard-sync');
+  };
+
+  const handleLeaderboardSyncSave = () => {
+    const normalizedBaseUrl = normalizeLeaderboardSyncBaseUrl(leaderboardSyncBaseUrlInput);
+
+    if (!normalizedBaseUrl) {
+      setLeaderboardSyncBaseUrl('');
+      setLeaderboardSyncBaseUrlInput('');
+      setLeaderboardSyncError('');
+      setSettingsView('security');
+      return;
+    }
+
+    if (!/^https?:\/\/.+/i.test(normalizedBaseUrl)) {
+      setLeaderboardSyncError('Enter a valid URL such as http://192.168.1.10:3000');
+      return;
+    }
+
+    setLeaderboardSyncBaseUrl(normalizedBaseUrl);
+    setLeaderboardSyncBaseUrlInput(normalizedBaseUrl);
+    setLeaderboardSyncError('');
+    setSettingsView('security');
+  };
+
+  const handleLeaderboardSyncClear = () => {
+    setLeaderboardSyncBaseUrlInput('');
+    setLeaderboardSyncBaseUrl('');
+    setLeaderboardSyncError('');
     setSettingsView('security');
   };
 
@@ -5423,6 +5480,8 @@ const buildRegistrationData = formData => ({
                   ? 'Change PIN'
                   : settingsView === 'disputes'
                     ? 'Disputes'
+                    : settingsView === 'leaderboard-sync'
+                      ? 'Leaderboard Sync'
                     : 'Change Password';
 
   const settingsPageSubtitle =
@@ -5436,12 +5495,14 @@ const buildRegistrationData = formData => ({
             ? 'Manage the protected tools used to verify race-day actions.'
             : settingsView === 'pin'
               ? 'Require a 4-digit PIN before Submit, DNS, and Confirm Dispute can continue.'
-              : settingsView === 'change-pin'
-                ? 'Update the 4-digit PIN used to approve protected record actions.'
-                : settingsView === 'disputes'
-                  ? 'Review and resolve disputed stopwatch records for the selected day.'
-                  : settingsView === 'password'
-                    ? 'Update the password used to open Settings.'
+                : settingsView === 'change-pin'
+                  ? 'Update the 4-digit PIN used to approve protected record actions.'
+                  : settingsView === 'disputes'
+                    ? 'Review and resolve disputed stopwatch records for the selected day.'
+                    : settingsView === 'leaderboard-sync'
+                      ? 'Set the website base URL used when exporting leaderboard data from this installed build.'
+                    : settingsView === 'password'
+                      ? 'Update the password used to open Settings.'
                     : 'Protected tools for race-day configuration.';
 
   if (appStage === 'splash') {
@@ -6014,6 +6075,7 @@ const buildRegistrationData = formData => ({
           teams={teams}
           dataRefreshKey={leaderboardRefreshKey}
           settingsPassword={settingsPassword}
+          leaderboardSyncBaseUrl={leaderboardSyncBaseUrl}
           theme={theme}
         />
       ) : null}
@@ -6225,6 +6287,18 @@ const buildRegistrationData = formData => ({
                   <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Change Password</Text>
                   <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
                     Update the password required to open protected settings.
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={handleOpenLeaderboardSyncSettings}
+                  activeOpacity={0.88}
+                >
+                  <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Network</Text>
+                  <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Leaderboard Sync</Text>
+                  <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
+                    Point exports to your local website or server so leaderboard data is published online.
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -6837,6 +6911,68 @@ const buildRegistrationData = formData => ({
                 >
                   <Text style={[styles.settingsActionButtonText, { color: theme.accentText }]}>Save PIN</Text>
                 </TouchableOpacity>
+              </View>
+            ) : null}
+
+            {settingsView === 'leaderboard-sync' ? (
+              <View style={[styles.settingsFormCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Leaderboard Sync URL</Text>
+                <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                  Enter the base URL of the website that should receive exported leaderboard data.
+                  Example: http://192.168.1.10:3000
+                </Text>
+                <TextInput
+                  autoFocus
+                  value={leaderboardSyncBaseUrlInput}
+                  onChangeText={value => {
+                    setLeaderboardSyncBaseUrlInput(value);
+                    if (leaderboardSyncError) {
+                      setLeaderboardSyncError('');
+                    }
+                  }}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  placeholder="http://192.168.1.10:3000"
+                  placeholderTextColor={theme.textTertiary}
+                  style={[
+                    styles.settingsInput,
+                    { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary },
+                    leaderboardSyncError ? styles.settingsInputError : null,
+                  ]}
+                  returnKeyType="done"
+                  onSubmitEditing={handleLeaderboardSyncSave}
+                />
+                {leaderboardSyncError ? (
+                  <Text style={styles.settingsPasswordErrorText}>{leaderboardSyncError}</Text>
+                ) : null}
+                <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                  Leave blank to stop custom syncing and fall back to built-in targets.
+                </Text>
+                <View style={styles.settingsTrackTimerActionRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.settingsActionButton,
+                      styles.settingsSecondaryButton,
+                      { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
+                    ]}
+                    onPress={handleLeaderboardSyncClear}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={[styles.settingsActionButtonText, styles.settingsSecondaryButtonText, { color: theme.textPrimary }]}>Clear</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.settingsActionButton,
+                      styles.settingsPrimaryButton,
+                      { backgroundColor: theme.accent },
+                    ]}
+                    onPress={handleLeaderboardSyncSave}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={[styles.settingsActionButtonText, { color: theme.accentText }]}>Save URL</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             ) : null}
 
