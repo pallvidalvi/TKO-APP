@@ -42,8 +42,10 @@ import {
   normalizeValue,
 } from '../utils/scoring';
 
-const API_BASE_URL = 'https://www.teamkaradoffroaders.online/api';
 const isWeb = Platform.OS === 'web';
+const API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_BASE_URL ||
+  (isWeb ? 'http://localhost:3000/api' : 'https://www.teamkaradoffroaders.online/api');
 const WEB_RESULTS_KEY = 'tko_app_results';
 const WEB_DISPUTES_KEY = 'tko_app_disputes';
 const WEB_LEADERBOARD_KEY = 'tko_app_leaderboard';
@@ -65,6 +67,13 @@ const DEFAULT_LEADERBOARD_SYNC_PATHS = [
   '/api/leaderboard/sync',
   '/leaderboard',
 ];
+const getWebFallbackBaseUrl = () => {
+  if (!isWeb || typeof window === 'undefined') {
+    return '';
+  }
+
+  return 'http://localhost:3000';
+};
 const getDevFallbackBaseUrl = () => {
   if (!__DEV__) {
     return '';
@@ -87,8 +96,17 @@ const resolveLeaderboardSyncUrls = (overrideBaseUrl = '') => {
   ).trim();
   const effectiveConfiguredUrl = normalizedOverrideBaseUrl || configuredUrl;
   const devFallbackBaseUrl = getDevFallbackBaseUrl();
+  const webFallbackBaseUrl = getWebFallbackBaseUrl();
 
   if (!effectiveConfiguredUrl) {
+    if (webFallbackBaseUrl) {
+      return [
+        webFallbackBaseUrl,
+        ...LOCAL_LEADERBOARD_SYNC_BASES.filter(base => base !== webFallbackBaseUrl),
+        ...DEFAULT_LEADERBOARD_SYNC_BASES,
+      ].flatMap(base => DEFAULT_LEADERBOARD_SYNC_PATHS.map(path => `${base}${path}`));
+    }
+
     if (devFallbackBaseUrl) {
       return [
         devFallbackBaseUrl,
@@ -130,6 +148,11 @@ const resolveLeaderboardSyncUrlsForBase = baseUrl => {
 
   if (/\/api\/leaderboard(?:-sync|s|\/sync)?\/?$/.test(normalizedUrl)) {
     return [normalizedUrl];
+  }
+
+  if (/\/leaderboard\/?$/i.test(normalizedUrl)) {
+    const hostRoot = normalizedUrl.replace(/\/leaderboard\/?$/i, '');
+    return DEFAULT_LEADERBOARD_SYNC_PATHS.map(path => `${hostRoot}${path}`);
   }
 
   return DEFAULT_LEADERBOARD_SYNC_PATHS.map(path => `${normalizedUrl}${path}`);
@@ -612,7 +635,7 @@ const syncLeaderboardSnapshotWithBaseUrl = async (snapshot, syncBaseUrl = '') =>
   for (const url of syncUrls) {
     try {
       const response = await axios.post(url, snapshot, {
-        timeout: 15000,
+        timeout: 60000,
         headers: {
           'Content-Type': 'application/json',
         },

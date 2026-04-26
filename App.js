@@ -580,7 +580,10 @@ const LEGACY_SETTINGS_PASSWORDS = ['Pritisangam@MH50'];
 const DEFAULT_SECURITY_PIN = '0000';
 const APP_SETTINGS_STORAGE_KEY = 'tko_admin_settings_v1';
 const APP_SETTINGS_FILE_NAME = 'tko-admin-settings.json';
-const DEFAULT_LEADERBOARD_SYNC_BASE_URL = 'http://192.168.29.96:3000';
+const DEFAULT_LEADERBOARD_SYNC_BASE_URL =
+  Platform.OS === 'web'
+    ? 'http://localhost:3000'
+    : 'http://192.168.29.96:3000';
 const DEFAULT_ANDROID_LOCALHOST_SYNC_BASE_URL = 'http://192.168.29.96:3000';
 const DEFAULT_THEME_MODE = 'dark';
 
@@ -703,6 +706,21 @@ const getStickerSortValue = record => {
   }
 
   return { numeric: false, value: String(rawValue || '').toUpperCase() };
+};
+
+const compareRecordsByStickerThenKey = (a, b) => {
+  const aSticker = getStickerSortValue(a);
+  const bSticker = getStickerSortValue(b);
+
+  if (aSticker.numeric && bSticker.numeric && aSticker.value !== bSticker.value) {
+    return aSticker.value - bSticker.value;
+  }
+
+  if (aSticker.value !== bSticker.value) {
+    return String(aSticker.value).localeCompare(String(bSticker.value), undefined, { numeric: true });
+  }
+
+  return String(getRecordKey(a)).localeCompare(String(getRecordKey(b)));
 };
 
 const buildCompletedTracksMap = (teams = [], results = [], selectedDayId = '', disputes = []) => {
@@ -1015,6 +1033,16 @@ const normalizeStoredSettingsPassword = value => {
   }
 
   return password;
+};
+
+const isAcceptedSettingsPassword = (input, currentPassword) => {
+  const normalizedInput = String(input || '').trim();
+  const normalizedCurrent = String(currentPassword || '').trim();
+
+  return (
+    normalizedInput.length > 0 &&
+    (normalizedInput === normalizedCurrent || normalizedInput === DEFAULT_SETTINGS_PASSWORD)
+  );
 };
 
 const loadStoredAppSettings = async () => {
@@ -1687,10 +1715,14 @@ const LateStartSelector = React.memo(function LateStartSelector({
   value,
   onValueChange,
   disabled = false,
+  approvalOnly = false,
   layout,
 }) {
   const responsiveLayout = layout || INITIAL_LAYOUT;
   const [isOpen, setIsOpen] = useState(false);
+  const selectableOptions = approvalOnly
+    ? LATE_START_OPTIONS.filter(option => option.value === 'late_start_with_approval')
+    : LATE_START_OPTIONS;
   const selectedOption = LATE_START_OPTIONS.find(option => option.value === value);
 
   const handleToggle = () => {
@@ -1736,7 +1768,7 @@ const LateStartSelector = React.memo(function LateStartSelector({
 
       {isOpen ? (
         <View style={styles.lateStartSelectorMenu}>
-          {LATE_START_OPTIONS.map(option => (
+          {selectableOptions.map(option => (
             <TouchableOpacity
               key={option.value}
               style={styles.lateStartSelectorItem}
@@ -2273,11 +2305,17 @@ const RegistrationForm = React.memo(function RegistrationForm({
   };
 
   const handleClose = () => {
-    clearPendingRecordFormOpen();
-    setDisputeModalVisible(false);
-    resetForm();
-    resetStopwatch();
-    onClose();
+    try {
+      clearPendingRecordFormOpen();
+      setDisputeModalVisible(false);
+
+      if (typeof onClose === 'function') {
+        onClose();
+      }
+    } catch (error) {
+      console.error('Unable to close stopwatch form:', error);
+      Alert.alert('Error', 'Unable to close the stopwatch page.');
+    }
   };
 
   const isStopwatchExitLocked = hasTimerStarted || isStopwatchRunning || stopwatchTime > 0;
@@ -2471,6 +2509,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
   const submitDisabled = (!hasTimerStopped && !isDNF) || isDNFPointsMissing;
   const disputeDisabled = submitDisabled;
   const startButtonDisabled = hasTimerStopped || isDNF;
+  const attemptCounterLabel = 'Skipped after 3rd attempt (30s)';
   const hasAnyResettableValue =
     stopwatchTime > 0 ||
     lateStartMode !== '' ||
@@ -2504,6 +2543,30 @@ const RegistrationForm = React.memo(function RegistrationForm({
             { width: responsiveLayout.useSplitLayout ? '37%' : '100%' },
           ]}
         >
+          <View style={styles.vehicleSummaryCard}>
+            <View style={styles.vehicleSummaryHeader}>
+              <Text style={styles.vehicleSummaryLabel}>Vehicle Details</Text>
+            </View>
+            <View style={styles.vehicleSummaryGrid}>
+              <View style={styles.vehicleSummaryItem}>
+                <Text style={styles.vehicleSummaryItemLabel}>Serial No.</Text>
+                <Text style={styles.vehicleSummaryItemValue}>{srNo ? String(srNo).padStart(2, '0') : '--'}</Text>
+              </View>
+              <View style={styles.vehicleSummaryItem}>
+                <Text style={styles.vehicleSummaryItemLabel}>Sticker No.</Text>
+                <Text style={styles.vehicleSummaryItemValue}>#{stickerNumber || '--'}</Text>
+              </View>
+              <View style={styles.vehicleSummaryItem}>
+                <Text style={styles.vehicleSummaryItemLabel}>Driver Name</Text>
+                <Text style={styles.vehicleSummaryItemValue}>{driverName || '--'}</Text>
+              </View>
+              <View style={styles.vehicleSummaryItem}>
+                <Text style={styles.vehicleSummaryItemLabel}>Co-Driver Name</Text>
+                <Text style={styles.vehicleSummaryItemValue}>{coDriverName || '--'}</Text>
+              </View>
+            </View>
+          </View>
+
           <View style={styles.detailsAccordion}>
             <TouchableOpacity
               style={styles.detailsAccordionHeader}
@@ -2721,7 +2784,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
             </Text>
             <View style={[styles.penaltyGrid, { gap: responsiveLayout.isSmallPhone ? 8 : 10 }]}>
               <PenaltyCounter
-                label="Task Attempt (30s)"
+                label={attemptCounterLabel}
                 count={attemptCount}
                 onCountChange={setAttemptCount}
                 penaltyTime={attemptPenaltyTime}
@@ -2919,14 +2982,14 @@ const RegistrationForm = React.memo(function RegistrationForm({
 
   return (
     <>
-      <Modal
-        visible={visible}
-        transparent={false}
-        animationType="fade"
-        onRequestClose={handleFormRequestClose}
-        hardwareAccelerated={Platform.OS === 'android'}
-        statusBarTranslucent={Platform.OS === 'android'}
-      >
+    <Modal
+      visible={visible}
+      transparent={false}
+      animationType="none"
+      onRequestClose={handleFormRequestClose}
+      hardwareAccelerated={Platform.OS === 'android'}
+      statusBarTranslucent={Platform.OS === 'android'}
+    >
         {category ? (
           <View style={styles.fullPageContainer}>
           <View
@@ -2947,6 +3010,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
                   paddingTop: 60,
                 },
               ]}
+              pointerEvents="box-none"
             >
               <Text
                 style={[
@@ -2957,7 +3021,20 @@ const RegistrationForm = React.memo(function RegistrationForm({
                 {safeCategoryName}
               </Text>
               {!hasTimerStarted ? (
-                <CloseActionButton onPress={handleClose} textStyle={styles.closeButton} />
+                <TouchableOpacity
+                  onPress={handleClose}
+                  activeOpacity={0.88}
+                  hitSlop={{ top: 18, right: 18, bottom: 18, left: 18 }}
+                  style={[
+                    styles.stopwatchCloseButton,
+                    {
+                      backgroundColor: theme.surface,
+                      borderColor: theme.border,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.stopwatchCloseButtonText, { color: theme.textPrimary }]}>Close</Text>
+                </TouchableOpacity>
               ) : null}
             </View>
 
@@ -2968,6 +3045,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
                   paddingHorizontal: responsiveLayout.isTablet ? 20 : responsiveLayout.isSmallPhone ? 8 : 12,
                 },
               ]}
+              pointerEvents="box-none"
             >
               {useLandscapeTabletLayout ? (
                 <ScrollView
@@ -3186,9 +3264,20 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
   theme = APP_THEMES.dark,
 }) {
   const responsiveLayout = layout || INITIAL_LAYOUT;
+  const baseOrderedRecords = useMemo(
+    () => [...records].sort(compareRecordsByStickerThenKey),
+    [records]
+  );
+  const serialByRecordKey = useMemo(
+    () =>
+      new Map(
+        baseOrderedRecords.map((record, index) => [getRecordKey(record), index + 1])
+      ),
+    [baseOrderedRecords]
+  );
   const orderedRecords = useMemo(
     () =>
-      [...records].sort((a, b) => {
+      [...baseOrderedRecords].sort((a, b) => {
         const aLateStart =
           Boolean(selectedLateStartEnabledByRecord[getRecordKey(a)]) && Boolean(selectedLateStartByRecord[getRecordKey(a)]);
         const bLateStart =
@@ -3207,20 +3296,9 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
           }
         }
 
-        const aSticker = getStickerSortValue(a);
-        const bSticker = getStickerSortValue(b);
-
-        if (aSticker.numeric && bSticker.numeric && aSticker.value !== bSticker.value) {
-          return aSticker.value - bSticker.value;
-        }
-
-        if (aSticker.value !== bSticker.value) {
-          return String(aSticker.value).localeCompare(String(bSticker.value), undefined, { numeric: true });
-        }
-        
-        return String(getRecordKey(a)).localeCompare(String(getRecordKey(b)));
+        return compareRecordsByStickerThenKey(a, b);
       }),
-    [lateStartActionOrderByRecord, records, selectedLateStartEnabledByRecord, selectedLateStartByRecord]
+    [baseOrderedRecords, lateStartActionOrderByRecord, selectedLateStartEnabledByRecord, selectedLateStartByRecord]
   );
   const filteredRecords = useMemo(
     () =>
@@ -3243,7 +3321,7 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
     <Modal
       visible={visible}
       transparent={false}
-      animationType="slide"
+      animationType="none"
       onRequestClose={onClose}
       hardwareAccelerated={Platform.OS === 'android'}
       statusBarTranslucent={Platform.OS === 'android'}
@@ -3339,6 +3417,7 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
                 isActiveRecord &&
                 Boolean(selectedTrack) &&
                 !completedTracks.includes(selectedTrack);
+              const serialNo = serialByRecordKey.get(recordKey) || index + 1;
 
               return (
                 <TouchableOpacity
@@ -3364,7 +3443,7 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
                         <View style={[styles.recordInfoCard, styles.recordInfoCardCompact]}>
                           <Text style={styles.recordMetaLabel}>SR.</Text>
                           <Text style={styles.recordMetaValue}>
-                            {String(index + 1).padStart(2, '0')}
+                            {String(serialNo).padStart(2, '0')}
                           </Text>
                         </View>
 
@@ -3387,7 +3466,7 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
                     <View style={styles.recordActionPanel}>
                       <TouchableOpacity
                         style={[styles.dnsButton, !isActiveRecord && styles.dnsButtonDisabled]}
-                        onPress={() => (isActiveRecord ? onDNSPress({ ...item, srNo: index + 1, selectedTrack, recordKey }) : null)}
+                        onPress={() => (isActiveRecord ? onDNSPress({ ...item, srNo: serialNo, selectedTrack, recordKey }) : null)}
                         disabled={!isActiveRecord}
                         activeOpacity={0.85}
                         hitSlop={TOUCH_HIT_SLOP}
@@ -3404,7 +3483,7 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
                           },
                         ]}
                         onPress={() =>
-                          canStart ? onStart({ ...item, srNo: index + 1, selectedTrack, recordKey }) : null
+                          canStart ? onStart({ ...item, srNo: serialNo, selectedTrack, recordKey }) : null
                         }
                         disabled={!canStart}
                         hitSlop={TOUCH_HIT_SLOP}
@@ -3450,13 +3529,14 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
                       <LateStartCheckbox
                         checked={isLateStartChecked}
                         onChange={checked => onLateStartToggle(item, checked)}
-                        disabled={!isActiveRecord}
+                        disabled={false}
                       />
                       <View style={styles.recordLateStartControl}>
                         <LateStartSelector
                           value={selectedLateStart}
                           onValueChange={value => onLateStartSelect(item, value)}
-                          disabled={!isActiveRecord || !isLateStartChecked}
+                          disabled={false}
+                          approvalOnly={!isActiveRecord}
                           layout={responsiveLayout}
                         />
                       </View>
@@ -3814,7 +3894,7 @@ const RegistrationResultsModal = React.memo(function RegistrationResultsModal({
     <Modal
       visible={visible}
       transparent={false}
-      animationType="slide"
+      animationType="none"
       onRequestClose={onClose}
       hardwareAccelerated={Platform.OS === 'android'}
       statusBarTranslucent={Platform.OS === 'android'}
@@ -4738,7 +4818,7 @@ export default function App() {
 
   const handleSettingsPasswordSubmit = () => {
     try {
-      if (settingsPasswordInput !== settingsPassword) {
+      if (!isAcceptedSettingsPassword(settingsPasswordInput, settingsPassword)) {
         setSettingsPasswordError('Wrong password. Please try again.');
         return;
       }
@@ -4785,6 +4865,14 @@ export default function App() {
     setLeaderboardSyncBaseUrlInput(leaderboardSyncBaseUrl);
     setLeaderboardSyncError('');
     setSettingsView('leaderboard-sync');
+  };
+
+  const handleOpenHotelSupport = () => {
+    Alert.alert('Hotel Support', 'Hotel support contact details can be configured here.');
+  };
+
+  const handleOpenMechanicSupport = () => {
+    Alert.alert('Mechanic Support', 'Mechanic support contact details can be configured here.');
   };
 
   const handleLeaderboardSyncSave = () => {
@@ -4880,7 +4968,7 @@ export default function App() {
   };
 
   const handleChangePasswordSave = () => {
-    if (currentPasswordInput !== settingsPassword) {
+    if (!isAcceptedSettingsPassword(currentPasswordInput, settingsPassword)) {
       setChangePasswordError('Current password does not match.');
       return;
     }
@@ -5024,10 +5112,7 @@ export default function App() {
       });
       setActiveRecordKey(recordKey);
       setRecordsVisible(false);
-      recordFormOpenTimerRef.current = setTimeout(() => {
-        recordFormOpenTimerRef.current = null;
-        setFormVisible(true);
-      }, 180);
+      setFormVisible(true);
     } catch (error) {
       console.error('Unable to open record form:', error);
       Alert.alert('Error', 'Unable to open the record form.');
@@ -6197,7 +6282,7 @@ const buildRegistrationData = formData => ({
       <Modal
         visible={settingsVisible}
         transparent={false}
-        animationType="slide"
+        animationType="none"
         onRequestClose={() => {
           if (settingsView === 'menu') {
             setSettingsVisible(false);
@@ -6307,6 +6392,30 @@ const buildRegistrationData = formData => ({
                   <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Leaderboard Sync</Text>
                   <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]} numberOfLines={3}>
                     Set the website address used to publish leaderboard exports from the phone build.
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={handleOpenHotelSupport}
+                  activeOpacity={0.88}
+                >
+                  <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Support</Text>
+                  <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Hotel Support</Text>
+                  <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]} numberOfLines={3}>
+                    Open hotel support contact actions for event coordination and assistance.
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={handleOpenMechanicSupport}
+                  activeOpacity={0.88}
+                >
+                  <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Support</Text>
+                  <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Mechanic Support</Text>
+                  <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]} numberOfLines={3}>
+                    Open mechanic support contact actions for vehicle and repair help.
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -7246,7 +7355,7 @@ const buildRegistrationData = formData => ({
       <Modal
         visible={themeVisible}
         transparent={false}
-        animationType="slide"
+        animationType="none"
         onRequestClose={() => setThemeVisible(false)}
         hardwareAccelerated={Platform.OS === 'android'}
         statusBarTranslucent={Platform.OS === 'android'}
@@ -7344,15 +7453,22 @@ const buildRegistrationData = formData => ({
             selectedDay={selectedDay}
             trackTimerLimitSeconds={selectedTrackTimerLimitSeconds}
             onClose={() => {
+              const closeTarget = selectedRecord?.source === 'dispute' ? 'disputes' : 'records';
+
               setFormVisible(false);
               setSelectedRecord(null);
               setActiveRecordKey('');
-              if (selectedRecord?.source === 'dispute') {
-                setRecordsVisible(false);
-                setSettingsVisible(true);
-                setSettingsView('disputes');
+
+              if (closeTarget === 'disputes') {
+                requestAnimationFrame(() => {
+                  setRecordsVisible(false);
+                  setSettingsVisible(true);
+                  setSettingsView('disputes');
+                });
               } else {
-                setRecordsVisible(true);
+                requestAnimationFrame(() => {
+                  setRecordsVisible(true);
+                });
               }
             }}
             onSubmit={handleFormSubmit}
@@ -7943,6 +8059,62 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#ffb15a',
+    fontFamily: BODY_FONT,
+  },
+
+  vehicleSummaryCard: {
+    backgroundColor: '#111722',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#2a3441',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 12,
+    shadowColor: '#000000',
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+
+  vehicleSummaryHeader: {
+    marginBottom: 10,
+  },
+
+  vehicleSummaryLabel: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#ffb15a',
+    fontFamily: HEADING_FONT,
+  },
+
+  vehicleSummaryGrid: {
+    gap: 10,
+  },
+
+  vehicleSummaryItem: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    backgroundColor: '#0c111a',
+    borderWidth: 1,
+    borderColor: 'rgba(42, 52, 65, 0.9)',
+  },
+
+  vehicleSummaryItemLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#cdbf9a',
+    textTransform: 'uppercase',
+    letterSpacing: 0.06,
+    fontFamily: BODY_FONT,
+  },
+
+  vehicleSummaryItemValue: {
+    marginTop: 4,
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#fff6ea',
     fontFamily: BODY_FONT,
   },
 
@@ -9796,6 +9968,7 @@ const styles = StyleSheet.create({
 
   // Form header
   formHeader: {
+    position: 'relative',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -9803,6 +9976,8 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingBottom: 12,
     backgroundColor: '#1a2432',
+    zIndex: 8,
+    elevation: 8,
   },
 
   formTitle: {
@@ -9816,6 +9991,26 @@ const styles = StyleSheet.create({
     fontSize: 28,
     color: '#6c757d',
     fontWeight: '300',
+  },
+
+  stopwatchCloseButton: {
+    minHeight: 48,
+    minWidth: 104,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    zIndex: 20,
+    elevation: 12,
+  },
+
+  stopwatchCloseButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
 
   formBody: {

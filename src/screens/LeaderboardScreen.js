@@ -668,7 +668,7 @@ const LeaderboardScreen = ({
     <Modal
       visible={visible}
       transparent={false}
-      animationType="slide"
+      animationType="none"
       onRequestClose={onClose}
       hardwareAccelerated={Platform.OS === 'android'}
       statusBarTranslucent={Platform.OS === 'android'}

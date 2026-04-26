@@ -161,11 +161,43 @@ const renderLeaderboardHtml = snapshot => {
           font-family: Arial, Helvetica, sans-serif;
           background: radial-gradient(circle at top, #121923, var(--bg));
           color: var(--text);
+          overflow-x: hidden;
         }
         .wrap {
           max-width: 1400px;
           margin: 0 auto;
           padding: 28px 18px 48px;
+        }
+        .floating-support-card {
+          position: fixed;
+          top: 92px;
+          right: 18px;
+          z-index: 30;
+          width: min(260px, calc(100vw - 36px));
+          background: rgba(16, 21, 29, 0.96);
+          border: 1px solid var(--border);
+          border-radius: 16px;
+          padding: 14px 16px;
+          box-shadow: 0 16px 30px rgba(0, 0, 0, 0.32);
+          backdrop-filter: blur(10px);
+        }
+        .floating-support-card h3 {
+          margin: 0;
+          font-size: 15px;
+          color: var(--accent);
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+        }
+        .floating-support-card p {
+          margin: 8px 0 0;
+          font-size: 13px;
+          line-height: 1.45;
+          color: var(--text);
+        }
+        .floating-support-card .support-meta {
+          margin-top: 10px;
+          font-size: 12px;
+          color: var(--muted);
         }
         h1 {
           margin: 0 0 6px;
@@ -224,6 +256,11 @@ const renderLeaderboardHtml = snapshot => {
       </style>
     </head>
     <body>
+      <aside class="floating-support-card" aria-label="Hotel Support">
+        <h3>Hotel Support</h3>
+        <p>Need help with stay or check-in details? Contact the support desk for assistance.</p>
+        <div class="support-meta">Available during event hours</div>
+      </aside>
       <div class="wrap">
         <h1>TKO Leaderboard</h1>
         <div class="meta">${title}</div>
@@ -289,6 +326,12 @@ const handler = async (req, res) => {
   }
 
   if (req.method === 'GET' && pathname === '/leaderboard') {
+    const snapshot = await readSnapshot();
+    sendHtml(res, 200, renderLeaderboardHtml(snapshot));
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/') {
     const snapshot = await readSnapshot();
     sendHtml(res, 200, renderLeaderboardHtml(snapshot));
     return;
