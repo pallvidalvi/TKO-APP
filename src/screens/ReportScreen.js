@@ -16,6 +16,7 @@ import { CloseActionButton, NavigationActionButton } from '../components/Navigat
 import {
   DISPUTE_AUTO_SUBMIT_POLL_MS,
   getDisputeAutoSubmitStatus,
+  getDisputeResolutionLabel,
   isDnsResult,
   rankTrackResults,
 } from '../utils/scoring';
@@ -570,6 +571,7 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], the
                       const driverName = item.driver_name || item.driverName || '--';
                       const coDriverName = item.codriver_name || item.coDriverName || '--';
                       const disputeDetailSummary = item.isDisputed ? formatDisputeEntriesInline(item) : '';
+                      const disputeResolutionLabel = getDisputeResolutionLabel(item);
                       const disputeStatus = item.isDisputed ? getDisputeAutoSubmitStatus(item, nowTimestamp) : null;
                       const totalTime = item.isDisputed
                         ? 'Hold'
@@ -609,6 +611,11 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], the
                                 <Text style={[styles.pointsMetaText, { color: theme.textSecondary }]}>
                                   {resultMetaLabel}
                                 </Text>
+                                {disputeResolutionLabel ? (
+                                  <Text style={[styles.pointsMetaText, { color: theme.accent }]}>
+                                    Resolution: {disputeResolutionLabel}
+                                  </Text>
+                                ) : null}
                               </View>
                             </View>
                             <Text style={[styles.disputeDetailText, { color: theme.textSecondary }]}>
@@ -641,6 +648,11 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], the
                             <Text style={[styles.pointsMetaText, { color: theme.textSecondary }]}>
                               {resultMetaLabel}
                             </Text>
+                            {disputeResolutionLabel ? (
+                              <Text style={[styles.pointsMetaText, { color: theme.accent }]}>
+                                Resolution: {disputeResolutionLabel}
+                              </Text>
+                            ) : null}
                           </View>
                         </View>
                       );

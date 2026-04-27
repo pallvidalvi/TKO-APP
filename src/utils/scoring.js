@@ -71,6 +71,39 @@ export const getDisputeAutoSubmitStatus = (dispute, now = Date.now()) => {
   };
 };
 
+export const getDisputeResolutionLabel = record => {
+  const rawStatus = String(
+    record?.dispute_resolution_status ||
+      record?.disputeResolutionStatus ||
+      record?.dispute_resolution ||
+      record?.disputeResolution ||
+      ''
+  )
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+
+  if (rawStatus === 'accepted' || rawStatus === 'dispute_accepted') {
+    return 'Dispute Accepted & Resolved';
+  }
+
+  if (rawStatus === 'rejected' || rawStatus === 'dispute_rejected') {
+    return 'Dispute Rejected & Resolved';
+  }
+
+  if (
+    rawStatus === 'auto_submitted' ||
+    rawStatus === 'auto_submitted_from_dispute' ||
+    rawStatus === 'auto_submit' ||
+    record?.autoSubmittedFromDispute ||
+    record?.source === 'dispute-auto-submit'
+  ) {
+    return 'Auto Submitted & Resolved';
+  }
+
+  return '';
+};
+
 export const normalizeValue = value => String(value || '').trim().toLowerCase();
 
 export const normalizeDateValue = value =>

@@ -25,6 +25,7 @@ import {
   DISPUTE_AUTO_SUBMIT_POLL_MS,
   getDayIdentity,
   getDisputeAutoSubmitStatus,
+  getDisputeResolutionLabel,
   getResultIdentityKey,
   getResultTimeValue,
   isDnfResult,
@@ -253,6 +254,91 @@ const buildDetailSections = record => [
     ],
   },
 ];
+
+const getDisputeDetailEntries = source => {
+  const rawDetails = source?.disputeDetails ?? source?.dispute_details ?? [];
+
+  if (!Array.isArray(rawDetails)) {
+    return [];
+  }
+
+  return rawDetails
+    .map(entry => {
+      const key = String(entry?.key || '').trim();
+      const label = String(entry?.label || '').trim();
+      const detail = String(entry?.detail || '').trim();
+
+      if (!key || !label || !detail) {
+        return null;
+      }
+
+      return {
+        key,
+        label,
+        detail,
+      };
+    })
+    .filter(Boolean);
+};
+
+const getDisputeByLabel = source => {
+  const disputeEntries = getDisputeDetailEntries(source);
+  const byTeamSelected = disputeEntries.some(entry => entry.key === 'byTeam');
+  const byOpponentSelected = disputeEntries.some(entry => entry.key === 'byOpponent');
+
+  if (byTeamSelected && byOpponentSelected) {
+    return 'Team / Opponent';
+  }
+
+  if (byTeamSelected) {
+    return 'Team';
+  }
+
+  if (byOpponentSelected) {
+    return 'Opponent';
+  }
+
+  return '';
+};
+
+const appendDisputeResolutionSection = record => {
+  const disputeResolutionLabel = getDisputeResolutionLabel(record);
+
+  if (!disputeResolutionLabel) {
+    return [];
+  }
+
+  return [
+    {
+      title: 'Dispute Resolution',
+      items: [{ label: 'Status', value: disputeResolutionLabel }],
+    },
+  ];
+};
+
+const appendDisputeDetailsSection = record => {
+  const disputeEntries = getDisputeDetailEntries(record);
+  const disputeByLabel = getDisputeByLabel(record);
+
+  if (!disputeEntries.length && !disputeByLabel) {
+    return [];
+  }
+
+  return [
+    {
+      title: 'Dispute Details',
+      items: [
+        ...(disputeByLabel ? [{ label: 'Dispute By', value: disputeByLabel }] : []),
+        ...disputeEntries
+          .filter(entry => entry.key !== 'byTeam' && entry.key !== 'byOpponent')
+          .map(entry => ({
+            label: entry.label,
+            value: entry.detail,
+          })),
+      ],
+    },
+  ];
+};
 
 const buildDetailIndex = (resultRows = [], disputeRows = []) => {
   const index = new Map();
@@ -1070,7 +1156,11 @@ const LeaderboardScreen = ({
                 </View>
 
                 <View style={styles.detailSectionGrid}>
-                  {buildDetailSections(selectedDetail.record || {}).map(section => (
+                  {[
+                    ...buildDetailSections(selectedDetail.record || {}),
+                    ...appendDisputeDetailsSection(selectedDetail.record || {}),
+                    ...appendDisputeResolutionSection(selectedDetail.record || {}),
+                  ].map(section => (
                     <View
                       key={section.title}
                       style={[styles.detailSectionCard, { backgroundColor: theme.surface, borderColor: theme.border }]}

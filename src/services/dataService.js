@@ -698,6 +698,10 @@ const buildResultDataFromDispute = dispute => {
     disputeId: dispute?.id || sourcePayload.disputeId || null,
     source: 'dispute-auto-submit',
     autoSubmittedFromDispute: true,
+    disputeResolutionStatus: 'auto_submitted',
+    disputeResolutionLabel: 'Auto Submitted & Resolved',
+    dispute_resolution_status: 'auto_submitted',
+    dispute_resolution_label: 'Auto Submitted & Resolved',
     autoSubmittedAt,
     disputeCreatedAt: dispute?.created_at || sourcePayload.disputeCreatedAt || null,
     disputeAutoSubmitWindowMs: DISPUTE_AUTO_SUBMIT_WINDOW_MS,
@@ -821,6 +825,10 @@ const buildResultDataFromDispute = dispute => {
     total_time: parsedDispute.total_time || parsedDispute.totalTimeDisplay || sourcePayload.totalTimeDisplay || null,
     totalTimeDisplay:
       parsedDispute.total_time || parsedDispute.totalTimeDisplay || sourcePayload.totalTimeDisplay || null,
+    dispute_resolution_status: normalizedFormPayload.dispute_resolution_status,
+    disputeResolutionStatus: normalizedFormPayload.disputeResolutionStatus,
+    dispute_resolution_label: normalizedFormPayload.dispute_resolution_label,
+    disputeResolutionLabel: normalizedFormPayload.disputeResolutionLabel,
     submission_json: JSON.stringify(normalizedFormPayload),
   });
 };
