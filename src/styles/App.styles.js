@@ -657,7 +657,7 @@ const styles = StyleSheet.create({
   },
 
   vehicleSummaryCard: {
-    backgroundColor: '#111722',
+    backgroundColor: '#000000',
     borderRadius: 18,
     borderWidth: 1,
     borderColor: '#2a3441',
@@ -684,6 +684,28 @@ const styles = StyleSheet.create({
 
   vehicleSummaryGrid: {
     gap: 10,
+  },
+
+  vehicleSummaryInlineRow: {
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    backgroundColor: '#0c111a',
+    borderWidth: 1,
+    borderColor: 'rgba(42, 52, 65, 0.9)',
+  },
+
+  vehicleSummaryInlineText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#cdbf9a',
+    lineHeight: 16,
+    fontFamily: BODY_FONT,
+  },
+
+  vehicleSummaryInlineValue: {
+    color: '#fff6ea',
+    fontWeight: '800',
   },
 
   vehicleSummaryItem: {
@@ -2569,7 +2591,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: IS_TABLET ? 28 : 20,
     paddingTop: 60,
     paddingBottom: 12,
-    backgroundColor: '#1a2432',
+    backgroundColor: '#000000',
     zIndex: 8,
     elevation: 8,
   },
@@ -2654,78 +2676,6 @@ const styles = StyleSheet.create({
 
   dashboardRightPanelContentLandscape: {
     paddingBottom: 24,
-  },
-
-  detailsAccordion: {
-    backgroundColor: '#111722',
-    borderRadius: 18,
-    overflow: 'hidden',
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#dfe7f4',
-  },
-
-  detailsAccordionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: IS_SMALL_PHONE ? 10 : 14,
-    paddingVertical: IS_SMALL_PHONE ? 8 : 10,
-    backgroundColor: '#111722',
-  },
-
-  detailsTrackPill: {
-    backgroundColor: '#3565df',
-    borderRadius: 999,
-    paddingHorizontal: IS_SMALL_PHONE ? 14 : 18,
-    paddingVertical: IS_SMALL_PHONE ? 6 : 8,
-  },
-
-  detailsTrackPillText: {
-    fontSize: IS_SMALL_PHONE ? 12 : 13,
-    fontWeight: '800',
-    color: '#fff6ea',
-  },
-
-  detailsAccordionTrigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-
-  detailsAccordionTriggerText: {
-    fontSize: IS_SMALL_PHONE ? 13 : 14,
-    fontWeight: '700',
-    color: '#111827',
-    marginRight: 6,
-  },
-
-  detailsAccordionTriggerIcon: {
-    fontSize: 14,
-    color: '#111827',
-  },
-
-  heroInfoCard: {
-    backgroundColor: '#111722',
-    paddingHorizontal: IS_TABLET ? 18 : IS_SMALL_PHONE ? 10 : 14,
-    paddingVertical: IS_TABLET ? 12 : IS_SMALL_PHONE ? 8 : 10,
-    borderTopWidth: 1,
-    borderTopColor: '#edf2fb',
-  },
-
-  heroMetaText: {
-    fontSize: IS_TABLET ? 16 : IS_SMALL_PHONE ? 12 : 14,
-    color: '#cdbf9a',
-    marginBottom: 4,
-  },
-
-  heroSecondaryMetaText: {
-    fontSize: IS_TABLET ? 14 : IS_SMALL_PHONE ? 12 : 13,
-    color: '#cdbf9a',
-  },
-
-  heroMetaStrong: {
-    color: '#1f2740',
-    fontWeight: '700',
   },
 
   // Form section

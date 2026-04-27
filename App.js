@@ -1170,7 +1170,7 @@ const DISPUTE_DETAIL_GROUPS = [
     key: 'taskSkipped',
     title: 'Task Skipped',
     items: [
-      { key: 'taskAttempted', label: 'Task Attempted' },
+      { key: 'taskAttempted', label: 'Skipped After 3rd Attempt' },
       { key: 'taskSkipped', label: 'Task Skipped' },
     ],
   },
@@ -1403,7 +1403,6 @@ const RegistrationForm = React.memo(function RegistrationForm({
   theme = APP_THEMES.dark,
 }) {
   const responsiveLayout = layout || INITIAL_LAYOUT;
-  const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [trackName, setTrackName] = useState('');
   const [srNo, setSrNo] = useState('');
   const [stickerNumber, setStickerNumber] = useState('');
@@ -1701,7 +1700,6 @@ const RegistrationForm = React.memo(function RegistrationForm({
   const totalTimeDisplay = isDNF ? dnfDisplayLabel : formatDuration(totalTimeMilliseconds);
 
   const resetForm = () => {
-    setDetailsExpanded(false);
     setTrackName('');
     setSrNo('');
     setStickerNumber('');
@@ -1986,7 +1984,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
     fourthAttemptSelected ||
     timeOverSelected ||
     dnfSelection !== '';
-  const resetButtonDisabled = isStopwatchRunning || !hasAnyResettableValue;
+  const resetButtonDisabled = isStopwatchRunning || isDNF || !hasAnyResettableValue;
   const showDisputeButton = initialRecord?.source !== 'dispute';
   const useLandscapeTabletLayout = responsiveLayout.isTabletLandscape;
 
@@ -2011,62 +2009,17 @@ const RegistrationForm = React.memo(function RegistrationForm({
             <View style={styles.vehicleSummaryHeader}>
               <Text style={styles.vehicleSummaryLabel}>Vehicle Details</Text>
             </View>
-            <View style={styles.vehicleSummaryGrid}>
-              <View style={styles.vehicleSummaryItem}>
-                <Text style={styles.vehicleSummaryItemLabel}>Serial No.</Text>
-                <Text style={styles.vehicleSummaryItemValue}>{srNo ? String(srNo).padStart(2, '0') : '--'}</Text>
-              </View>
-              <View style={styles.vehicleSummaryItem}>
-                <Text style={styles.vehicleSummaryItemLabel}>Sticker No.</Text>
-                <Text style={styles.vehicleSummaryItemValue}>#{stickerNumber || '--'}</Text>
-              </View>
-              <View style={styles.vehicleSummaryItem}>
-                <Text style={styles.vehicleSummaryItemLabel}>Driver Name</Text>
-                <Text style={styles.vehicleSummaryItemValue}>{driverName || '--'}</Text>
-              </View>
-              <View style={styles.vehicleSummaryItem}>
-                <Text style={styles.vehicleSummaryItemLabel}>Co-Driver Name</Text>
-                <Text style={styles.vehicleSummaryItemValue}>{coDriverName || '--'}</Text>
-              </View>
+            <View style={styles.vehicleSummaryInlineRow}>
+              <Text style={styles.vehicleSummaryInlineText} adjustsFontSizeToFit minimumFontScale={0.7}>
+                Serial No.: <Text style={styles.vehicleSummaryInlineValue}>{srNo ? String(srNo).padStart(2, '0') : '--'}</Text>
+                {' | '}
+                Sticker No.: <Text style={styles.vehicleSummaryInlineValue}>#{stickerNumber || '--'}</Text>
+                {' | '}
+                Driver Name: <Text style={styles.vehicleSummaryInlineValue}>{driverName || '--'}</Text>
+                {' | '}
+                Co-Driver Name: <Text style={styles.vehicleSummaryInlineValue}>{coDriverName || '--'}</Text>
+              </Text>
             </View>
-          </View>
-
-          <View style={styles.detailsAccordion}>
-            <TouchableOpacity
-              style={styles.detailsAccordionHeader}
-              onPress={() => setDetailsExpanded(prev => !prev)}
-              activeOpacity={0.85}
-              hitSlop={TOUCH_HIT_SLOP}
-            >
-              <View style={styles.detailsTrackPill}>
-                <Text style={styles.detailsTrackPillText}>
-                  {trackName || 'Track'}
-                </Text>
-              </View>
-              <View style={styles.detailsAccordionTrigger}>
-                <Text style={styles.detailsAccordionTriggerText}>Details</Text>
-                <Text style={styles.detailsAccordionTriggerIcon}>
-                  {detailsExpanded ? '▴' : '▾'}
-                </Text>
-              </View>
-            </TouchableOpacity>
-
-            {detailsExpanded ? (
-              <View style={styles.heroInfoCard}>
-                <Text style={styles.heroMetaText}>
-                  Sticker: <Text style={styles.heroMetaStrong}>#{stickerNumber || '--'}</Text>
-                  {' | '}
-                  Driver: <Text style={styles.heroMetaStrong}>{driverName || '--'}</Text>
-                </Text>
-                <Text style={styles.heroSecondaryMetaText}>
-                  Co-Driver: <Text style={styles.heroMetaStrong}>{coDriverName || '--'}</Text>
-                  {' | '}
-                  Sr. No.: <Text style={styles.heroMetaStrong}>
-                    {srNo ? String(srNo).padStart(2, '0') : '--'}
-                  </Text>
-                </Text>
-              </View>
-            ) : null}
           </View>
 
           <View
@@ -2345,11 +2298,12 @@ const RegistrationForm = React.memo(function RegistrationForm({
       statusBarTranslucent={Platform.OS === 'android'}
     >
         {category ? (
-          <View style={styles.fullPageContainer}>
+          <View style={[styles.fullPageContainer, { backgroundColor: '#000000' }]}>
           <View
             style={[
               styles.fullPageContent,
               {
+                backgroundColor: '#000000',
                 width: '100%',
                 maxWidth: responsiveLayout.shellMaxWidth,
                 alignSelf: 'center',
@@ -2373,6 +2327,16 @@ const RegistrationForm = React.memo(function RegistrationForm({
                 ]}
               >
                 {safeCategoryName}
+                <Text
+                  style={{
+                    color: theme.accent,
+                    fontSize: responsiveLayout.isTablet ? 22 : responsiveLayout.isSmallPhone ? 16 : 18,
+                    fontWeight: '600',
+                  }}
+                >
+                  {' | '}
+                  {trackName || 'Track'}
+                </Text>
               </Text>
               {!hasTimerStarted ? (
                 <TouchableOpacity
