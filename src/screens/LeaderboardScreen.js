@@ -12,7 +12,6 @@ import {
   KeyboardAvoidingView,
   ScrollView,
   TextInput,
-  Keyboard,
 } from 'react-native';
 import {
   ResultsService,
@@ -50,6 +49,15 @@ const BODY_FONT = Platform.select({
   web: 'monospace',
   default: 'monospace',
 });
+
+const STABLE_TEXT_INPUT_PROPS = {
+  autoCorrect: false,
+  spellCheck: false,
+  autoComplete: 'off',
+  importantForAutofill: 'no',
+  textContentType: 'none',
+  underlineColorAndroid: 'transparent',
+};
 
 const DEFAULT_THEME = {
   background: '#050505',
@@ -255,89 +263,205 @@ const buildDetailSections = record => [
   },
 ];
 
-const getDisputeDetailEntries = source => {
-  const rawDetails = source?.disputeDetails ?? source?.dispute_details ?? [];
+const DISPUTE_PARTY_OPTIONS = [
+  { key: 'byTeam', label: 'By Team' },
+  { key: 'byOpponent', label: 'By Opponent' },
+];
 
-  if (!Array.isArray(rawDetails)) {
-    return [];
+const DISPUTE_PARTY_LABEL_BY_KEY = DISPUTE_PARTY_OPTIONS.reduce((acc, item) => {
+  acc[item.key] = item.label;
+  return acc;
+}, {});
+
+const DISPUTE_DETAIL_INPUTLESS_KEYS = new Set(['byTeam', 'byOpponent']);
+
+const safeParseJsonValue = value => {
+  if (!value || typeof value !== 'string') {
+    return value;
   }
 
-  return rawDetails
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    return value;
+  }
+};
+
+const getDisputeDetailEntries = source => {
+  const rawDetailsValue = safeParseJsonValue(source?.disputeDetails ?? source?.dispute_details ?? []);
+  const rawDetails = Array.isArray(rawDetailsValue) ? rawDetailsValue : [];
+
+  const normalizedEntries = rawDetails
     .map(entry => {
       const key = String(entry?.key || '').trim();
       const label = String(entry?.label || '').trim();
       const detail = String(entry?.detail || '').trim();
+      const partyKey = String(
+        entry?.partyKey ||
+          entry?.party_key ||
+          entry?.disputeCategory ||
+          entry?.dispute_category ||
+          ''
+      ).trim();
 
-      if (!key || !label || !detail) {
+      if (!key || !label || (!detail && !DISPUTE_DETAIL_INPUTLESS_KEYS.has(key))) {
         return null;
       }
 
       return {
         key,
         label,
-        detail,
+        partyKey,
+        partyLabel: entry?.partyLabel || entry?.party_label || DISPUTE_PARTY_LABEL_BY_KEY[partyKey] || '',
+        detail: detail || 'Yes',
       };
     })
     .filter(Boolean);
+
+  const hasPartySpecificEntries = normalizedEntries.some(entry => entry.partyKey);
+  const legacyPartyKeys = rawDetails
+    .map(entry => String(entry?.key || '').trim())
+    .filter(key => DISPUTE_PARTY_LABEL_BY_KEY[key]);
+
+  if (hasPartySpecificEntries || !legacyPartyKeys.length) {
+    return normalizedEntries.filter(entry => !DISPUTE_DETAIL_INPUTLESS_KEYS.has(entry.key));
+  }
+
+  return legacyPartyKeys.flatMap(partyKey =>
+    normalizedEntries
+      .filter(entry => !DISPUTE_DETAIL_INPUTLESS_KEYS.has(entry.key))
+      .map(entry => ({
+        ...entry,
+        partyKey,
+        partyLabel: DISPUTE_PARTY_LABEL_BY_KEY[partyKey],
+      }))
+  );
 };
 
-const getDisputeByLabel = source => {
-  const disputeEntries = getDisputeDetailEntries(source);
-  const byTeamSelected = disputeEntries.some(entry => entry.key === 'byTeam');
-  const byOpponentSelected = disputeEntries.some(entry => entry.key === 'byOpponent');
+const getDisputePartyKeysWithDetails = record => {
+  const partyKeys = [...new Set(getDisputeDetailEntries(record).map(entry => entry.partyKey).filter(Boolean))];
+  return partyKeys.length ? partyKeys : DISPUTE_PARTY_OPTIONS.map(party => party.key);
+};
 
-  if (byTeamSelected && byOpponentSelected) {
-    return 'Team / Opponent';
+const getDisputeResolutionLabelForStatus = status => {
+  const normalizedStatus = String(status || '').trim().toLowerCase();
+
+  if (normalizedStatus === 'accepted') {
+    return 'Dispute Accepted & Resolved';
   }
 
-  if (byTeamSelected) {
-    return 'Team';
+  if (normalizedStatus === 'rejected') {
+    return 'Dispute Rejected & Resolved';
   }
 
-  if (byOpponentSelected) {
-    return 'Opponent';
+  if (normalizedStatus === 'auto_submitted' || normalizedStatus === 'auto_submitted_from_dispute') {
+    return 'Auto Submitted & Resolved';
   }
 
   return '';
 };
 
-const appendDisputeResolutionSection = record => {
-  const disputeResolutionLabel = getDisputeResolutionLabel(record);
+const getDisputeResolutionMap = record => {
+  const rawResolutions = safeParseJsonValue(record?.disputeResolutions ?? record?.dispute_resolutions ?? {});
+  const normalized = {};
 
-  if (!disputeResolutionLabel) {
-    return [];
+  if (rawResolutions && typeof rawResolutions === 'object' && !Array.isArray(rawResolutions)) {
+    DISPUTE_PARTY_OPTIONS.forEach(party => {
+      const resolution = rawResolutions[party.key] || {};
+      const status = String(resolution.status || resolution.disputeResolutionStatus || '').trim();
+
+      if (!status && !resolution.label) {
+        return;
+      }
+
+      normalized[party.key] = {
+        status,
+        label: resolution.label || resolution.disputeResolutionLabel || getDisputeResolutionLabelForStatus(status),
+        comment: String(resolution.comment || resolution.resolutionComment || '').trim(),
+      };
+    });
   }
 
+  const fallbackLabel = getDisputeResolutionLabel(record);
+
+  if (fallbackLabel && !Object.keys(normalized).length) {
+    getDisputePartyKeysWithDetails(record).forEach(partyKey => {
+      normalized[partyKey] = {
+        status: record?.disputeResolutionStatus || record?.dispute_resolution_status || '',
+        label: fallbackLabel,
+        comment: '',
+      };
+    });
+  }
+
+  return normalized;
+};
+
+const buildDisputeDetailItems = (record, partyKey = '') => {
+  const disputeEntries = getDisputeDetailEntries(record).filter(entry => !partyKey || entry.partyKey === partyKey);
+
   return [
-    {
-      title: 'Dispute Resolution',
-      items: [{ label: 'Status', value: disputeResolutionLabel }],
-    },
+    ...disputeEntries
+      .map(entry => ({
+        label: entry.label,
+        value: entry.detail,
+      })),
   ];
 };
 
-const appendDisputeDetailsSection = record => {
-  const disputeEntries = getDisputeDetailEntries(record);
-  const disputeByLabel = getDisputeByLabel(record);
+const appendDisputeResolutionSection = record => {
+  const disputeResolutions = getDisputeResolutionMap(record);
+  const partyKeys = DISPUTE_PARTY_OPTIONS.map(party => party.key);
 
-  if (!disputeEntries.length && !disputeByLabel) {
+  if (!Object.keys(disputeResolutions).length) {
     return [];
   }
 
-  return [
-    {
-      title: 'Dispute Details',
+  return partyKeys.map(partyKey => {
+    const party = DISPUTE_PARTY_OPTIONS.find(item => item.key === partyKey) || {
+      key: partyKey,
+      label: DISPUTE_PARTY_LABEL_BY_KEY[partyKey] || partyKey,
+    };
+    const resolution = disputeResolutions[partyKey] || {};
+    const detailItems = buildDisputeDetailItems(record, partyKey);
+    const statusLabel = resolution.label || (detailItems.length ? 'Pending' : 'No Dispute Raised');
+
+    return {
+      title: `Dispute Resolution - ${party.label}`,
       items: [
-        ...(disputeByLabel ? [{ label: 'Dispute By', value: disputeByLabel }] : []),
-        ...disputeEntries
-          .filter(entry => entry.key !== 'byTeam' && entry.key !== 'byOpponent')
-          .map(entry => ({
-            label: entry.label,
-            value: entry.detail,
-          })),
+        { label: 'Status', value: statusLabel },
+        ...(resolution.comment ? [{ label: 'Comment', value: resolution.comment }] : []),
+        ...detailItems,
       ],
-    },
-  ];
+    };
+  });
+};
+
+const appendDisputeDetailsSection = record => {
+  const partyKeys = getDisputePartyKeysWithDetails(record);
+
+  if (Object.keys(getDisputeResolutionMap(record)).length) {
+    return [];
+  }
+
+  return partyKeys
+    .map(partyKey => {
+      const party = DISPUTE_PARTY_OPTIONS.find(item => item.key === partyKey) || {
+        key: partyKey,
+        label: DISPUTE_PARTY_LABEL_BY_KEY[partyKey] || partyKey,
+      };
+      const disputeDetailItems = buildDisputeDetailItems(record, partyKey);
+
+      if (!disputeDetailItems.length) {
+        return null;
+      }
+
+      return {
+        title: `Dispute Details - ${party.label}`,
+        items: disputeDetailItems,
+      };
+    })
+    .filter(Boolean);
 };
 
 const buildDetailIndex = (resultRows = [], disputeRows = []) => {
@@ -383,7 +507,6 @@ const LeaderboardScreen = ({
   const [exportPasswordModalVisible, setExportPasswordModalVisible] = useState(false);
   const [exportPasswordInput, setExportPasswordInput] = useState('');
   const [exportPasswordError, setExportPasswordError] = useState('');
-  const [passwordKeyboardHeight, setPasswordKeyboardHeight] = useState(0);
 
   const loadResults = useCallback(async (showLoading = true, shouldProcessExpiredDisputes = true) => {
     try {
@@ -448,27 +571,6 @@ const LeaderboardScreen = ({
       clearInterval(disputeIntervalId);
     };
   }, [loadResults, visible]);
-
-  useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-
-    const handleKeyboardShow = event => {
-      setPasswordKeyboardHeight(event?.endCoordinates?.height || 0);
-    };
-
-    const handleKeyboardHide = () => {
-      setPasswordKeyboardHeight(0);
-    };
-
-    const showSubscription = Keyboard.addListener(showEvent, handleKeyboardShow);
-    const hideSubscription = Keyboard.addListener(hideEvent, handleKeyboardHide);
-
-    return () => {
-      showSubscription.remove();
-      hideSubscription.remove();
-    };
-  }, []);
 
   const normalizedResults = useMemo(() => results.map(parseRegistrationPayload), [results]);
 
@@ -578,7 +680,6 @@ const LeaderboardScreen = ({
   const openExportPasswordModal = useCallback(() => {
     setExportPasswordInput('');
     setExportPasswordError('');
-    setPasswordKeyboardHeight(0);
     setExportPasswordModalVisible(true);
   }, []);
 
@@ -586,7 +687,6 @@ const LeaderboardScreen = ({
     setExportPasswordModalVisible(false);
     setExportPasswordInput('');
     setExportPasswordError('');
-    setPasswordKeyboardHeight(0);
   }, []);
 
   const handleExportPasswordSubmit = useCallback(() => {
@@ -598,7 +698,6 @@ const LeaderboardScreen = ({
     setExportPasswordModalVisible(false);
     setExportPasswordInput('');
     setExportPasswordError('');
-    setPasswordKeyboardHeight(0);
     handleExportLeaderboard();
   }, [exportPasswordInput, handleExportLeaderboard, settingsPassword]);
 
@@ -1047,14 +1146,12 @@ const LeaderboardScreen = ({
               styles.passwordOverlay,
               {
                 backgroundColor: theme.overlay,
-                justifyContent: passwordKeyboardHeight > 0 ? 'flex-start' : 'center',
-                paddingBottom: passwordKeyboardHeight > 0 ? Math.max(passwordKeyboardHeight - 12, 20) : 0,
               },
             ]}
           >
             <KeyboardAvoidingView
               style={styles.passwordKeyboardShell}
-              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
               keyboardVerticalOffset={Platform.OS === 'android' ? 24 : 0}
             >
               <View style={[styles.passwordShell, { backgroundColor: theme.backgroundStrong, borderColor: theme.border }]}>
@@ -1064,6 +1161,7 @@ const LeaderboardScreen = ({
                 </Text>
 
                 <TextInput
+                  {...STABLE_TEXT_INPUT_PROPS}
                   value={exportPasswordInput}
                   autoFocus
                   onChangeText={value => {
@@ -1076,7 +1174,6 @@ const LeaderboardScreen = ({
                   placeholderTextColor={theme.textTertiary}
                   secureTextEntry
                   autoCapitalize="none"
-                  autoCorrect={false}
                   style={[
                     styles.passwordInput,
                     { backgroundColor: theme.surface, borderColor: theme.border, color: theme.textPrimary },

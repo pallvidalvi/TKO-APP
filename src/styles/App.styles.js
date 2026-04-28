@@ -1192,6 +1192,11 @@ const styles = StyleSheet.create({
     fontFamily: BODY_FONT,
   },
 
+  disputeResolutionCommentBlock: {
+    marginTop: 0,
+    marginBottom: 10,
+  },
+
   registrationFooter: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -2077,6 +2082,23 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
 
+  disputeModalPartySection: {
+    marginBottom: 18,
+    borderWidth: 1,
+    borderColor: '#2a3441',
+    borderRadius: 14,
+    padding: 12,
+    backgroundColor: '#0c111a',
+  },
+
+  disputeModalPartyTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#fff6ea',
+    marginBottom: 12,
+    fontFamily: HEADING_FONT,
+  },
+
   disputeModalSection: {
     marginBottom: 16,
   },
@@ -2133,7 +2155,7 @@ const styles = StyleSheet.create({
 
   disputeModalInput: {
     marginTop: 10,
-    minHeight: 72,
+    height: 72,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: '#2a3441',
@@ -2918,6 +2940,39 @@ const styles = StyleSheet.create({
 
   disputeCardSubmitButton: {
     flex: 1,
+  },
+
+  disputeResolveSubsection: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2a3441',
+    backgroundColor: '#0c111a',
+  },
+
+  disputeResolveSubsectionTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#ffb15a',
+    marginBottom: 8,
+    fontFamily: BODY_FONT,
+  },
+
+  disputeResolutionCommentInput: {
+    height: 64,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2a3441',
+    backgroundColor: '#111722',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 10,
+    marginBottom: 10,
+    color: '#fff6ea',
+    fontSize: 13,
+    textAlignVertical: 'top',
+    fontFamily: BODY_FONT,
   },
 
   // Penalty Row Styles

@@ -9,7 +9,6 @@ import {
   TextInput,
   ScrollView,
   KeyboardAvoidingView,
-  Keyboard,
   Alert,
   Platform,
   Image,
@@ -62,6 +61,15 @@ const BODY_FONT = Platform.select({
   web: 'monospace',
   default: 'monospace',
 });
+
+const STABLE_TEXT_INPUT_PROPS = {
+  autoCorrect: false,
+  spellCheck: false,
+  autoComplete: 'off',
+  importantForAutofill: 'no',
+  textContentType: 'none',
+  underlineColorAndroid: 'transparent',
+};
 
 // Platform-specific imports
 let FileSystem = null;
@@ -1148,15 +1156,17 @@ const parseRegistrationPayload = registration => {
   }
 };
 
+const DISPUTE_PARTY_OPTIONS = [
+  { key: 'byTeam', label: 'By Team' },
+  { key: 'byOpponent', label: 'By Opponent' },
+];
+
+const DISPUTE_PARTY_LABEL_BY_KEY = DISPUTE_PARTY_OPTIONS.reduce((acc, item) => {
+  acc[item.key] = item.label;
+  return acc;
+}, {});
+
 const DISPUTE_DETAIL_GROUPS = [
-  {
-    key: 'disputeReference',
-    title: 'Dispute Reference',
-    items: [
-      { key: 'byTeam', label: 'By Team' },
-      { key: 'byOpponent', label: 'By Opponent' },
-    ],
-  },
   {
     key: 'penalties',
     title: 'Penalties',
@@ -1203,10 +1213,7 @@ const DISPUTE_DETAIL_ITEM_MAP = DISPUTE_DETAIL_GROUPS.reduce((acc, group) => {
   return acc;
 }, {});
 
-const DISPUTE_DETAIL_INPUTLESS_KEYS = new Set(['byTeam', 'byOpponent']);
-const shouldShowDisputeDetailInput = key => !DISPUTE_DETAIL_INPUTLESS_KEYS.has(key);
-
-const createEmptyDisputeFormState = () =>
+const getEmptyDisputeReasonState = () =>
   Object.keys(DISPUTE_DETAIL_ITEM_MAP).reduce((acc, key) => {
     acc[key] = {
       checked: false,
@@ -1215,63 +1222,98 @@ const createEmptyDisputeFormState = () =>
     return acc;
   }, {});
 
+const createEmptyDisputeFormState = () =>
+  DISPUTE_PARTY_OPTIONS.reduce((acc, party) => {
+    acc[party.key] = getEmptyDisputeReasonState();
+    return acc;
+  }, {});
+
+const safeParseDisputeJsonValue = value => {
+  if (!value || typeof value !== 'string') {
+    return value;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    return value;
+  }
+};
+
 const getNormalizedDisputeDetailEntries = source => {
-  const rawDetails = source?.disputeDetails ?? source?.dispute_details ?? [];
+  const rawDetails = safeParseDisputeJsonValue(source?.disputeDetails ?? source?.dispute_details ?? []);
+
+  const normalizeEntry = (entry, fallbackPartyKey = '') => {
+    const key = String(entry?.key || '').trim();
+    const meta = DISPUTE_DETAIL_ITEM_MAP[key];
+    const partyKey = String(
+      entry?.partyKey ||
+        entry?.party_key ||
+        entry?.disputeCategory ||
+        entry?.dispute_category ||
+        fallbackPartyKey ||
+        ''
+    ).trim();
+
+    if (!key || !meta) {
+      return null;
+    }
+
+    return {
+      key,
+      label: entry?.label || meta.label,
+      sectionKey: entry?.sectionKey || entry?.section_key || meta.sectionKey,
+      sectionTitle: entry?.sectionTitle || entry?.section_title || meta.sectionTitle,
+      partyKey,
+      partyLabel: entry?.partyLabel || entry?.party_label || DISPUTE_PARTY_LABEL_BY_KEY[partyKey] || '',
+      detail: String(entry?.detail || '').trim(),
+    };
+  };
 
   if (Array.isArray(rawDetails)) {
-    return rawDetails
-      .map(entry => {
-        const key = String(entry?.key || '').trim();
-        const meta = DISPUTE_DETAIL_ITEM_MAP[key];
+    const selectedLegacyParties = rawDetails
+      .map(entry => String(entry?.key || '').trim())
+      .filter(key => DISPUTE_PARTY_LABEL_BY_KEY[key]);
+    const normalizedEntries = rawDetails.map(entry => normalizeEntry(entry)).filter(Boolean);
+    const hasPartySpecificEntries = normalizedEntries.some(entry => entry.partyKey);
 
-        if (!key || !meta) {
-          return null;
-        }
+    if (hasPartySpecificEntries || !selectedLegacyParties.length) {
+      return normalizedEntries;
+    }
 
-        return {
-          key,
-          label: entry?.label || meta.label,
-          sectionKey: entry?.sectionKey || meta.sectionKey,
-          sectionTitle: entry?.sectionTitle || meta.sectionTitle,
-          detail: String(entry?.detail || '').trim(),
-        };
-      })
-      .filter(Boolean);
+    return selectedLegacyParties.flatMap(partyKey =>
+      normalizedEntries.map(entry => ({
+        ...entry,
+        partyKey,
+        partyLabel: DISPUTE_PARTY_LABEL_BY_KEY[partyKey],
+      }))
+    );
   }
 
   if (rawDetails && typeof rawDetails === 'object') {
-    return Object.keys(rawDetails)
-      .map(key => {
-        const meta = DISPUTE_DETAIL_ITEM_MAP[key];
-        const detailValue = rawDetails[key];
+    return DISPUTE_PARTY_OPTIONS.flatMap(party => {
+      const partyDetails = rawDetails[party.key];
 
-        if (!meta) {
+      if (!partyDetails || typeof partyDetails !== 'object') {
+        return [];
+      }
+
+      return Object.keys(partyDetails)
+        .map(key => {
+          const detailValue = partyDetails[key];
+
+          if (typeof detailValue === 'string') {
+            return normalizeEntry({ key, detail: detailValue }, party.key);
+          }
+
+          if (detailValue?.checked) {
+            return normalizeEntry({ key, detail: detailValue?.detail }, party.key);
+          }
+
           return null;
-        }
-
-        if (typeof detailValue === 'string') {
-          return {
-            key,
-            label: meta.label,
-            sectionKey: meta.sectionKey,
-            sectionTitle: meta.sectionTitle,
-            detail: detailValue.trim(),
-          };
-        }
-
-        if (detailValue?.checked) {
-          return {
-            key,
-            label: meta.label,
-            sectionKey: meta.sectionKey,
-            sectionTitle: meta.sectionTitle,
-            detail: String(detailValue?.detail || '').trim(),
-          };
-        }
-
-        return null;
-      })
-      .filter(Boolean);
+        })
+        .filter(Boolean);
+    });
   }
 
   return [];
@@ -1281,7 +1323,8 @@ const buildDisputeFormStateFromSource = source => {
   const nextState = createEmptyDisputeFormState();
 
   getNormalizedDisputeDetailEntries(source).forEach(entry => {
-    nextState[entry.key] = {
+    const partyKey = entry.partyKey && nextState[entry.partyKey] ? entry.partyKey : DISPUTE_PARTY_OPTIONS[0].key;
+    nextState[partyKey][entry.key] = {
       checked: true,
       detail: entry.detail,
     };
@@ -1291,31 +1334,127 @@ const buildDisputeFormStateFromSource = source => {
 };
 
 const buildDisputeEntriesFromState = disputeFormState =>
-  DISPUTE_DETAIL_GROUPS.flatMap(group =>
-    group.items
-      .map(item => {
-        const itemState = disputeFormState?.[item.key];
+  DISPUTE_PARTY_OPTIONS.flatMap(party =>
+    DISPUTE_DETAIL_GROUPS.flatMap(group =>
+      group.items
+        .map(item => {
+          const itemState = disputeFormState?.[party.key]?.[item.key];
 
-        if (!itemState?.checked) {
-          return null;
-        }
+          if (!itemState?.checked) {
+            return null;
+          }
 
-        return {
-          key: item.key,
-          label: item.label,
-          sectionKey: group.key,
-          sectionTitle: group.title,
-          detail: DISPUTE_DETAIL_INPUTLESS_KEYS.has(item.key)
-            ? 'Yes'
-            : String(itemState.detail || '').trim(),
-        };
-      })
-      .filter(Boolean)
+          return {
+            key: item.key,
+            label: item.label,
+            sectionKey: group.key,
+            sectionTitle: group.title,
+            partyKey: party.key,
+            partyLabel: party.label,
+            detail: String(itemState.detail || '').trim(),
+          };
+        })
+        .filter(Boolean)
+    )
   );
+
+const getDisputeResolutionLabelForStatus = status => {
+  const normalizedStatus = String(status || '').trim().toLowerCase();
+
+  if (normalizedStatus === 'accepted') {
+    return 'Dispute Accepted & Resolved';
+  }
+
+  if (normalizedStatus === 'rejected') {
+    return 'Dispute Rejected & Resolved';
+  }
+
+  if (normalizedStatus === 'auto_submitted' || normalizedStatus === 'auto_submitted_from_dispute') {
+    return 'Auto Submitted & Resolved';
+  }
+
+  return '';
+};
+
+const getNormalizedDisputeResolutions = source => {
+  const rawResolutions = safeParseDisputeJsonValue(source?.disputeResolutions ?? source?.dispute_resolutions ?? {});
+  const normalized = {};
+
+  if (rawResolutions && typeof rawResolutions === 'object' && !Array.isArray(rawResolutions)) {
+    DISPUTE_PARTY_OPTIONS.forEach(party => {
+      const resolution = rawResolutions[party.key] || {};
+      const status = String(
+        resolution.status ||
+          resolution.disputeResolutionStatus ||
+          resolution.dispute_resolution_status ||
+          ''
+      ).trim();
+
+      if (!status) {
+        return;
+      }
+
+      normalized[party.key] = {
+        status,
+        label:
+          resolution.label ||
+          resolution.disputeResolutionLabel ||
+          resolution.dispute_resolution_label ||
+          getDisputeResolutionLabelForStatus(status),
+        comment: String(resolution.comment || resolution.resolutionComment || resolution.resolution_comment || '').trim(),
+        resolvedAt: resolution.resolvedAt || resolution.resolved_at || null,
+      };
+    });
+  }
+
+  const fallbackStatus = String(source?.disputeResolutionStatus || source?.dispute_resolution_status || '').trim();
+  const fallbackLabel = String(source?.disputeResolutionLabel || source?.dispute_resolution_label || '').trim();
+
+  if ((fallbackStatus || fallbackLabel) && !Object.keys(normalized).length) {
+    const partyKeys = [...new Set(getNormalizedDisputeDetailEntries(source).map(entry => entry.partyKey).filter(Boolean))];
+    (partyKeys.length ? partyKeys : DISPUTE_PARTY_OPTIONS.map(party => party.key)).forEach(partyKey => {
+      normalized[partyKey] = {
+        status: fallbackStatus,
+        label: fallbackLabel || getDisputeResolutionLabelForStatus(fallbackStatus),
+        comment: '',
+        resolvedAt: null,
+      };
+    });
+  }
+
+  return normalized;
+};
+
+const getDisputePartyKeysWithDetails = source => {
+  const keys = [...new Set(getNormalizedDisputeDetailEntries(source).map(entry => entry.partyKey).filter(Boolean))];
+  return keys.length ? keys : DISPUTE_PARTY_OPTIONS.map(party => party.key);
+};
+
+const areAllDisputePartiesResolved = source => {
+  const partyKeys = getDisputePartyKeysWithDetails(source);
+  const resolutions = getNormalizedDisputeResolutions(source);
+  return partyKeys.every(partyKey => Boolean(resolutions[partyKey]?.status));
+};
+
+const buildOverallDisputeResolutionStatus = resolutions => {
+  const statuses = Object.values(resolutions || {})
+    .map(resolution => String(resolution?.status || '').trim())
+    .filter(Boolean);
+
+  if (!statuses.length) {
+    return '';
+  }
+
+  if (statuses.some(status => status === 'auto_submitted' || status === 'auto_submitted_from_dispute')) {
+    return 'auto_submitted';
+  }
+
+  return statuses.some(status => status === 'accepted') ? 'accepted' : 'rejected';
+};
 
   const formatDisputeEntriesInline = source =>
     getNormalizedDisputeDetailEntries(source)
-      .map(entry => `${entry.label}: ${entry.detail}`)
+      .map(entry => `${entry.partyLabel ? `${entry.partyLabel} - ` : ''}${entry.label}: ${entry.detail}`)
       .join(' • ');
 
 const buildExportRows = data => [[
@@ -1424,12 +1563,10 @@ const RegistrationForm = React.memo(function RegistrationForm({
   const [hasTimerStopped, setHasTimerStopped] = useState(false);
   const [disputeModalVisible, setDisputeModalVisible] = useState(false);
   const [disputeFormState, setDisputeFormState] = useState(() => createEmptyDisputeFormState());
+  const [resolutionCommentInput, setResolutionCommentInput] = useState('');
   const [isPinVerificationInProgress, setIsPinVerificationInProgress] = useState(false);
   const stopwatchStartTimestampRef = useRef(null);
   const stopwatchElapsedRef = useRef(0);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const { height: screenHeight } = useWindowDimensions();
-  const visibleAuthHeight = Math.max(screenHeight - keyboardHeight - 40, 220);
 
   const PENALTY_VALUES = {
     busting: 20,
@@ -1460,27 +1597,6 @@ const RegistrationForm = React.memo(function RegistrationForm({
       ? 'Late Start'
       : 'No';
 
-  useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-
-    const handleKeyboardShow = event => {
-      setKeyboardHeight(event?.endCoordinates?.height || 0);
-    };
-
-    const handleKeyboardHide = () => {
-      setKeyboardHeight(0);
-    };
-
-    const showSubscription = Keyboard.addListener(showEvent, handleKeyboardShow);
-    const hideSubscription = Keyboard.addListener(hideEvent, handleKeyboardHide);
-
-    return () => {
-      showSubscription.remove();
-      hideSubscription.remove();
-    };
-  }, []);
-
   const totalPenaltiesTime =
     bustingPenaltyTime +
     seatbeltPenaltyTime +
@@ -1504,6 +1620,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
     () => getNormalizedDisputeDetailEntries(initialRecord),
     [initialRecord]
   );
+  const resolvingDisputePartyKey = initialRecord?.source === 'dispute' ? initialRecord?.resolveDisputeCategory || '' : '';
   const safeCategoryName = category?.name || initialRecord?.category || 'Category';
 
   useEffect(() => {
@@ -1568,8 +1685,10 @@ const RegistrationForm = React.memo(function RegistrationForm({
       setHasTimerStopped(Boolean(initialStopwatchTime) || Boolean(initialRecord.isDNF));
       setIsStopwatchRunning(false);
       setDisputeFormState(buildDisputeFormStateFromSource(initialRecord));
+      setResolutionCommentInput('');
     } else if (visible) {
       setDisputeFormState(createEmptyDisputeFormState());
+      setResolutionCommentInput('');
     }
   }, [visible, initialRecord]);
 
@@ -1722,6 +1841,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
     setHasTimerStopped(false);
     setDisputeModalVisible(false);
     setDisputeFormState(createEmptyDisputeFormState());
+    setResolutionCommentInput('');
   };
 
   const getDisputeResolutionStatus = formData => {
@@ -1771,6 +1891,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
 
   const buildFormData = () => {
     const isEditingDispute = initialRecord?.source === 'dispute';
+    const resolvingPartyKey = isEditingDispute ? initialRecord?.resolveDisputeCategory || '' : '';
     const disputeResolutionStatus = isEditingDispute ? getDisputeResolutionStatus({
       bustingCount,
       seatbeltCount,
@@ -1788,17 +1909,29 @@ const RegistrationForm = React.memo(function RegistrationForm({
       dnfPoints,
       totalPenaltiesTime,
     }) : '';
+    const disputeResolutions = isEditingDispute ? getNormalizedDisputeResolutions(initialRecord) : {};
+    const resolutionComment = resolvingPartyKey ? String(resolutionCommentInput || '').trim() : '';
+
+    if (isEditingDispute && resolvingPartyKey) {
+      disputeResolutions[resolvingPartyKey] = {
+        status: disputeResolutionStatus,
+        label: getDisputeResolutionLabelForStatus(disputeResolutionStatus),
+        comment: resolutionComment,
+        resolvedAt: new Date().toISOString(),
+      };
+    }
+
+    const overallDisputeResolutionStatus = buildOverallDisputeResolutionStatus(disputeResolutions);
 
     return {
       disputeId: isEditingDispute ? (initialRecord?.disputeId || initialRecord?.id || null) : null,
       source: isEditingDispute ? 'dispute' : 'records',
-      disputeResolutionStatus: disputeResolutionStatus || '',
-      disputeResolutionLabel:
-        disputeResolutionStatus === 'accepted'
-          ? 'Dispute Accepted & Resolved'
-          : disputeResolutionStatus === 'rejected'
-          ? 'Dispute Rejected & Resolved'
-          : '',
+      disputeDetails: isEditingDispute ? getNormalizedDisputeDetailEntries(initialRecord) : [],
+      disputeResolutions,
+      dispute_resolutions: disputeResolutions,
+      resolveDisputeCategory: resolvingPartyKey,
+      disputeResolutionStatus: overallDisputeResolutionStatus || disputeResolutionStatus || '',
+      disputeResolutionLabel: getDisputeResolutionLabelForStatus(overallDisputeResolutionStatus || disputeResolutionStatus),
       selectedDayId: selectedDay?.id || initialRecord?.selectedDayId || initialRecord?.selected_day_id || '',
       selectedDayLabel: selectedDay?.dayLabel || initialRecord?.selectedDayLabel || initialRecord?.selected_day_label || '',
       selectedDayDate: selectedDay?.dateLabel || initialRecord?.selectedDayDate || initialRecord?.selected_day_date || '',
@@ -1899,26 +2032,32 @@ const RegistrationForm = React.memo(function RegistrationForm({
     setDisputeModalVisible(true);
   };
 
-  const handleDisputeFieldToggle = key => {
+  const handleDisputeFieldToggle = (partyKey, key) => {
     setDisputeFormState(prev => {
-      const nextChecked = !prev?.[key]?.checked;
+      const nextChecked = !prev?.[partyKey]?.[key]?.checked;
 
       return {
         ...prev,
-        [key]: {
-          checked: nextChecked,
-          detail: nextChecked ? prev?.[key]?.detail || '' : '',
+        [partyKey]: {
+          ...(prev?.[partyKey] || getEmptyDisputeReasonState()),
+          [key]: {
+            checked: nextChecked,
+            detail: nextChecked ? prev?.[partyKey]?.[key]?.detail || '' : '',
+          },
         },
       };
     });
   };
 
-  const handleDisputeDetailChange = (key, value) => {
+  const handleDisputeDetailChange = (partyKey, key, value) => {
     setDisputeFormState(prev => ({
       ...prev,
-      [key]: {
-        checked: true,
-        detail: value,
+      [partyKey]: {
+        ...(prev?.[partyKey] || getEmptyDisputeReasonState()),
+        [key]: {
+          checked: true,
+          detail: value,
+        },
       },
     }));
   };
@@ -1929,14 +2068,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
   };
 
   const handleConfirmDispute = async () => {
-    const hasDisputeReferenceSelected =
-      Boolean(disputeFormState.byTeam?.checked) || Boolean(disputeFormState.byOpponent?.checked);
     const disputeEntries = buildDisputeEntriesFromState(disputeFormState);
-
-    if (!hasDisputeReferenceSelected) {
-      Alert.alert('Dispute Details', 'Select By Team or By Opponent before confirming the dispute.');
-      return;
-    }
 
     if (!disputeEntries.length) {
       Alert.alert('Dispute Details', 'Select at least one dispute reason and enter its details.');
@@ -1986,6 +2118,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
     dnfSelection !== '';
   const resetButtonDisabled = isStopwatchRunning || isDNF || !hasAnyResettableValue;
   const showDisputeButton = initialRecord?.source !== 'dispute';
+  const showBackButton = !hasTimerStarted || initialRecord?.source === 'dispute';
   const useLandscapeTabletLayout = responsiveLayout.isTabletLandscape;
 
   const formContent = (
@@ -2139,8 +2272,10 @@ const RegistrationForm = React.memo(function RegistrationForm({
                 ]}
               />
               {currentDisputeEntries.map(entry => (
-                <View key={`hold-${entry.key}`} style={styles.disputeInfoRow}>
-                  <Text style={styles.disputeInfoLabel}>{entry.label}</Text>
+                <View key={`hold-${entry.partyKey || 'dispute'}-${entry.key}`} style={styles.disputeInfoRow}>
+                  <Text style={styles.disputeInfoLabel}>
+                    {entry.partyLabel ? `${entry.partyLabel} - ${entry.label}` : entry.label}
+                  </Text>
                   <Text style={styles.disputeInfoValue}>{entry.detail}</Text>
                 </View>
               ))}
@@ -2338,7 +2473,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
                   {trackName || 'Track'}
                 </Text>
               </Text>
-              {!hasTimerStarted ? (
+              {showBackButton ? (
                 <TouchableOpacity
                   onPress={onBack}
                   activeOpacity={0.88}
@@ -2388,6 +2523,22 @@ const RegistrationForm = React.memo(function RegistrationForm({
                 },
               ]}
             >
+              {resolvingDisputePartyKey ? (
+                <View style={styles.disputeResolutionCommentBlock}>
+                  <Text style={styles.disputeInfoLabel}>
+                    TKO Comment
+                  </Text>
+                  <TextInput
+                    {...STABLE_TEXT_INPUT_PROPS}
+                    value={resolutionCommentInput}
+                    onChangeText={setResolutionCommentInput}
+                    style={styles.disputeResolutionCommentInput}
+                    placeholder="Add TKO comment"
+                    placeholderTextColor="#8f9bad"
+                    multiline
+                  />
+                </View>
+              ) : null}
               <View style={[styles.submitActionButtonsRow, useLandscapeTabletLayout && styles.submitActionButtonsRowLandscape]}>
                 {showDisputeButton ? (
                   <TouchableOpacity
@@ -2442,24 +2593,17 @@ const RegistrationForm = React.memo(function RegistrationForm({
         hardwareAccelerated={Platform.OS === 'android'}
         statusBarTranslucent={Platform.OS === 'android'}
       >
-        <View
-          style={[
-            styles.disputeModalOverlay,
-            keyboardHeight > 0 && styles.authModalOverlayKeyboardOpen,
-            keyboardHeight > 0 ? { paddingBottom: Math.max(keyboardHeight - 12, 0) } : null,
-          ]}
+          <View
+          style={styles.disputeModalOverlay}
         >
           <KeyboardAvoidingView
             style={styles.authModalKeyboardAvoid}
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             keyboardVerticalOffset={Platform.OS === 'android' ? 32 : 0}
           >
             <ScrollView
               style={styles.authModalScroll}
-              contentContainerStyle={[
-                styles.authModalScrollContent,
-                keyboardHeight > 0 ? { minHeight: visibleAuthHeight } : null,
-              ]}
+              contentContainerStyle={styles.authModalScrollContent}
               keyboardShouldPersistTaps="always"
               showsVerticalScrollIndicator={false}
             >
@@ -2476,43 +2620,49 @@ const RegistrationForm = React.memo(function RegistrationForm({
               nestedScrollEnabled
               showsVerticalScrollIndicator={false}
             >
-              {DISPUTE_DETAIL_GROUPS.map(group => (
-                <View key={group.key} style={styles.disputeModalSection}>
-                  <Text style={styles.disputeModalSectionTitle}>{group.title}</Text>
-                  {group.items.map(item => {
-                    const itemState = disputeFormState[item.key] || { checked: false, detail: '' };
+              {DISPUTE_PARTY_OPTIONS.map(party => (
+                <View key={party.key} style={styles.disputeModalPartySection}>
+                  <Text style={styles.disputeModalPartyTitle}>{party.label}</Text>
+                  {DISPUTE_DETAIL_GROUPS.map(group => (
+                    <View key={`${party.key}-${group.key}`} style={styles.disputeModalSection}>
+                      <Text style={styles.disputeModalSectionTitle}>{group.title}</Text>
+                      {group.items.map(item => {
+                        const itemState = disputeFormState?.[party.key]?.[item.key] || { checked: false, detail: '' };
 
-                    return (
-                      <View key={item.key} style={styles.disputeModalOptionBlock}>
-                        <TouchableOpacity
-                          style={styles.disputeModalOptionHeader}
-                          onPress={() => handleDisputeFieldToggle(item.key)}
-                          activeOpacity={0.85}
-                          hitSlop={TOUCH_HIT_SLOP}
-                        >
-                          <View
-                            style={[
-                              styles.disputeCheckbox,
-                              itemState.checked && styles.disputeCheckboxChecked,
-                            ]}
-                          >
-                            {itemState.checked ? <Text style={styles.disputeCheckboxTick}>✓</Text> : null}
+                        return (
+                          <View key={`${party.key}-${item.key}`} style={styles.disputeModalOptionBlock}>
+                            <TouchableOpacity
+                              style={styles.disputeModalOptionHeader}
+                              onPress={() => handleDisputeFieldToggle(party.key, item.key)}
+                              activeOpacity={0.85}
+                              hitSlop={TOUCH_HIT_SLOP}
+                            >
+                              <View
+                                style={[
+                                  styles.disputeCheckbox,
+                                  itemState.checked && styles.disputeCheckboxChecked,
+                                ]}
+                              >
+                                {itemState.checked ? <Text style={styles.disputeCheckboxTick}>✓</Text> : null}
+                              </View>
+                              <Text style={styles.disputeModalOptionLabel}>{item.label}</Text>
+                            </TouchableOpacity>
+                            {itemState.checked ? (
+                              <TextInput
+                                {...STABLE_TEXT_INPUT_PROPS}
+                                value={itemState.detail}
+                                onChangeText={value => handleDisputeDetailChange(party.key, item.key, value)}
+                                style={styles.disputeModalInput}
+                                placeholder={`Enter ${item.label.toLowerCase()} details`}
+                                placeholderTextColor="#8f9bad"
+                                multiline
+                              />
+                            ) : null}
                           </View>
-                          <Text style={styles.disputeModalOptionLabel}>{item.label}</Text>
-                        </TouchableOpacity>
-                        {itemState.checked && shouldShowDisputeDetailInput(item.key) ? (
-                          <TextInput
-                            value={itemState.detail}
-                            onChangeText={value => handleDisputeDetailChange(item.key, value)}
-                            style={styles.disputeModalInput}
-                            placeholder={`Enter ${item.label.toLowerCase()} details`}
-                            placeholderTextColor="#8f9bad"
-                            multiline
-                          />
-                        ) : null}
-                      </View>
-                    );
-                  })}
+                        );
+                      })}
+                    </View>
+                  ))}
                 </View>
               ))}
             </ScrollView>
@@ -2888,6 +3038,7 @@ const DisputeRecordsPanel = React.memo(function DisputeRecordsPanel({
   loading,
   onRefresh,
   onEdit,
+  onResolve,
   layout,
   theme = APP_THEMES.dark,
 }) {
@@ -3132,10 +3283,12 @@ const DisputeRecordsPanel = React.memo(function DisputeRecordsPanel({
                 const driverName = item.driver_name || item.driverName || '--';
                 const coDriverName = item.codriver_name || item.coDriverName || '--';
                 const disputeEntries = getNormalizedDisputeDetailEntries(item);
+                const disputeResolutions = getNormalizedDisputeResolutions(item);
                 const disputeStatus = getDisputeAutoSubmitStatus(item, nowTimestamp);
+                const disputeId = item.id || `${stickerNumber}-${driverName}`;
 
                 return (
-                  <View key={`dispute-${item.id || stickerNumber}-${driverName}`} style={[styles.registrationCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                  <View key={`dispute-${disputeId}`} style={[styles.registrationCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                     <View style={styles.registrationCardHeader}>
                       <View style={styles.registrationSrPill}>
                         <Text style={styles.registrationSrLabel}>Sticker</Text>
@@ -3178,25 +3331,53 @@ const DisputeRecordsPanel = React.memo(function DisputeRecordsPanel({
                       </Text>
                     </View>
 
-                    {disputeEntries.length ? (
-                      <View style={styles.registrationSection}>
-                        <Text style={styles.registrationSectionTitle}>Dispute Details</Text>
-                        {disputeEntries.map(entry => (
-                          <Text key={`${item.id || stickerNumber}-${entry.key}`} style={styles.registrationSectionText}>
-                            {entry.label}: {entry.detail}
-                          </Text>
-                        ))}
-                      </View>
-                    ) : null}
+                    <View style={styles.registrationSection}>
+                      <Text style={styles.registrationSectionTitle}>Dispute Details</Text>
+                      {DISPUTE_PARTY_OPTIONS.map(party => {
+                        const partyEntries = disputeEntries.filter(entry => entry.partyKey === party.key);
+                        const partyResolution = disputeResolutions[party.key];
+                        const isResolved = Boolean(partyResolution?.status);
 
-                    <View style={styles.disputeCardActions}>
-                      <TouchableOpacity
-                        style={[styles.resultsHeaderButton, styles.disputeCardButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
-                        onPress={() => onEdit({ ...item, disputeId: item.id, source: 'dispute' })}
-                        activeOpacity={0.85}
-                      >
-                        <Text style={[styles.resultsHeaderButtonText, { color: theme.accent }]}>Resolve Hold</Text>
-                      </TouchableOpacity>
+                        return (
+                          <View key={`${disputeId}-${party.key}`} style={styles.disputeResolveSubsection}>
+                            <Text style={styles.disputeResolveSubsectionTitle}>{party.label}</Text>
+                            {partyEntries.length ? (
+                              partyEntries.map(entry => (
+                                <Text key={`${disputeId}-${party.key}-${entry.key}`} style={styles.registrationSectionText}>
+                                  {entry.label}: {entry.detail}
+                                </Text>
+                              ))
+                            ) : (
+                              <Text style={styles.registrationSectionText}>No dispute details added.</Text>
+                            )}
+                            <Text style={styles.registrationSectionText}>
+                              Resolution: {partyResolution?.label || 'Pending'}
+                            </Text>
+                            {partyResolution?.comment ? (
+                              <Text style={styles.registrationSectionText}>Comment: {partyResolution.comment}</Text>
+                            ) : null}
+                            <TouchableOpacity
+                              style={[
+                                styles.resultsHeaderButton,
+                                styles.disputeCardButton,
+                                (!partyEntries.length || isResolved) && styles.submitButtonDisabled,
+                                { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
+                              ]}
+                              onPress={() =>
+                                partyEntries.length && !isResolved
+                                  ? onResolve(item, party.key)
+                                  : null
+                              }
+                              activeOpacity={0.85}
+                              disabled={!partyEntries.length || isResolved}
+                            >
+                              <Text style={[styles.resultsHeaderButtonText, { color: theme.accent }]}>
+                                {isResolved ? 'Resolved' : 'Resolve'}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })}
                     </View>
                   </View>
                 );
@@ -3447,7 +3628,6 @@ export default function App() {
   const [recordPinInput, setRecordPinInput] = useState('');
   const [recordPinError, setRecordPinError] = useState('');
   const [recordPinPurpose, setRecordPinPurpose] = useState('submit this record');
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const settingsPasswordInputRef = useRef(null);
   const currentPasswordInputRef = useRef(null);
   const newPasswordInputRef = useRef(null);
@@ -3467,7 +3647,6 @@ export default function App() {
   const disputeAutoSubmitInFlightRef = useRef(false);
   const recordFormOpenTimerRef = useRef(null);
   const theme = useMemo(() => APP_THEMES[normalizeThemeMode(themeMode)], [themeMode]);
-  const visibleAuthHeight = Math.max(screenHeight - keyboardHeight - 40, 220);
   const isFullScreenOverlayVisible =
     formVisible ||
     recordsVisible ||
@@ -3515,23 +3694,6 @@ export default function App() {
       glowPulseAnim.setValue(0);
     };
   }, [appStage, glowPulseAnim]);
-
-  useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-
-    const showSubscription = Keyboard.addListener(showEvent, event => {
-      setKeyboardHeight(event?.endCoordinates?.height || 0);
-    });
-    const hideSubscription = Keyboard.addListener(hideEvent, () => {
-      setKeyboardHeight(0);
-    });
-
-    return () => {
-      showSubscription.remove();
-      hideSubscription.remove();
-    };
-  }, []);
 
   useEffect(() => {
     return () => {
@@ -4711,6 +4873,10 @@ const buildRegistrationData = formData => ({
     seatbelt_penalty_time: formData.seatbeltPenaltyTime || 0,
     ground_touch_penalty_time: formData.groundTouchPenaltyTime || 0,
     total_penalties_time: formData.totalPenaltiesTime || 0,
+    dispute_details: formData.disputeDetails || formData.dispute_details || [],
+    disputeDetails: formData.disputeDetails || formData.dispute_details || [],
+    dispute_resolutions: formData.disputeResolutions || formData.dispute_resolutions || {},
+    disputeResolutions: formData.disputeResolutions || formData.dispute_resolutions || {},
     dispute_resolution_status: formData.disputeResolutionStatus || null,
     disputeResolutionStatus: formData.disputeResolutionStatus || null,
     dispute_resolution_label: formData.disputeResolutionLabel || null,
@@ -4752,6 +4918,37 @@ const buildRegistrationData = formData => ({
       const isDisputeRecord = safeFormData.source === 'dispute';
       const recordKey = selectedRecord?.recordKey || getRecordKey(selectedRecord || {});
       const registrationData = buildRegistrationData(safeFormData);
+
+      if (isDisputeRecord && safeFormData.disputeId) {
+        const updatedDisputeSnapshot = {
+          ...selectedRecord,
+          ...registrationData,
+          id: safeFormData.disputeId,
+          disputeId: safeFormData.disputeId,
+          source: 'dispute',
+          dispute_details: registrationData.dispute_details || [],
+          disputeDetails: registrationData.disputeDetails || [],
+          dispute_resolutions: registrationData.dispute_resolutions || {},
+          disputeResolutions: registrationData.disputeResolutions || {},
+          submission_json: JSON.stringify({
+            ...safeFormData,
+            source: 'dispute',
+            disputeId: safeFormData.disputeId,
+            dispute_details: registrationData.dispute_details || [],
+            disputeDetails: registrationData.disputeDetails || [],
+            dispute_resolutions: registrationData.dispute_resolutions || {},
+            disputeResolutions: registrationData.disputeResolutions || {},
+          }),
+        };
+
+        if (!areAllDisputePartiesResolved(updatedDisputeSnapshot)) {
+          await DisputesService.saveDispute(updatedDisputeSnapshot);
+          await refreshDisputes();
+          clearActiveRecordState(recordKey, true);
+          setLeaderboardRefreshKey(prev => prev + 1);
+          return true;
+        }
+      }
 
       if (!isDisputeRecord) {
         const didDownload = await downloadResultCsv(safeFormData)
@@ -4818,6 +5015,7 @@ const buildRegistrationData = formData => ({
         selected_day_date: safeFormData.selectedDayDate || '',
         selectedDayDate: safeFormData.selectedDayDate || '',
         dispute_details: safeFormData.disputeDetails || [],
+        dispute_resolutions: safeFormData.disputeResolutions || safeFormData.dispute_resolutions || {},
         total_penalties_time: safeFormData.totalPenaltiesTime || 0,
         performance_time: safeFormData.performanceTimeDisplay || null,
         total_time: safeFormData.totalTimeDisplay || null,
@@ -4845,7 +5043,7 @@ const buildRegistrationData = formData => ({
           item => normalizeCategoryKey(item.name) === normalizeCategoryKey(safeDisputeRecord.category || '')
         ) || {
           id: `dispute-${normalizeCategoryKey(safeDisputeRecord.category || 'category')}`,
-          name: safeDisputeRecord.category || 'Category',
+      name: safeDisputeRecord.category || 'Category',
         };
 
       setReportsVisible(false);
@@ -4860,6 +5058,15 @@ const buildRegistrationData = formData => ({
       console.error('Unable to edit dispute record:', error);
       Alert.alert('Error', 'Unable to open dispute details.');
     }
+  };
+
+  const handleDisputeSubcategoryResolve = (disputeRecord, partyKey) => {
+    handleDisputeEdit({
+      ...(disputeRecord || {}),
+      disputeId: disputeRecord?.id || disputeRecord?.disputeId,
+      source: 'dispute',
+      resolveDisputeCategory: partyKey,
+    });
   };
 
   /**
@@ -5545,17 +5752,12 @@ const buildRegistrationData = formData => ({
         <View
           style={[
             styles.settingsOverlay,
-            keyboardHeight > 0 && styles.authModalOverlayKeyboardOpen,
             { backgroundColor: theme.overlay },
-            keyboardHeight > 0 ? { paddingBottom: Math.max(keyboardHeight - 12, 0) } : null,
           ]}
         >
           <ScrollView
             style={styles.authModalScroll}
-            contentContainerStyle={[
-              styles.authModalScrollContent,
-              keyboardHeight > 0 ? { minHeight: visibleAuthHeight } : null,
-            ]}
+            contentContainerStyle={styles.authModalScrollContent}
             keyboardShouldPersistTaps="always"
             showsVerticalScrollIndicator={false}
           >
@@ -5573,6 +5775,7 @@ const buildRegistrationData = formData => ({
                 Enter password to open protected settings.
               </Text>
               <TextInput
+                {...STABLE_TEXT_INPUT_PROPS}
                 ref={settingsPasswordInputRef}
                 autoFocus
                 value={settingsPasswordInput}
@@ -5583,7 +5786,6 @@ const buildRegistrationData = formData => ({
                   }
                 }}
                 autoCapitalize="none"
-                autoCorrect={false}
                 style={[
                   styles.settingsInput,
                   { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary },
@@ -6276,6 +6478,7 @@ const buildRegistrationData = formData => ({
                 loading={disputesLoading}
                 onRefresh={refreshDisputes}
                 onEdit={handleDisputeEdit}
+                onResolve={handleDisputeSubcategoryResolve}
                 layout={responsiveLayout}
                 theme={theme}
               />
@@ -6288,6 +6491,7 @@ const buildRegistrationData = formData => ({
                   Enter the current PIN, then confirm the new 4-digit PIN twice.
                 </Text>
                 <TextInput
+                  {...STABLE_TEXT_INPUT_PROPS}
                   ref={currentPinInputRef}
                   autoFocus
                   value={currentPinInput}
@@ -6312,6 +6516,7 @@ const buildRegistrationData = formData => ({
                   onSubmitEditing={() => newPinInputRef.current?.focus()}
                 />
                 <TextInput
+                  {...STABLE_TEXT_INPUT_PROPS}
                   ref={newPinInputRef}
                   value={newPinInput}
                   onChangeText={value => {
@@ -6335,6 +6540,7 @@ const buildRegistrationData = formData => ({
                   onSubmitEditing={() => confirmPinInputRef.current?.focus()}
                 />
                 <TextInput
+                  {...STABLE_TEXT_INPUT_PROPS}
                   ref={confirmPinInputRef}
                   value={confirmPinInput}
                   onChangeText={value => {
@@ -6379,6 +6585,7 @@ const buildRegistrationData = formData => ({
                   Example: http://192.168.1.10:3000
                 </Text>
                 <TextInput
+                  {...STABLE_TEXT_INPUT_PROPS}
                   autoFocus
                   value={leaderboardSyncBaseUrlInput}
                   onChangeText={value => {
@@ -6388,7 +6595,6 @@ const buildRegistrationData = formData => ({
                     }
                   }}
                   autoCapitalize="none"
-                  autoCorrect={false}
                   keyboardType="url"
                   placeholder="http://192.168.1.10:3000"
                   placeholderTextColor={theme.textTertiary}
@@ -6444,6 +6650,7 @@ const buildRegistrationData = formData => ({
                   ]}
                 >
                   <TextInput
+                    {...STABLE_TEXT_INPUT_PROPS}
                     ref={currentPasswordInputRef}
                     autoFocus
                     value={currentPasswordInput}
@@ -6454,7 +6661,6 @@ const buildRegistrationData = formData => ({
                       }
                     }}
                     autoCapitalize="none"
-                    autoCorrect={false}
                     style={[styles.settingsPasswordTextInput, { color: theme.textPrimary }]}
                     placeholder="Current password"
                     placeholderTextColor={theme.textTertiary}
@@ -6480,6 +6686,7 @@ const buildRegistrationData = formData => ({
                   ]}
                 >
                   <TextInput
+                    {...STABLE_TEXT_INPUT_PROPS}
                     ref={newPasswordInputRef}
                     value={newPasswordInput}
                     onChangeText={value => {
@@ -6489,7 +6696,6 @@ const buildRegistrationData = formData => ({
                       }
                     }}
                     autoCapitalize="none"
-                    autoCorrect={false}
                     style={[styles.settingsPasswordTextInput, { color: theme.textPrimary }]}
                     placeholder="New password"
                     placeholderTextColor={theme.textTertiary}
@@ -6515,6 +6721,7 @@ const buildRegistrationData = formData => ({
                   ]}
                 >
                   <TextInput
+                    {...STABLE_TEXT_INPUT_PROPS}
                     ref={confirmPasswordInputRef}
                     value={confirmPasswordInput}
                     onChangeText={value => {
@@ -6524,7 +6731,6 @@ const buildRegistrationData = formData => ({
                       }
                     }}
                     autoCapitalize="none"
-                    autoCorrect={false}
                     style={[styles.settingsPasswordTextInput, { color: theme.textPrimary }]}
                     placeholder="Confirm new password"
                     placeholderTextColor={theme.textTertiary}
@@ -6574,17 +6780,12 @@ const buildRegistrationData = formData => ({
         <View
           style={[
             styles.settingsOverlay,
-            keyboardHeight > 0 && styles.authModalOverlayKeyboardOpen,
             { backgroundColor: theme.overlay },
-            keyboardHeight > 0 ? { paddingBottom: Math.max(keyboardHeight - 12, 0) } : null,
           ]}
         >
           <ScrollView
             style={styles.authModalScroll}
-            contentContainerStyle={[
-              styles.authModalScrollContent,
-              keyboardHeight > 0 ? { minHeight: visibleAuthHeight } : null,
-            ]}
+            contentContainerStyle={styles.authModalScrollContent}
             keyboardShouldPersistTaps="always"
             showsVerticalScrollIndicator={false}
           >
@@ -6602,6 +6803,7 @@ const buildRegistrationData = formData => ({
                 Enter the 4-digit PIN to {recordPinPurpose}.
               </Text>
               <TextInput
+                {...STABLE_TEXT_INPUT_PROPS}
                 ref={recordPinInputRef}
                 autoFocus
                 value={recordPinInput}
@@ -6753,10 +6955,15 @@ const buildRegistrationData = formData => ({
             selectedDay={selectedDay}
             trackTimerLimitSeconds={selectedTrackTimerLimitSeconds}
             onBack={() => {
+              const shouldReturnToDisputes = selectedRecord?.source === 'dispute';
               setFormVisible(false);
               setSelectedRecord(null);
               setActiveRecordKey('');
-              setRecordsVisible(true);
+              setRecordsVisible(!shouldReturnToDisputes);
+              if (shouldReturnToDisputes) {
+                setSettingsVisible(true);
+                setSettingsView('disputes');
+              }
             }}
             onSubmit={handleFormSubmit}
             onHoldForDispute={holdRecordForDispute}

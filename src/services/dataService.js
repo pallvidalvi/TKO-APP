@@ -24,6 +24,7 @@ import {
   getAllDisputes as getDisputesDB,
   saveDispute as saveDisputeDB,
   deleteDisputeById as deleteDisputeByIdDB,
+  clearAllDisputes as clearAllDisputesDB,
   deleteResultById as deleteResultByIdDB,
   clearAllResults as clearAllResultsDB,
   normalizeStoredDayPayload,
@@ -674,10 +675,103 @@ const syncLeaderboardSnapshotWithBaseUrl = async (snapshot, syncBaseUrl = '') =>
   };
 };
 
+const DISPUTE_PARTY_KEYS = ['byTeam', 'byOpponent'];
+
+const getDisputeResolutionLabelForStatus = status => {
+  const normalizedStatus = String(status || '').trim().toLowerCase();
+
+  if (normalizedStatus === 'accepted') {
+    return 'Dispute Accepted & Resolved';
+  }
+
+  if (normalizedStatus === 'rejected') {
+    return 'Dispute Rejected & Resolved';
+  }
+
+  if (normalizedStatus === 'auto_submitted' || normalizedStatus === 'auto_submitted_from_dispute') {
+    return 'Auto Submitted & Resolved';
+  }
+
+  return '';
+};
+
+const parseMaybeJsonValue = value => {
+  if (!value || typeof value !== 'string') {
+    return value;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    return value;
+  }
+};
+
+const getDisputePartyKeysFromDetails = details => {
+  const safeDetails = Array.isArray(details) ? details : [];
+  const keys = [
+    ...new Set(
+      safeDetails
+        .map(entry => entry?.partyKey || entry?.party_key || entry?.disputeCategory || entry?.dispute_category || '')
+        .filter(Boolean)
+    ),
+  ];
+
+  if (keys.length) {
+    return keys;
+  }
+
+  const legacyKeys = safeDetails.map(entry => entry?.key).filter(key => DISPUTE_PARTY_KEYS.includes(key));
+  return legacyKeys.length ? legacyKeys : DISPUTE_PARTY_KEYS;
+};
+
+const getAutoSubmittedDisputeResolutions = (dispute, sourcePayload, disputeDetails, autoSubmittedAt) => {
+  const rawResolutions = parseMaybeJsonValue(
+    dispute?.disputeResolutions ||
+      dispute?.dispute_resolutions ||
+      sourcePayload.disputeResolutions ||
+      sourcePayload.dispute_resolutions ||
+      {}
+  );
+  const nextResolutions =
+    rawResolutions && typeof rawResolutions === 'object' && !Array.isArray(rawResolutions)
+      ? { ...rawResolutions }
+      : {};
+
+  getDisputePartyKeysFromDetails(disputeDetails).forEach(partyKey => {
+    if (nextResolutions[partyKey]?.status) {
+      return;
+    }
+
+    nextResolutions[partyKey] = {
+      status: 'auto_submitted',
+      label: getDisputeResolutionLabelForStatus('auto_submitted'),
+      comment: '',
+      resolvedAt: autoSubmittedAt,
+    };
+  });
+
+  return nextResolutions;
+};
+
 const buildResultDataFromDispute = dispute => {
   const parsedDispute = parseRegistrationPayload(dispute);
   const sourcePayload = safeParseJsonObject(dispute?.submission_json);
   const autoSubmittedAt = new Date().toISOString();
+  const rawDisputeDetails =
+    parsedDispute.disputeDetails ||
+    parsedDispute.dispute_details ||
+    sourcePayload.disputeDetails ||
+    sourcePayload.dispute_details ||
+    [];
+  const parsedDisputeDetails = parseMaybeJsonValue(rawDisputeDetails);
+  const disputeDetails = Array.isArray(parsedDisputeDetails) ? parsedDisputeDetails : [];
+  const disputeResolutions = getAutoSubmittedDisputeResolutions(
+    parsedDispute,
+    sourcePayload,
+    disputeDetails,
+    autoSubmittedAt
+  );
   const normalizedFormPayload = {
     ...sourcePayload,
     trackName:
@@ -696,6 +790,10 @@ const buildResultDataFromDispute = dispute => {
     selectedDayDate:
       parsedDispute.selected_day_date || parsedDispute.selectedDayDate || sourcePayload.selectedDayDate || '',
     disputeId: dispute?.id || sourcePayload.disputeId || null,
+    disputeDetails,
+    dispute_details: disputeDetails,
+    disputeResolutions,
+    dispute_resolutions: disputeResolutions,
     source: 'dispute-auto-submit',
     autoSubmittedFromDispute: true,
     disputeResolutionStatus: 'auto_submitted',
@@ -825,6 +923,10 @@ const buildResultDataFromDispute = dispute => {
     total_time: parsedDispute.total_time || parsedDispute.totalTimeDisplay || sourcePayload.totalTimeDisplay || null,
     totalTimeDisplay:
       parsedDispute.total_time || parsedDispute.totalTimeDisplay || sourcePayload.totalTimeDisplay || null,
+    dispute_details: disputeDetails,
+    disputeDetails,
+    dispute_resolutions: disputeResolutions,
+    disputeResolutions,
     dispute_resolution_status: normalizedFormPayload.dispute_resolution_status,
     disputeResolutionStatus: normalizedFormPayload.disputeResolutionStatus,
     dispute_resolution_label: normalizedFormPayload.dispute_resolution_label,
@@ -1405,6 +1507,21 @@ export const DisputesService = {
       return await deleteDisputeByIdDB(id);
     } catch (error) {
       console.error('Error deleting dispute:', error);
+      throw error;
+    }
+  },
+
+  clearAllDisputes: async () => {
+    try {
+      if (isWeb) {
+        window.localStorage.removeItem(WEB_DISPUTES_KEY);
+        return true;
+      }
+
+      await clearAllDisputesDB();
+      return true;
+    } catch (error) {
+      console.error('Error clearing disputes:', error);
       throw error;
     }
   },

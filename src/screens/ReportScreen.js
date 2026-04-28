@@ -191,7 +191,7 @@ const formatDisputeEntriesInline = source =>
     .map(entry => `${entry.label}: ${entry.detail}`)
     .join(' • ');
 
-const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], theme = DEFAULT_THEME }) => {
+const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], dataRefreshKey = 0, theme = DEFAULT_THEME }) => {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const responsiveLayout = getResponsiveLayout(screenWidth, screenHeight);
   const [loading, setLoading] = useState(false);
@@ -234,7 +234,7 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], the
       setSelectedCategory('');
       setSelectedTrack('');
     }
-  }, [loadResults, visible]);
+  }, [dataRefreshKey, loadResults, visible]);
 
   useEffect(() => {
     if (!visible) {

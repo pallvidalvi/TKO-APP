@@ -927,6 +927,17 @@ export const deleteDisputeById = async id => {
   }
 };
 
+export const clearAllDisputes = async () => {
+  try {
+    const database = await getDatabase();
+    await database.runAsync('DELETE FROM disputes');
+    return true;
+  } catch (error) {
+    console.error('Error clearing disputes:', error);
+    throw error;
+  }
+};
+
 export const deleteResultById = async id => {
   try {
     const database = await getDatabase();

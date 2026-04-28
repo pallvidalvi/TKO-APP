@@ -72,6 +72,7 @@ export const getDisputeAutoSubmitStatus = (dispute, now = Date.now()) => {
 };
 
 export const getDisputeResolutionLabel = record => {
+  const rawLabel = String(record?.dispute_resolution_label || record?.disputeResolutionLabel || '').trim();
   const rawStatus = String(
     record?.dispute_resolution_status ||
       record?.disputeResolutionStatus ||
@@ -99,6 +100,10 @@ export const getDisputeResolutionLabel = record => {
     record?.source === 'dispute-auto-submit'
   ) {
     return 'Auto Submitted & Resolved';
+  }
+
+  if (rawLabel) {
+    return rawLabel;
   }
 
   return '';
