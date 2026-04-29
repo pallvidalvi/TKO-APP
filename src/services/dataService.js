@@ -1127,6 +1127,15 @@ export const LeaderboardService = {
 
   buildLeaderboardExportSnapshot: async () => buildLeaderboardExportSnapshot(),
 
+  importLeaderboardSnapshot: async snapshot => {
+    const summary = await importLeaderboardSnapshotRecords(snapshot);
+
+    return {
+      imported: true,
+      summary,
+    };
+  },
+
   importLeaderboardData: async ({ syncBaseUrl = '' } = {}) => {
     const fetchResult = await fetchLeaderboardSnapshotWithBaseUrl(syncBaseUrl);
 

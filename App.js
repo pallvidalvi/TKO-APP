@@ -26,6 +26,7 @@ import {
   LeaderboardService,
   promoteExpiredDisputesToResults,
 } from './src/services/dataService';
+import { LocalWifiSyncService } from './src/services/localWifiSyncService';
 import { DISPUTE_AUTO_SUBMIT_POLL_MS, getDisputeAutoSubmitStatus } from './src/utils/scoring';
 import ReportScreen from './src/screens/ReportScreen';
 import LeaderboardScreen from './src/screens/LeaderboardScreen';
@@ -3608,6 +3609,15 @@ export default function App() {
   const [leaderboardSyncBaseUrlInput, setLeaderboardSyncBaseUrlInput] = useState('');
   const [leaderboardSyncError, setLeaderboardSyncError] = useState('');
   const [leaderboardSyncLoading, setLeaderboardSyncLoading] = useState(false);
+  const [localWifiReceiverStatus, setLocalWifiReceiverStatus] = useState(() => ({
+    running: false,
+    port: LocalWifiSyncService.DEFAULT_PORT,
+    host: '',
+    url: '',
+    pendingCount: 0,
+    available: LocalWifiSyncService.isAvailable(),
+  }));
+  const [localWifiReceiverMessage, setLocalWifiReceiverMessage] = useState('');
   const [settingsConfigDayId, setSettingsConfigDayId] = useState(REPORT_DAYS[0]?.id || '');
   const [settingsConfigCategoryKey, setSettingsConfigCategoryKey] = useState('EXTREME');
   const [settingsTrackTimerTrack, setSettingsTrackTimerTrack] = useState('');
@@ -4489,6 +4499,145 @@ export default function App() {
       setLeaderboardSyncLoading(false);
     }
   };
+
+  const refreshLocalWifiReceiverStatus = async () => {
+    const status = await LocalWifiSyncService.getStatus();
+    setLocalWifiReceiverStatus(status);
+    return status;
+  };
+
+  const processLocalWifiReceivedSnapshots = async () => {
+    const snapshots = await LocalWifiSyncService.drainSnapshots();
+
+    if (!snapshots.length) {
+      await refreshLocalWifiReceiverStatus();
+      return null;
+    }
+
+    const totalSummary = {
+      snapshots: snapshots.length,
+      resultsImported: 0,
+      resultsSkipped: 0,
+      resultsFailed: 0,
+      disputesImported: 0,
+      disputesFailed: 0,
+    };
+
+    for (const snapshot of snapshots) {
+      const importResult = await LeaderboardService.importLeaderboardSnapshot(snapshot);
+      const summary = importResult.summary || {};
+      totalSummary.resultsImported += summary.resultsImported || 0;
+      totalSummary.resultsSkipped += summary.resultsSkipped || 0;
+      totalSummary.resultsFailed += summary.resultsFailed || 0;
+      totalSummary.disputesImported += summary.disputesImported || 0;
+      totalSummary.disputesFailed += summary.disputesFailed || 0;
+    }
+
+    await refreshCompletedTracks(teams, selectedDay?.id || '');
+    await refreshDisputes();
+    setLeaderboardRefreshKey(prev => prev + 1);
+    await refreshLocalWifiReceiverStatus();
+
+    setLocalWifiReceiverMessage(
+      `Received ${totalSummary.snapshots} push. Imported ${totalSummary.resultsImported} results and ${
+        totalSummary.disputesImported
+      } disputes. Skipped ${totalSummary.resultsSkipped} duplicates.`
+    );
+
+    return totalSummary;
+  };
+
+  const handleStartLocalWifiReceiver = async () => {
+    try {
+      setLeaderboardSyncLoading(true);
+      setLocalWifiReceiverMessage('');
+      const status = await LocalWifiSyncService.startReceiver(LocalWifiSyncService.DEFAULT_PORT);
+      setLocalWifiReceiverStatus(status);
+
+      if (!status.available) {
+        Alert.alert('Wi-Fi Receiver', 'Direct tablet-to-tablet sync is available only on Android builds.');
+        return;
+      }
+
+      if (!status.url) {
+        setLocalWifiReceiverMessage(status.message || 'Receiver is running, but this tablet IP address was not detected.');
+        Alert.alert(
+          'Receiver Started',
+          'Receiver started, but the tablet IP address could not be detected. Check that this tablet is connected to Wi-Fi, then reopen this screen or restart the receiver.'
+        );
+        return;
+      }
+
+      setLeaderboardSyncBaseUrlInput(status.url);
+      Alert.alert(
+        'Receiver Started',
+        `On each category tablet, set Leaderboard Sync URL to:\n\n${status.url}\n\nThen tap Push Data.`
+      );
+    } catch (error) {
+      console.error('Unable to start local Wi-Fi receiver:', error);
+      Alert.alert('Receiver Failed', error?.message || 'Unable to start the local Wi-Fi receiver.');
+    } finally {
+      setLeaderboardSyncLoading(false);
+    }
+  };
+
+  const handleStopLocalWifiReceiver = async () => {
+    try {
+      setLeaderboardSyncLoading(true);
+      const status = await LocalWifiSyncService.stopReceiver();
+      setLocalWifiReceiverStatus(status);
+      setLocalWifiReceiverMessage('Receiver stopped.');
+    } catch (error) {
+      console.error('Unable to stop local Wi-Fi receiver:', error);
+      Alert.alert('Receiver Failed', error?.message || 'Unable to stop the local Wi-Fi receiver.');
+    } finally {
+      setLeaderboardSyncLoading(false);
+    }
+  };
+
+  const handleCheckLocalWifiReceiver = async () => {
+    try {
+      setLeaderboardSyncLoading(true);
+      const summary = await processLocalWifiReceivedSnapshots();
+
+      if (!summary) {
+        Alert.alert('Wi-Fi Receiver', 'No new tablet pushes are waiting right now.');
+        return;
+      }
+
+      Alert.alert(
+        'Data Received',
+        `Imported ${summary.resultsImported} results and ${summary.disputesImported} disputes.\nSkipped ${
+          summary.resultsSkipped
+        } duplicate results.`
+      );
+    } catch (error) {
+      console.error('Unable to check local Wi-Fi receiver:', error);
+      Alert.alert('Receiver Failed', error?.message || 'Unable to check incoming tablet data.');
+    } finally {
+      setLeaderboardSyncLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshLocalWifiReceiverStatus().catch(error => {
+      console.warn('Unable to read local Wi-Fi receiver status:', error);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!localWifiReceiverStatus.running) {
+      return undefined;
+    }
+
+    const intervalId = setInterval(() => {
+      processLocalWifiReceivedSnapshots().catch(error => {
+        console.warn('Unable to import local Wi-Fi leaderboard pushes:', error);
+      });
+    }, 2500);
+
+    return () => clearInterval(intervalId);
+  }, [localWifiReceiverStatus.running, selectedDay?.id, teams]);
 
   const closeRecordPinModal = didVerify => {
     const pendingRequest = recordPinRequestRef.current;
@@ -6720,6 +6869,76 @@ const buildRegistrationData = formData => ({
                     activeOpacity={0.85}
                   >
                     <Text style={[styles.settingsActionButtonText, { color: theme.accentText }]}>Save URL</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <View style={[styles.settingsFormCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Main Tablet Wi-Fi Receiver</Text>
+                <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                  Start this on the main tablet. Other category tablets can use the receiver URL below and tap Push Data.
+                </Text>
+                <View style={[styles.settingsInfoCard, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}>
+                  <Text style={[styles.settingsInfoTitle, { color: theme.accent }]}>
+                    {localWifiReceiverStatus.running ? 'Receiver Active' : 'Receiver Stopped'}
+                  </Text>
+                  <Text style={[styles.settingsInfoText, { color: theme.textSecondary }]}>
+                    {localWifiReceiverStatus.url ||
+                      (localWifiReceiverStatus.running
+                        ? localWifiReceiverStatus.message ||
+                          'Receiver is running, but this tablet IP address was not detected. Check Wi-Fi and restart receiver.'
+                        : localWifiReceiverStatus.available
+                        ? 'Start the receiver to show this tablet Wi-Fi URL.'
+                        : 'Direct Wi-Fi receiver is available only on Android builds.')}
+                  </Text>
+                  {localWifiReceiverMessage ? (
+                    <Text style={[styles.settingsInfoText, { color: theme.textSecondary }]}>
+                      {localWifiReceiverMessage}
+                    </Text>
+                  ) : null}
+                </View>
+                <View style={styles.settingsTrackTimerActionRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.settingsActionButton,
+                      styles.settingsPrimaryButton,
+                      { backgroundColor: theme.accent },
+                      (leaderboardSyncLoading || localWifiReceiverStatus.running) ? styles.settingsActionButtonDisabled : null,
+                    ]}
+                    onPress={handleStartLocalWifiReceiver}
+                    activeOpacity={0.85}
+                    disabled={leaderboardSyncLoading || localWifiReceiverStatus.running}
+                  >
+                    <Text style={[styles.settingsActionButtonText, { color: theme.accentText }]}>Start Receiver</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.settingsActionButton,
+                      styles.settingsSecondaryButton,
+                      { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
+                      (leaderboardSyncLoading || !localWifiReceiverStatus.running) ? styles.settingsActionButtonDisabled : null,
+                    ]}
+                    onPress={handleCheckLocalWifiReceiver}
+                    activeOpacity={0.85}
+                    disabled={leaderboardSyncLoading || !localWifiReceiverStatus.running}
+                  >
+                    <Text style={[styles.settingsActionButtonText, styles.settingsSecondaryButtonText, { color: theme.textPrimary }]}>
+                      Check Received
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.settingsActionButton,
+                      styles.settingsSecondaryButton,
+                      { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
+                      (leaderboardSyncLoading || !localWifiReceiverStatus.running) ? styles.settingsActionButtonDisabled : null,
+                    ]}
+                    onPress={handleStopLocalWifiReceiver}
+                    activeOpacity={0.85}
+                    disabled={leaderboardSyncLoading || !localWifiReceiverStatus.running}
+                  >
+                    <Text style={[styles.settingsActionButtonText, styles.settingsSecondaryButtonText, { color: theme.textPrimary }]}>
+                      Stop Receiver
+                    </Text>
                   </TouchableOpacity>
                 </View>
               </View>
