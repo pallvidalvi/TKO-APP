@@ -205,6 +205,66 @@ const normalizeDetailValue = value => {
 
 const getYesNoLabel = value => (value ? 'Yes' : 'No');
 
+const getFirstDefinedValue = (...values) => {
+  for (const value of values) {
+    if (value !== null && value !== undefined && value !== '') {
+      return value;
+    }
+  }
+
+  return 0;
+};
+
+const getLateStartStatusLabel = record => {
+  const status = record?.late_start_status || record?.lateStartStatus;
+
+  if (status) {
+    return status;
+  }
+
+  const count = Number(getFirstDefinedValue(record?.late_start_count, record?.lateStartCount));
+  return count > 0 ? 'Yes' : 'No';
+};
+
+const buildPenaltyBreakdownRows = record => [
+  {
+    penalty: 'Bunting & Pole Down',
+    count: getFirstDefinedValue(record?.bunting_count, record?.bustingCount),
+    penaltyTime: getFirstDefinedValue(record?.bunting_penalty_time, record?.bustingPenaltyTime),
+    status: '--',
+  },
+  {
+    penalty: 'Seatbelt',
+    count: getFirstDefinedValue(record?.seatbelt_count, record?.seatbeltCount),
+    penaltyTime: getFirstDefinedValue(record?.seatbelt_penalty_time, record?.seatbeltPenaltyTime),
+    status: '--',
+  },
+  {
+    penalty: 'Ground Touch',
+    count: getFirstDefinedValue(record?.ground_touch_count, record?.groundTouchCount),
+    penaltyTime: getFirstDefinedValue(record?.ground_touch_penalty_time, record?.groundTouchPenaltyTime),
+    status: '--',
+  },
+  {
+    penalty: 'Late Start',
+    count: getFirstDefinedValue(record?.late_start_count, record?.lateStartCount),
+    penaltyTime: getFirstDefinedValue(record?.late_start_penalty_time, record?.lateStartPenaltyTime),
+    status: getLateStartStatusLabel(record),
+  },
+  {
+    penalty: 'Skipped after 3rd Attempt',
+    count: getFirstDefinedValue(record?.attempt_count, record?.attemptCount),
+    penaltyTime: getFirstDefinedValue(record?.attempt_penalty_time, record?.attemptPenaltyTime),
+    status: '--',
+  },
+  {
+    penalty: 'Task Skipped',
+    count: getFirstDefinedValue(record?.task_skipped_count, record?.taskSkippedCount),
+    penaltyTime: getFirstDefinedValue(record?.task_skipped_penalty_time, record?.taskSkippedPenaltyTime),
+    status: '--',
+  },
+];
+
 const buildDetailSections = record => [
   {
     title: 'Timing Summary',
@@ -225,18 +285,9 @@ const buildDetailSections = record => [
   },
   {
     title: 'Penalty Breakdown',
-    items: [
-      { label: 'Bunting Count', value: record?.bunting_count ?? record?.bustingCount },
-      { label: 'Bunting Penalty', value: record?.bunting_penalty_time ?? record?.bustingPenaltyTime },
-      { label: 'Seatbelt Count', value: record?.seatbelt_count ?? record?.seatbeltCount },
-      { label: 'Seatbelt Penalty', value: record?.seatbelt_penalty_time ?? record?.seatbeltPenaltyTime },
-      { label: 'Ground Touch Count', value: record?.ground_touch_count ?? record?.groundTouchCount },
-      { label: 'Ground Touch Penalty', value: record?.ground_touch_penalty_time ?? record?.groundTouchPenaltyTime },
-      { label: 'Skipped after 3rd Attempt Count', value: record?.attempt_count ?? record?.attemptCount },
-      { label: 'Skipped after 3rd Attempt Penalty', value: record?.attempt_penalty_time ?? record?.attemptPenaltyTime },
-      { label: 'Task Skipped Count', value: record?.task_skipped_count ?? record?.taskSkippedCount },
-      { label: 'Task Skipped Penalty', value: record?.task_skipped_penalty_time ?? record?.taskSkippedPenaltyTime },
-    ],
+    type: 'penaltyTable',
+    kicker: 'Scoring',
+    rows: buildPenaltyBreakdownRows(record),
   },
   {
     title: 'DNF / DNS',
@@ -1127,23 +1178,112 @@ const LeaderboardScreen = ({
                       key={section.title}
                       style={[styles.detailSectionCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
                     >
-                      <Text style={[styles.detailSectionTitle, { color: theme.accent }]}>{section.title}</Text>
-                      <View style={styles.detailFieldGrid}>
-                        {section.items.map(item => (
-                          <View key={item.label} style={[styles.detailFieldCard, { backgroundColor: theme.backgroundStrong }]}>
-                            <Text style={[styles.detailFieldLabel, { color: theme.textSecondary }]}>{item.label}</Text>
-                            <Text style={[styles.detailFieldValue, { color: theme.textPrimary }]}>
-                              {normalizeDetailValue(item.value)}
-                            </Text>
+                      {section.kicker ? (
+                        <Text style={[styles.detailSectionKicker, { color: theme.accent }]}>{section.kicker}</Text>
+                      ) : null}
+                      <Text
+                        style={[
+                          styles.detailSectionTitle,
+                          section.kicker && styles.penaltyBreakdownTitle,
+                          { color: section.kicker ? theme.textPrimary : theme.accent },
+                        ]}
+                      >
+                        {section.title}
+                      </Text>
+                      {section.type === 'penaltyTable' ? (
+                        <ScrollView
+                          horizontal
+                          showsHorizontalScrollIndicator={false}
+                          contentContainerStyle={styles.penaltyBreakdownScroll}
+                        >
+                          <View style={styles.penaltyBreakdownTable}>
+                            <View style={styles.penaltyBreakdownHeaderRow}>
+                              {['Penalty', 'Count', 'Penalty Time', 'Status'].map((label, index) => (
+                                <Text
+                                  key={label}
+                                  style={[
+                                    styles.penaltyBreakdownHeaderCell,
+                                    index === 0
+                                      ? styles.penaltyBreakdownPenaltyCell
+                                      : index === 1
+                                      ? styles.penaltyBreakdownCountCell
+                                      : index === 2
+                                      ? styles.penaltyBreakdownTimeCell
+                                      : styles.penaltyBreakdownStatusCell,
+                                    { color: theme.accent, borderColor: theme.border },
+                                  ]}
+                                >
+                                  {label}
+                                </Text>
+                              ))}
+                            </View>
+                            {section.rows.map(row => (
+                              <View
+                                key={row.penalty}
+                                style={[
+                                  styles.penaltyBreakdownRow,
+                                  { backgroundColor: theme.backgroundStrong, borderColor: theme.border },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.penaltyBreakdownCell,
+                                    styles.penaltyBreakdownPenaltyCell,
+                                    styles.penaltyBreakdownPenaltyText,
+                                    { color: theme.textPrimary, borderColor: theme.border },
+                                  ]}
+                                >
+                                  {row.penalty}
+                                </Text>
+                                <Text
+                                  style={[
+                                    styles.penaltyBreakdownCell,
+                                    styles.penaltyBreakdownCountCell,
+                                    { color: theme.textPrimary, borderColor: theme.border },
+                                  ]}
+                                >
+                                  {normalizeDetailValue(row.count)}
+                                </Text>
+                                <Text
+                                  style={[
+                                    styles.penaltyBreakdownCell,
+                                    styles.penaltyBreakdownTimeCell,
+                                    { color: theme.textPrimary, borderColor: theme.border },
+                                  ]}
+                                >
+                                  {normalizeDetailValue(row.penaltyTime)}
+                                </Text>
+                                <Text
+                                  style={[
+                                    styles.penaltyBreakdownCell,
+                                    styles.penaltyBreakdownStatusCell,
+                                    { color: theme.accent, borderColor: theme.border },
+                                  ]}
+                                >
+                                  {normalizeDetailValue(row.status)}
+                                </Text>
+                              </View>
+                            ))}
                           </View>
-                        ))}
-                      </View>
+                        </ScrollView>
+                      ) : (
+                        <View style={styles.detailFieldGrid}>
+                          {section.items.map(item => (
+                            <View key={item.label} style={[styles.detailFieldCard, { backgroundColor: theme.backgroundStrong }]}>
+                              <Text style={[styles.detailFieldLabel, { color: theme.textSecondary }]}>{item.label}</Text>
+                              <Text style={[styles.detailFieldValue, { color: theme.textPrimary }]}>
+                                {normalizeDetailValue(item.value)}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                      )}
                     </View>
                   ))}
                 </View>
 
                 <View style={[styles.detailRawCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-                  <Text style={[styles.detailSectionTitle, { color: theme.accent }]}>Raw Record</Text>
+                  <Text style={[styles.detailSectionTitle, { color: theme.accent }]}>Final results</Text>
                   <View style={styles.detailRawGrid}>
                     {[
                       { label: 'Performance Time', value: selectedDetail.record?.performance_time || selectedDetail.record?.performanceTimeDisplay },
@@ -1648,6 +1788,82 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 1.3,
     fontFamily: HEADING_FONT,
+  },
+  detailSectionKicker: {
+    marginBottom: 4,
+    fontSize: 8,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0,
+    fontFamily: BODY_FONT,
+  },
+  penaltyBreakdownTitle: {
+    fontSize: 24,
+    letterSpacing: 0,
+  },
+  penaltyBreakdownScroll: {
+    paddingTop: 16,
+    flexGrow: 1,
+  },
+  penaltyBreakdownTable: {
+    minWidth: 700,
+    width: '100%',
+    gap: 8,
+  },
+  penaltyBreakdownHeaderRow: {
+    flexDirection: 'row',
+    minHeight: 28,
+    alignItems: 'center',
+  },
+  penaltyBreakdownHeaderCell: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderLeftWidth: 1,
+    fontSize: 8,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0,
+    fontFamily: BODY_FONT,
+    textAlign: 'center',
+  },
+  penaltyBreakdownRow: {
+    minHeight: 52,
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  penaltyBreakdownCell: {
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderLeftWidth: 1,
+    fontSize: 13,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    fontFamily: BODY_FONT,
+    textAlign: 'center',
+    textAlignVertical: 'center',
+  },
+  penaltyBreakdownPenaltyCell: {
+    minWidth: 260,
+    flex: 2.8,
+    borderLeftWidth: 0,
+    textAlign: 'left',
+  },
+  penaltyBreakdownCountCell: {
+    minWidth: 100,
+    flex: 0.9,
+  },
+  penaltyBreakdownTimeCell: {
+    minWidth: 170,
+    flex: 1.4,
+  },
+  penaltyBreakdownStatusCell: {
+    minWidth: 110,
+    flex: 1,
+  },
+  penaltyBreakdownPenaltyText: {
+    letterSpacing: 0,
   },
   detailFieldGrid: {
     marginTop: 12,
