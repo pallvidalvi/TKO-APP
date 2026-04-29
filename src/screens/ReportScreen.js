@@ -16,7 +16,6 @@ import { CloseActionButton, NavigationActionButton } from '../components/Navigat
 import {
   DISPUTE_AUTO_SUBMIT_POLL_MS,
   getDisputeAutoSubmitStatus,
-  getDisputeResolutionLabel,
   isDnsResult,
   rankTrackResults,
 } from '../utils/scoring';
@@ -121,6 +120,20 @@ const normalizeCategoryKey = value => {
   return normalized;
 };
 
+const DISPUTE_PARTY_KEYS = ['byTeam', 'byOpponent'];
+
+const parseMaybeJsonValue = value => {
+  if (!value || typeof value !== 'string') {
+    return value;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    return value;
+  }
+};
+
 const getDayIdentity = item => ({
   dayId: normalizeValue(item.selected_day_id || item.selectedDayId || item.day_id || item.dayId || ''),
   dayLabel: normalizeValue(
@@ -161,35 +174,149 @@ const getResultIdentityKey = item => {
 };
 
 const getNormalizedDisputeDetailEntries = source => {
-  const rawDetails = source?.disputeDetails ?? source?.dispute_details ?? [];
+  const rawDetails = parseMaybeJsonValue(source?.disputeDetails ?? source?.dispute_details ?? []);
 
-  if (!Array.isArray(rawDetails)) {
-    return [];
+  const normalizeEntry = (entry, fallbackPartyKey = '') => {
+    const key = String(entry?.key || '').trim();
+    const label = String(entry?.label || '').trim();
+    const detail = String(entry?.detail || '').trim();
+    const partyKey = String(
+      entry?.partyKey ||
+        entry?.party_key ||
+        entry?.disputeCategory ||
+        entry?.dispute_category ||
+        fallbackPartyKey ||
+        ''
+    ).trim();
+
+    if (!key || !label || !detail) {
+      return null;
+    }
+
+    return {
+      key,
+      label,
+      detail,
+      partyKey,
+    };
+  };
+
+  if (Array.isArray(rawDetails)) {
+    return rawDetails.map(entry => normalizeEntry(entry)).filter(Boolean);
   }
 
-  return rawDetails
-    .map(entry => {
-      const key = String(entry?.key || '').trim();
-      const label = String(entry?.label || '').trim();
-      const detail = String(entry?.detail || '').trim();
+  if (rawDetails && typeof rawDetails === 'object') {
+    return DISPUTE_PARTY_KEYS.flatMap(partyKey => {
+      const partyDetails = rawDetails[partyKey];
 
-      if (!key || !label || !detail) {
-        return null;
+      if (Array.isArray(partyDetails)) {
+        return partyDetails.map(entry => normalizeEntry(entry, partyKey)).filter(Boolean);
       }
 
-      return {
-        key,
-        label,
-        detail,
-      };
-    })
-    .filter(Boolean);
+      if (!partyDetails || typeof partyDetails !== 'object') {
+        return [];
+      }
+
+      return Object.entries(partyDetails)
+        .map(([key, value]) => {
+          if (value && typeof value === 'object' && value.checked === false) {
+            return null;
+          }
+
+          return normalizeEntry(
+            {
+              key,
+              label: value?.label || key,
+              detail: value?.detail || value?.value || '',
+            },
+            partyKey
+          );
+        })
+        .filter(Boolean);
+    });
+  }
+
+  return [];
 };
 
 const formatDisputeEntriesInline = source =>
   getNormalizedDisputeDetailEntries(source)
     .map(entry => `${entry.label}: ${entry.detail}`)
     .join(' • ');
+
+const getNormalizedDisputeResolutions = source => {
+  const rawResolutions = parseMaybeJsonValue(source?.disputeResolutions ?? source?.dispute_resolutions ?? {});
+  const normalized = {};
+
+  if (rawResolutions && typeof rawResolutions === 'object' && !Array.isArray(rawResolutions)) {
+    Object.entries(rawResolutions).forEach(([partyKey, resolution]) => {
+      if (!resolution) {
+        return;
+      }
+
+      const status = String(
+        typeof resolution === 'string'
+          ? resolution
+          : resolution.status ||
+              resolution.disputeResolutionStatus ||
+              resolution.dispute_resolution_status ||
+              ''
+      ).trim();
+
+      normalized[partyKey] = {
+        status,
+        label: String(
+          typeof resolution === 'string'
+            ? resolution
+            : resolution.label ||
+                resolution.disputeResolutionLabel ||
+                resolution.dispute_resolution_label ||
+                ''
+        ).trim(),
+      };
+    });
+  }
+
+  const fallbackStatus = String(source?.disputeResolutionStatus || source?.dispute_resolution_status || '').trim();
+  const fallbackLabel = String(source?.disputeResolutionLabel || source?.dispute_resolution_label || '').trim();
+
+  if ((fallbackStatus || fallbackLabel) && !Object.keys(normalized).length) {
+    DISPUTE_PARTY_KEYS.forEach(partyKey => {
+      normalized[partyKey] = {
+        status: fallbackStatus,
+        label: fallbackLabel,
+      };
+    });
+  }
+
+  return normalized;
+};
+
+const getDisputePartyKeysWithDetails = source => {
+  const detailPartyKeys = [
+    ...new Set(getNormalizedDisputeDetailEntries(source).map(entry => entry.partyKey).filter(Boolean)),
+  ];
+
+  return detailPartyKeys.length ? detailPartyKeys : DISPUTE_PARTY_KEYS;
+};
+
+const getReportDisputeDisplayStatus = record => {
+  const disputeResolutions = getNormalizedDisputeResolutions(record);
+  const hasDisputeData =
+    Boolean(record?.isDisputed) ||
+    getNormalizedDisputeDetailEntries(record).length > 0 ||
+    Object.keys(disputeResolutions).length > 0 ||
+    Boolean(record?.disputeResolutionStatus || record?.dispute_resolution_status);
+
+  if (!hasDisputeData) {
+    return '';
+  }
+
+  const partyKeys = getDisputePartyKeysWithDetails(record);
+  const allResolved = partyKeys.every(partyKey => Boolean(disputeResolutions[partyKey]?.status));
+
+  return allResolved ? 'Resolved' : 'Hold';
+};
 
 const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], dataRefreshKey = 0, theme = DEFAULT_THEME }) => {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -571,20 +698,27 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], dat
                       const driverName = item.driver_name || item.driverName || '--';
                       const coDriverName = item.codriver_name || item.coDriverName || '--';
                       const disputeDetailSummary = item.isDisputed ? formatDisputeEntriesInline(item) : '';
-                      const disputeResolutionLabel = getDisputeResolutionLabel(item);
-                      const disputeStatus = item.isDisputed ? getDisputeAutoSubmitStatus(item, nowTimestamp) : null;
-                      const totalTime = item.isDisputed
-                        ? 'Hold'
+                      const disputeDisplayStatus = getReportDisputeDisplayStatus(item);
+                      const isHoldStatus = disputeDisplayStatus === 'Hold';
+                      const isResolvedDisputeStatus = disputeDisplayStatus === 'Resolved';
+                      const disputeStatus = isHoldStatus ? getDisputeAutoSubmitStatus(item, nowTimestamp) : null;
+                      const totalTime = disputeDisplayStatus
+                        ? disputeDisplayStatus
                         : isDnsResult(item)
                         ? 'DNS'
                         : item.total_time || item.totalTimeDisplay || '--';
                       const pointsLabel =
                         item.reportPoints === null || item.reportPoints === undefined ? '--' : `${item.reportPoints}`;
-                      const resultMetaLabel = item.isDisputed
+                      const resultMetaLabel = isHoldStatus
                         ? `Auto-submit in ${disputeStatus?.remainingLabel || '00:00'}`
+                        : isResolvedDisputeStatus
+                        ? item.reportRankLabel && item.reportRankLabel !== 'Hold'
+                          ? `${item.reportRankLabel} | ${pointsLabel} pts`
+                          : 'Resolved'
                         : item.reportRankLabel
                         ? `${item.reportRankLabel} | ${pointsLabel} pts`
                         : `${pointsLabel} pts`;
+                      const disputeResolutionLabel = isResolvedDisputeStatus ? 'Resolved' : '';
 
                       if (item.isDisputed && disputeDetailSummary) {
                         return (
@@ -639,8 +773,8 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], dat
                               style={[
                                 styles.tableCell,
                                 styles.totalValueText,
-                                { color: item.isDisputed ? theme.accent : theme.textPrimary },
-                                item.isDisputed && styles.disputedValue,
+                                { color: disputeDisplayStatus ? theme.accent : theme.textPrimary },
+                                disputeDisplayStatus && styles.disputedValue,
                               ]}
                             >
                               {totalTime}

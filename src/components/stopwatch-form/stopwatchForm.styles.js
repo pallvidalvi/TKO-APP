@@ -423,11 +423,11 @@ const styles = StyleSheet.create({
   },
   dnfCheckboxLabel: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
+    fontWeight: '800',
+    color: '#ef2f2f',
   },
   dnfCheckboxLabelDisabled: {
-    color: '#6b7280',
+    color: '#b45353',
   },
   dnfCheckboxHint: {
     marginTop: 2,
@@ -461,14 +461,14 @@ const styles = StyleSheet.create({
   },
   dnfDropdownItemText: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
+    fontWeight: '800',
+    color: '#ef2f2f',
   },
   dnfDropdownItemTextSelected: {
     color: '#ff5a1f',
   },
   dnfDropdownItemTextDisabled: {
-    color: '#9ca3af',
+    color: '#b45353',
   },
   dnfClearButton: {
     borderBottomWidth: 0,

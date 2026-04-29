@@ -952,6 +952,16 @@ const buildResultDataFromDispute = dispute => {
       false,
     time_over_selected:
       parsedDispute.time_over_selected ?? parsedDispute.timeOverSelected ?? sourcePayload.timeOverSelected ?? false,
+    vehicle_out_of_track_selected:
+      parsedDispute.vehicle_out_of_track_selected ??
+      parsedDispute.vehicleOutOfTrackSelected ??
+      sourcePayload.vehicleOutOfTrackSelected ??
+      false,
+    vehicleOutOfTrackSelected:
+      parsedDispute.vehicle_out_of_track_selected ??
+      parsedDispute.vehicleOutOfTrackSelected ??
+      sourcePayload.vehicleOutOfTrackSelected ??
+      false,
     is_dnf: parsedDispute.is_dnf ?? parsedDispute.isDNF ?? sourcePayload.isDNF ?? false,
     is_dns: parsedDispute.is_dns ?? parsedDispute.isDNS ?? sourcePayload.isDNS ?? false,
     dnf_selection: parsedDispute.dnf_selection ?? parsedDispute.dnfSelection ?? sourcePayload.dnfSelection ?? null,
@@ -1028,6 +1038,12 @@ const normalizeImportedCompetitionRecord = record => {
     task_skipped_count: getFirstPresentValue(parsedRecord.task_skipped_count, parsedRecord.taskSkippedCount, 0),
     wrong_course_count: getFirstPresentValue(parsedRecord.wrong_course_count, parsedRecord.wrongCourseCount, 0),
     fourth_attempt_count: getFirstPresentValue(parsedRecord.fourth_attempt_count, parsedRecord.fourthAttemptCount, 0),
+    vehicle_out_of_track_selected: Boolean(
+      parsedRecord.vehicle_out_of_track_selected || parsedRecord.vehicleOutOfTrackSelected
+    ),
+    vehicleOutOfTrackSelected: Boolean(
+      parsedRecord.vehicle_out_of_track_selected || parsedRecord.vehicleOutOfTrackSelected
+    ),
     is_dns: Boolean(parsedRecord.is_dns || parsedRecord.isDNS),
     total_penalties_time: getFirstPresentValue(
       parsedRecord.total_penalties_time,

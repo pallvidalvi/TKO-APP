@@ -245,6 +245,10 @@ const buildDetailSections = record => [
       { label: 'Wrong Course', value: getYesNoLabel(record?.wrong_course_selected ?? record?.wrongCourseSelected) },
       { label: '4th Attempt', value: getYesNoLabel(record?.fourth_attempt_selected ?? record?.fourthAttemptSelected) },
       { label: 'Time Over', value: getYesNoLabel(record?.time_over_selected ?? record?.timeOverSelected) },
+      {
+        label: 'Vehicle Out of the Track',
+        value: getYesNoLabel(record?.vehicle_out_of_track_selected ?? record?.vehicleOutOfTrackSelected),
+      },
       { label: 'DNF Selection', value: record?.dnf_selection ?? record?.dnfSelection },
       { label: 'DNF Points', value: record?.dnf_points ?? record?.dnfPoints },
     ],
@@ -364,8 +368,19 @@ const getDisputeResolutionMap = record => {
 
       normalized[party.key] = {
         status,
-        label: resolution.label || resolution.disputeResolutionLabel || getDisputeResolutionLabelForStatus(status),
+        label:
+          resolution.label ||
+          resolution.disputeResolutionLabel ||
+          resolution.dispute_resolution_label ||
+          getDisputeResolutionLabelForStatus(status),
         comment: String(resolution.comment || resolution.resolutionComment || '').trim(),
+        penaltyDecisionLabel: String(
+          resolution.penaltyDecisionLabel ||
+            resolution.penalty_decision_label ||
+            resolution.tkoResolutionDecisionLabel ||
+            resolution.tko_resolution_decision_label ||
+            ''
+        ).trim(),
       };
     });
   }
@@ -378,6 +393,7 @@ const getDisputeResolutionMap = record => {
         status: record?.disputeResolutionStatus || record?.dispute_resolution_status || '',
         label: fallbackLabel,
         comment: '',
+        penaltyDecisionLabel: '',
       };
     });
   }
@@ -418,6 +434,9 @@ const appendDisputeResolutionSection = record => {
       title: `Dispute Resolution - ${party.label}`,
       items: [
         { label: 'Status', value: statusLabel },
+        ...(resolution.penaltyDecisionLabel && resolution.penaltyDecisionLabel !== statusLabel
+          ? [{ label: 'TKO Decision', value: resolution.penaltyDecisionLabel }]
+          : []),
         ...(resolution.comment ? [{ label: 'Comment', value: resolution.comment }] : []),
         ...detailItems,
       ],

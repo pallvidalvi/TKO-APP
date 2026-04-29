@@ -1163,6 +1163,37 @@ const DISPUTE_PARTY_OPTIONS = [
   { key: 'byOpponent', label: 'By Opponent' },
 ];
 
+const BY_TEAM_TKO_RESOLUTION_OPTIONS = [
+  {
+    key: 'accepted_penalty_removed',
+    status: 'accepted',
+    label: 'Dispute Accepted & Penalty removed',
+  },
+  {
+    key: 'rejected_penalty_immutable',
+    status: 'rejected',
+    label: 'Dispute Rejected & Penalty Immutable',
+  },
+];
+
+const BY_OPPONENT_TKO_RESOLUTION_OPTIONS = [
+  {
+    key: 'accepted_penalty_added',
+    status: 'accepted',
+    label: 'Dispute Accepted & Penalty added',
+  },
+  {
+    key: 'rejected_penalty_unchanged',
+    status: 'rejected',
+    label: 'Dispute Rejected & Penalty Unchanged',
+  },
+];
+
+const TKO_RESOLUTION_OPTIONS_BY_PARTY = {
+  byTeam: BY_TEAM_TKO_RESOLUTION_OPTIONS,
+  byOpponent: BY_OPPONENT_TKO_RESOLUTION_OPTIONS,
+};
+
 const DISPUTE_PARTY_LABEL_BY_KEY = DISPUTE_PARTY_OPTIONS.reduce((acc, item) => {
   acc[item.key] = item.label;
   return acc;
@@ -1378,6 +1409,21 @@ const getDisputeResolutionLabelForStatus = status => {
   return '';
 };
 
+const getTkoResolutionOptionsForParty = partyKey => TKO_RESOLUTION_OPTIONS_BY_PARTY[partyKey] || [];
+
+const getTkoResolutionOption = (partyKey, value) => {
+  const normalizedValue = String(value || '').trim().toLowerCase();
+
+  return (
+    getTkoResolutionOptionsForParty(partyKey).find(
+      option =>
+        option.key === value ||
+        option.status === normalizedValue ||
+        option.label.toLowerCase() === normalizedValue
+    ) || null
+  );
+};
+
 const getNormalizedDisputeResolutions = source => {
   const rawResolutions = safeParseDisputeJsonValue(source?.disputeResolutions ?? source?.dispute_resolutions ?? {});
   const normalized = {};
@@ -1404,6 +1450,18 @@ const getNormalizedDisputeResolutions = source => {
           resolution.dispute_resolution_label ||
           getDisputeResolutionLabelForStatus(status),
         comment: String(resolution.comment || resolution.resolutionComment || resolution.resolution_comment || '').trim(),
+        penaltyDecision:
+          resolution.penaltyDecision ||
+          resolution.penalty_decision ||
+          resolution.tkoResolutionDecision ||
+          resolution.tko_resolution_decision ||
+          '',
+        penaltyDecisionLabel:
+          resolution.penaltyDecisionLabel ||
+          resolution.penalty_decision_label ||
+          resolution.tkoResolutionDecisionLabel ||
+          resolution.tko_resolution_decision_label ||
+          '',
         resolvedAt: resolution.resolvedAt || resolution.resolved_at || null,
       };
     });
@@ -1482,6 +1540,7 @@ const buildExportRows = data => [[
   data.wrongCourseSelected ? 'Yes' : 'No',
   data.fourthAttemptSelected ? 'Yes' : 'No',
   data.timeOverSelected ? 'Yes' : 'No',
+  data.vehicleOutOfTrackSelected ? 'Yes' : 'No',
   data.dnfPoints,
   data.totalPenaltiesTime,
   data.performanceTimeDisplay,
@@ -1519,6 +1578,7 @@ const RECORD_EXPORT_HEADERS = [
   'Wrong Course',
   '4th Attempt',
   'Time Over',
+  'Vehicle Out of the Track',
   'DNF Points',
   'Total Penalties Time (sec)',
   'Performance Time (MM:SS:MS)',
@@ -1557,6 +1617,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
   const [wrongCourseSelected, setWrongCourseSelected] = useState(false);
   const [fourthAttemptSelected, setFourthAttemptSelected] = useState(false);
   const [timeOverSelected, setTimeOverSelected] = useState(false);
+  const [vehicleOutOfTrackSelected, setVehicleOutOfTrackSelected] = useState(false);
   const [dnfSelection, setDnfSelection] = useState('');
   const [lateStartMode, setLateStartMode] = useState('');
   const [stopwatchTime, setStopwatchTime] = useState(0);
@@ -1566,6 +1627,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
   const [disputeModalVisible, setDisputeModalVisible] = useState(false);
   const [disputeFormState, setDisputeFormState] = useState(() => createEmptyDisputeFormState());
   const [resolutionCommentInput, setResolutionCommentInput] = useState('');
+  const [tkoResolutionDecision, setTkoResolutionDecision] = useState('');
   const [isPinVerificationInProgress, setIsPinVerificationInProgress] = useState(false);
   const stopwatchStartTimestampRef = useRef(null);
   const stopwatchElapsedRef = useRef(0);
@@ -1589,7 +1651,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
   const attemptPenaltyTime = calculatePenaltyTime(attemptCount, PENALTY_VALUES.attempt);
   const taskSkippedPenaltyTime = calculatePenaltyTime(taskSkippedCount, PENALTY_VALUES.taskSkipped);
   const dnfPoints = parseInt(dnfSelection, 10) || 0;
-  const isDNF = wrongCourseSelected || fourthAttemptSelected || timeOverSelected;
+  const isDNF = wrongCourseSelected || fourthAttemptSelected || timeOverSelected || vehicleOutOfTrackSelected;
   const isDNFPointsMissing = isDNF && !dnfPoints;
   const hasLateStartPenalty = lateStartMode === 'late_start';
   const lateStartPenaltyTime = hasLateStartPenalty ? 30 : 0;
@@ -1676,9 +1738,12 @@ const RegistrationForm = React.memo(function RegistrationForm({
       setGroundTouchCount(String(initialRecord.groundTouchCount ?? 0));
       setAttemptCount(String(initialRecord.attemptCount ?? 0));
       setTaskSkippedCount(String(initialRecord.taskSkippedCount ?? 0));
-      setWrongCourseSelected(Boolean(initialRecord.wrongCourseSelected));
-      setFourthAttemptSelected(Boolean(initialRecord.fourthAttemptSelected));
-      setTimeOverSelected(Boolean(initialRecord.timeOverSelected));
+      setWrongCourseSelected(Boolean(initialRecord.wrongCourseSelected || initialRecord.wrong_course_selected));
+      setFourthAttemptSelected(Boolean(initialRecord.fourthAttemptSelected || initialRecord.fourth_attempt_selected));
+      setTimeOverSelected(Boolean(initialRecord.timeOverSelected || initialRecord.time_over_selected));
+      setVehicleOutOfTrackSelected(
+        Boolean(initialRecord.vehicleOutOfTrackSelected || initialRecord.vehicle_out_of_track_selected)
+      );
       setDnfSelection(initialRecord.dnfSelection ? String(initialRecord.dnfSelection) : '');
       setStopwatchTime(initialStopwatchTime);
       stopwatchElapsedRef.current = initialStopwatchTime;
@@ -1687,9 +1752,25 @@ const RegistrationForm = React.memo(function RegistrationForm({
       setHasTimerStopped(Boolean(initialStopwatchTime) || Boolean(initialRecord.isDNF));
       setIsStopwatchRunning(false);
       setDisputeFormState(buildDisputeFormStateFromSource(initialRecord));
+      if (initialRecord?.source === 'dispute') {
+        const resolvingPartyKey = initialRecord?.resolveDisputeCategory || '';
+        const existingResolution = getNormalizedDisputeResolutions(initialRecord)[resolvingPartyKey];
+        const existingOption = getTkoResolutionOption(
+          resolvingPartyKey,
+          existingResolution?.penaltyDecision ||
+            existingResolution?.penaltyDecisionLabel ||
+            existingResolution?.label ||
+            existingResolution?.status ||
+            ''
+        );
+        setTkoResolutionDecision(existingOption?.key || '');
+      } else {
+        setTkoResolutionDecision('');
+      }
       setResolutionCommentInput('');
     } else if (visible) {
       setDisputeFormState(createEmptyDisputeFormState());
+      setTkoResolutionDecision('');
       setResolutionCommentInput('');
     }
   }, [visible, initialRecord]);
@@ -1713,7 +1794,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
       return;
     }
 
-    if (timeOverSelected || wrongCourseSelected || fourthAttemptSelected) {
+    if (timeOverSelected || wrongCourseSelected || fourthAttemptSelected || vehicleOutOfTrackSelected) {
       return;
     }
 
@@ -1734,6 +1815,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
     stopwatchTime,
     timeOverSelected,
     trackTimerLimitMilliseconds,
+    vehicleOutOfTrackSelected,
     wrongCourseSelected,
   ]);
 
@@ -1780,6 +1862,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
     setWrongCourseSelected(false);
     setFourthAttemptSelected(false);
     setTimeOverSelected(false);
+    setVehicleOutOfTrackSelected(false);
     setDnfSelection('');
   };
 
@@ -1813,6 +1896,10 @@ const RegistrationForm = React.memo(function RegistrationForm({
       return 'DNF - Time Over';
     }
 
+    if (vehicleOutOfTrackSelected) {
+      return 'DNF - Vehicle Out of the Track';
+    }
+
     return 'DNF';
   };
 
@@ -1834,6 +1921,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
     setWrongCourseSelected(false);
     setFourthAttemptSelected(false);
     setTimeOverSelected(false);
+    setVehicleOutOfTrackSelected(false);
     setDnfSelection('');
     setLateStartMode('');
     stopwatchStartTimestampRef.current = null;
@@ -1843,6 +1931,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
     setHasTimerStopped(false);
     setDisputeModalVisible(false);
     setDisputeFormState(createEmptyDisputeFormState());
+    setTkoResolutionDecision('');
     setResolutionCommentInput('');
   };
 
@@ -1864,6 +1953,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
       Boolean(formData?.wrongCourseSelected),
       Boolean(formData?.fourthAttemptSelected),
       Boolean(formData?.timeOverSelected),
+      Boolean(formData?.vehicleOutOfTrackSelected),
       Boolean(formData?.isDNF),
       formData?.dnfSelection || '',
       formData?.dnfPoints || 0,
@@ -1882,6 +1972,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
       Boolean(sourceRecord.wrongCourseSelected || sourceRecord.wrong_course_selected),
       Boolean(sourceRecord.fourthAttemptSelected || sourceRecord.fourth_attempt_selected),
       Boolean(sourceRecord.timeOverSelected || sourceRecord.time_over_selected),
+      Boolean(sourceRecord.vehicleOutOfTrackSelected || sourceRecord.vehicle_out_of_track_selected),
       Boolean(sourceRecord.isDNF || sourceRecord.is_dnf),
       sourceRecord.dnfSelection || sourceRecord.dnf_selection || '',
       sourceRecord.dnfPoints || sourceRecord.dnf_points || 0,
@@ -1894,7 +1985,10 @@ const RegistrationForm = React.memo(function RegistrationForm({
   const buildFormData = () => {
     const isEditingDispute = initialRecord?.source === 'dispute';
     const resolvingPartyKey = isEditingDispute ? initialRecord?.resolveDisputeCategory || '' : '';
-    const disputeResolutionStatus = isEditingDispute ? getDisputeResolutionStatus({
+    const tkoResolutionOption = isEditingDispute
+      ? getTkoResolutionOption(resolvingPartyKey, tkoResolutionDecision)
+      : null;
+    const disputeResolutionStatus = isEditingDispute ? (tkoResolutionOption?.status || getDisputeResolutionStatus({
       bustingCount,
       seatbeltCount,
       groundTouchCount,
@@ -1906,19 +2000,22 @@ const RegistrationForm = React.memo(function RegistrationForm({
       wrongCourseSelected,
       fourthAttemptSelected,
       timeOverSelected,
+      vehicleOutOfTrackSelected,
       isDNF,
       dnfSelection,
       dnfPoints,
       totalPenaltiesTime,
-    }) : '';
+    })) : '';
     const disputeResolutions = isEditingDispute ? getNormalizedDisputeResolutions(initialRecord) : {};
     const resolutionComment = resolvingPartyKey ? String(resolutionCommentInput || '').trim() : '';
 
     if (isEditingDispute && resolvingPartyKey) {
       disputeResolutions[resolvingPartyKey] = {
         status: disputeResolutionStatus,
-        label: getDisputeResolutionLabelForStatus(disputeResolutionStatus),
+        label: tkoResolutionOption?.label || getDisputeResolutionLabelForStatus(disputeResolutionStatus),
         comment: resolutionComment,
+        penaltyDecision: tkoResolutionOption?.key || '',
+        penaltyDecisionLabel: tkoResolutionOption?.label || '',
         resolvedAt: new Date().toISOString(),
       };
     }
@@ -1961,6 +2058,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
       wrongCourseSelected,
       fourthAttemptSelected,
       timeOverSelected,
+      vehicleOutOfTrackSelected,
       dnfSelection,
       dnfPoints,
       bustingPenaltyTime,
@@ -1989,6 +2087,15 @@ const RegistrationForm = React.memo(function RegistrationForm({
     }
     if (isDNFPointsMissing) {
       Alert.alert('Error', 'Please select DNF points before continuing');
+      return false;
+    }
+    if (
+      initialRecord?.source === 'dispute' &&
+      getTkoResolutionOptionsForParty(initialRecord?.resolveDisputeCategory || '').length > 0 &&
+      !tkoResolutionDecision
+    ) {
+      const partyLabel = DISPUTE_PARTY_LABEL_BY_KEY[initialRecord?.resolveDisputeCategory] || 'this';
+      Alert.alert('TKO Comment', `Select whether the ${partyLabel.toLowerCase()} dispute is accepted or rejected before submitting the hold.`);
       return false;
     }
     return true;
@@ -2117,6 +2224,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
     wrongCourseSelected ||
     fourthAttemptSelected ||
     timeOverSelected ||
+    vehicleOutOfTrackSelected ||
     dnfSelection !== '';
   const resetButtonDisabled = isStopwatchRunning || isDNF || !hasAnyResettableValue;
   const showDisputeButton = initialRecord?.source !== 'dispute';
@@ -2373,10 +2481,12 @@ const RegistrationForm = React.memo(function RegistrationForm({
                 wrongCourseSelected={wrongCourseSelected}
                 fourthAttemptSelected={fourthAttemptSelected}
                 timeOverSelected={timeOverSelected}
+                vehicleOutOfTrackSelected={vehicleOutOfTrackSelected}
                 pointsValue={dnfSelection}
                 onWrongCourseChange={setWrongCourseSelected}
                 onFourthAttemptChange={setFourthAttemptSelected}
                 onTimeOverChange={setTimeOverSelected}
+                onVehicleOutOfTrackChange={setVehicleOutOfTrackSelected}
                 onPointsChange={setDnfSelection}
                 timeOverLocked={isTrackTimerLocked}
                 timeOverLimitLabel={trackTimerLimitLabel}
@@ -2530,6 +2640,43 @@ const RegistrationForm = React.memo(function RegistrationForm({
                   <Text style={styles.disputeInfoLabel}>
                     TKO Comment
                   </Text>
+                  {getTkoResolutionOptionsForParty(resolvingDisputePartyKey).length > 0 ? (
+                    <View style={styles.disputeResolutionRadioGroup}>
+                      {getTkoResolutionOptionsForParty(resolvingDisputePartyKey).map(option => {
+                        const isSelected = tkoResolutionDecision === option.key;
+
+                        return (
+                          <TouchableOpacity
+                            key={option.key}
+                            style={[
+                              styles.disputeResolutionRadioRow,
+                              isSelected && styles.disputeResolutionRadioRowSelected,
+                            ]}
+                            onPress={() => setTkoResolutionDecision(option.key)}
+                            activeOpacity={0.85}
+                            hitSlop={TOUCH_HIT_SLOP}
+                          >
+                            <View
+                              style={[
+                                styles.disputeResolutionRadio,
+                                isSelected && styles.disputeResolutionRadioSelected,
+                              ]}
+                            >
+                              {isSelected ? <View style={styles.disputeResolutionRadioDot} /> : null}
+                            </View>
+                            <Text
+                              style={[
+                                styles.disputeResolutionRadioLabel,
+                                isSelected && styles.disputeResolutionRadioLabelSelected,
+                              ]}
+                            >
+                              {option.label}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  ) : null}
                   <TextInput
                     {...STABLE_TEXT_INPUT_PROPS}
                     value={resolutionCommentInput}
@@ -4393,7 +4540,6 @@ export default function App() {
       setLeaderboardSyncBaseUrl('');
       setLeaderboardSyncBaseUrlInput('');
       setLeaderboardSyncError('');
-      setSettingsView('menu');
       return;
     }
 
@@ -4405,14 +4551,12 @@ export default function App() {
     setLeaderboardSyncBaseUrl(normalizedBaseUrl);
     setLeaderboardSyncBaseUrlInput(normalizedBaseUrl);
     setLeaderboardSyncError('');
-    setSettingsView('menu');
   };
 
   const handleLeaderboardSyncClear = () => {
     setLeaderboardSyncBaseUrlInput('');
     setLeaderboardSyncBaseUrl('');
     setLeaderboardSyncError('');
-    setSettingsView('menu');
   };
 
   const getLeaderboardSyncActionBaseUrl = () => {
@@ -5101,6 +5245,8 @@ const buildRegistrationData = formData => ({
     fourthAttemptCount: formData.fourthAttemptSelected ? 1 : 0,
     fourth_attempt_selected: formData.fourthAttemptSelected || false,
     time_over_selected: formData.timeOverSelected || false,
+    vehicle_out_of_track_selected: formData.vehicleOutOfTrackSelected || false,
+    vehicleOutOfTrackSelected: formData.vehicleOutOfTrackSelected || false,
     is_dnf: formData.isDNF || false,
     is_dns: formData.isDNS || false,
     dnf_selection: formData.dnfSelection || null,

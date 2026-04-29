@@ -10,10 +10,12 @@ const DNFSelector = React.memo(function DNFSelector({
   wrongCourseSelected,
   fourthAttemptSelected,
   timeOverSelected,
+  vehicleOutOfTrackSelected,
   pointsValue,
   onWrongCourseChange,
   onFourthAttemptChange,
   onTimeOverChange,
+  onVehicleOutOfTrackChange = () => {},
   onPointsChange,
   timeOverLocked = false,
   timeOverLimitLabel = '',
@@ -22,19 +24,22 @@ const DNFSelector = React.memo(function DNFSelector({
 }) {
   const responsiveLayout = layout || INITIAL_LAYOUT;
   const [isOpen, setIsOpen] = useState(false);
-  const hasSelection = wrongCourseSelected || fourthAttemptSelected || timeOverSelected;
+  const hasSelection = wrongCourseSelected || fourthAttemptSelected || timeOverSelected || vehicleOutOfTrackSelected;
   const selectedReason = wrongCourseSelected
     ? 'wrongCourse'
     : fourthAttemptSelected
       ? 'fourthAttempt'
       : timeOverSelected
         ? 'timeOver'
-        : '';
+        : vehicleOutOfTrackSelected
+          ? 'vehicleOutOfTrack'
+          : '';
 
   const setExclusiveReason = reason => {
     onWrongCourseChange(reason === 'wrongCourse');
     onFourthAttemptChange(reason === 'fourthAttempt');
     onTimeOverChange(reason === 'timeOver');
+    onVehicleOutOfTrackChange(reason === 'vehicleOutOfTrack');
   };
 
   const handleToggle = () => {
@@ -105,6 +110,18 @@ const DNFSelector = React.memo(function DNFSelector({
           </TouchableOpacity>
 
           <TouchableOpacity
+            style={styles.dnfCheckboxRow}
+            onPress={() => setExclusiveReason('vehicleOutOfTrack')}
+            activeOpacity={0.85}
+            hitSlop={TOUCH_HIT_SLOP}
+          >
+            <View style={[styles.dnfRadio, selectedReason === 'vehicleOutOfTrack' && styles.dnfRadioSelected]}>
+              {selectedReason === 'vehicleOutOfTrack' ? <View style={styles.dnfRadioDot} /> : null}
+            </View>
+            <Text style={styles.dnfCheckboxLabel}>Vehicle Out of the Track</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
             style={[styles.dnfCheckboxRow, timeOverLocked && styles.dnfCheckboxRowDisabled]}
             onPress={() => {
               if (!timeOverLocked) {
@@ -158,6 +175,7 @@ const DNFSelector = React.memo(function DNFSelector({
                 onWrongCourseChange(false);
                 onFourthAttemptChange(false);
                 onTimeOverChange(false);
+                onVehicleOutOfTrackChange(false);
                 onPointsChange('');
                 setIsOpen(false);
               }}

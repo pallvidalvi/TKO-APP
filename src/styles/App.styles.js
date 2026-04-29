@@ -1197,6 +1197,63 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
 
+  disputeResolutionRadioGroup: {
+    gap: 8,
+    marginTop: 10,
+  },
+
+  disputeResolutionRadioRow: {
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2a3441',
+    backgroundColor: '#111722',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+
+  disputeResolutionRadioRowSelected: {
+    borderColor: '#ffb15a',
+    backgroundColor: '#1b130a',
+  },
+
+  disputeResolutionRadio: {
+    width: 20,
+    height: 20,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    borderColor: '#ffb15a',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  disputeResolutionRadioSelected: {
+    borderColor: '#ff7a00',
+  },
+
+  disputeResolutionRadioDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: '#ff7a00',
+  },
+
+  disputeResolutionRadioLabel: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800',
+    color: '#fff6ea',
+    fontFamily: BODY_FONT,
+  },
+
+  disputeResolutionRadioLabelSelected: {
+    color: '#ffb15a',
+  },
+
   registrationFooter: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -3190,12 +3247,12 @@ const styles = StyleSheet.create({
 
   dnfCheckboxLabel: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
+    fontWeight: '800',
+    color: '#ef2f2f',
   },
 
   dnfCheckboxLabelDisabled: {
-    color: '#6b7280',
+    color: '#b45353',
   },
 
   dnfCheckboxHint: {
@@ -3235,8 +3292,8 @@ const styles = StyleSheet.create({
 
   dnfDropdownItemText: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
+    fontWeight: '800',
+    color: '#ef2f2f',
   },
 
   dnfDropdownItemTextSelected: {
@@ -3244,7 +3301,7 @@ const styles = StyleSheet.create({
   },
 
   dnfDropdownItemTextDisabled: {
-    color: '#9ca3af',
+    color: '#b45353',
   },
 
   dnfClearButton: {
