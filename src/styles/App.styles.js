@@ -2596,8 +2596,20 @@ const styles = StyleSheet.create({
 
   settingsTrackTimerActionRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 12,
     marginTop: 8,
+  },
+
+  settingsLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 12,
+  },
+
+  settingsActionButtonDisabled: {
+    opacity: 0.55,
   },
 
   settingsFormSaveButton: {

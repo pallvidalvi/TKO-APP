@@ -9,14 +9,11 @@ import {
   StyleSheet,
   Alert,
   Platform,
-  KeyboardAvoidingView,
   ScrollView,
-  TextInput,
 } from 'react-native';
 import {
   ResultsService,
   DisputesService,
-  LeaderboardService,
   promoteExpiredDisputesToResults,
 } from '../services/dataService';
 import TouchableOpacity from '../components/FastTouchableOpacity';
@@ -49,15 +46,6 @@ const BODY_FONT = Platform.select({
   web: 'monospace',
   default: 'monospace',
 });
-
-const STABLE_TEXT_INPUT_PROPS = {
-  autoCorrect: false,
-  spellCheck: false,
-  autoComplete: 'off',
-  importantForAutofill: 'no',
-  textContentType: 'none',
-  underlineColorAndroid: 'transparent',
-};
 
 const DEFAULT_THEME = {
   background: '#050505',
@@ -493,8 +481,6 @@ const LeaderboardScreen = ({
   teams = [],
   dataRefreshKey = 0,
   theme = DEFAULT_THEME,
-  settingsPassword = '',
-  leaderboardSyncBaseUrl = '',
 }) => {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const responsiveLayout = getResponsiveLayout(screenWidth, screenHeight);
@@ -504,9 +490,6 @@ const LeaderboardScreen = ({
   const [selectedCategory, setSelectedCategory] = useState('');
   const [nowTimestamp, setNowTimestamp] = useState(Date.now());
   const [selectedDetail, setSelectedDetail] = useState(null);
-  const [exportPasswordModalVisible, setExportPasswordModalVisible] = useState(false);
-  const [exportPasswordInput, setExportPasswordInput] = useState('');
-  const [exportPasswordError, setExportPasswordError] = useState('');
 
   const loadResults = useCallback(async (showLoading = true, shouldProcessExpiredDisputes = true) => {
     try {
@@ -647,59 +630,6 @@ const LeaderboardScreen = ({
   const closeTrackDetails = useCallback(() => {
     setSelectedDetail(null);
   }, []);
-
-  const handleExportLeaderboard = useCallback(async () => {
-    try {
-      setLoading(true);
-      const exportResult = await LeaderboardService.exportLeaderboardData({
-        focusCategory: selectedCategory || categoryCards[0]?.key || '',
-        syncBaseUrl: leaderboardSyncBaseUrl,
-      });
-      if (exportResult?.syncResult?.synced) {
-        const endpointLabel = exportResult?.syncResult?.endpoint ? `\n\nEndpoint: ${exportResult.syncResult.endpoint}` : '';
-        Alert.alert('Published', `Leaderboard data has been sent to the website.${endpointLabel}`);
-      } else if (exportResult?.syncResult?.status === 404 || exportResult?.syncResult?.status === 405) {
-        Alert.alert(
-          'Sync failed',
-          'The leaderboard endpoint is not usable on the server. Please make sure the backend route accepts POST requests and is reachable from the phone.'
-        );
-      } else {
-        Alert.alert(
-          'Sync failed',
-          `Leaderboard data could not be published. ${exportResult?.syncResult?.message || 'The website sync is currently unavailable.'}`
-        );
-      }
-    } catch (error) {
-      console.error('Unable to export leaderboard data:', error);
-      Alert.alert('Publish failed', error?.message || 'Unable to publish leaderboard data');
-    } finally {
-      setLoading(false);
-    }
-  }, [categoryCards, leaderboardSyncBaseUrl, selectedCategory]);
-
-  const openExportPasswordModal = useCallback(() => {
-    setExportPasswordInput('');
-    setExportPasswordError('');
-    setExportPasswordModalVisible(true);
-  }, []);
-
-  const closeExportPasswordModal = useCallback(() => {
-    setExportPasswordModalVisible(false);
-    setExportPasswordInput('');
-    setExportPasswordError('');
-  }, []);
-
-  const handleExportPasswordSubmit = useCallback(() => {
-    if (exportPasswordInput !== settingsPassword) {
-      setExportPasswordError('Incorrect password. Please try again.');
-      return;
-    }
-
-    setExportPasswordModalVisible(false);
-    setExportPasswordInput('');
-    setExportPasswordError('');
-    handleExportLeaderboard();
-  }, [exportPasswordInput, handleExportLeaderboard, settingsPassword]);
 
   const leaderboardRows = useMemo(() => {
     if (!selectedCategoryConfig) {
@@ -948,13 +878,6 @@ const LeaderboardScreen = ({
                   </Text>
                 </View>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end' }}>
-                  <TouchableOpacity
-                    style={[styles.actionButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
-                    onPress={openExportPasswordModal}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={[styles.actionButtonText, { color: theme.accent }]}>Export</Text>
-                  </TouchableOpacity>
                   <NavigationActionButton
                     label="Back to Categories"
                     onPress={() => setSelectedCategory('')}
@@ -1130,83 +1053,6 @@ const LeaderboardScreen = ({
           )}
         </View>
       </View>
-
-      {exportPasswordModalVisible ? (
-        <Modal
-          visible
-          transparent
-          animationType="fade"
-          onRequestClose={closeExportPasswordModal}
-          presentationStyle="overFullScreen"
-          hardwareAccelerated={Platform.OS === 'android'}
-          statusBarTranslucent={Platform.OS === 'android'}
-        >
-          <View
-            style={[
-              styles.passwordOverlay,
-              {
-                backgroundColor: theme.overlay,
-              },
-            ]}
-          >
-            <KeyboardAvoidingView
-              style={styles.passwordKeyboardShell}
-              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-              keyboardVerticalOffset={Platform.OS === 'android' ? 24 : 0}
-            >
-              <View style={[styles.passwordShell, { backgroundColor: theme.backgroundStrong, borderColor: theme.border }]}>
-                <Text style={[styles.passwordTitle, { color: theme.textPrimary }]}>Enter Password</Text>
-                <Text style={[styles.passwordSubtitle, { color: theme.textSecondary }]}>
-                  Use the same password you use for Settings to export leaderboard data.
-                </Text>
-
-                <TextInput
-                  {...STABLE_TEXT_INPUT_PROPS}
-                  value={exportPasswordInput}
-                  autoFocus
-                  onChangeText={value => {
-                    setExportPasswordInput(value);
-                    if (exportPasswordError) {
-                      setExportPasswordError('');
-                    }
-                  }}
-                  placeholder="Password"
-                  placeholderTextColor={theme.textTertiary}
-                  secureTextEntry
-                  autoCapitalize="none"
-                  style={[
-                    styles.passwordInput,
-                    { backgroundColor: theme.surface, borderColor: theme.border, color: theme.textPrimary },
-                  ]}
-                  returnKeyType="done"
-                  onSubmitEditing={handleExportPasswordSubmit}
-                />
-
-                {exportPasswordError ? (
-                  <Text style={[styles.passwordErrorText, { color: '#ff8d5c' }]}>{exportPasswordError}</Text>
-                ) : null}
-
-                <View style={styles.passwordActions}>
-                  <TouchableOpacity
-                    style={[styles.passwordActionButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
-                    onPress={closeExportPasswordModal}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={[styles.passwordActionText, { color: theme.textPrimary }]}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.passwordActionButton, { backgroundColor: theme.accent, borderColor: theme.accent }]}
-                    onPress={handleExportPasswordSubmit}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={[styles.passwordActionText, { color: theme.accentText }]}>Export</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </KeyboardAvoidingView>
-          </View>
-        </Modal>
-      ) : null}
 
       {selectedDetail ? (
         <Modal

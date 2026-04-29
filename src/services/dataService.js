@@ -675,6 +675,57 @@ const syncLeaderboardSnapshotWithBaseUrl = async (snapshot, syncBaseUrl = '') =>
   };
 };
 
+const fetchLeaderboardSnapshotWithBaseUrl = async (syncBaseUrl = '') => {
+  let lastError = null;
+  let sawLeaderboardEndpoint = false;
+  const syncUrls = resolveLeaderboardSyncUrls(syncBaseUrl);
+
+  for (const url of syncUrls) {
+    try {
+      const response = await axios.get(url, {
+        timeout: 60000,
+        headers: {
+          Accept: 'application/json',
+        },
+      });
+      const responsePayload = response.data;
+      const snapshot = responsePayload?.snapshot || responsePayload;
+
+      if (snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot)) {
+        return {
+          fetched: true,
+          endpoint: url,
+          snapshot,
+        };
+      }
+
+      sawLeaderboardEndpoint = true;
+    } catch (error) {
+      lastError = error;
+      const status = error?.response?.status || null;
+
+      if (status === 404 || status === 405) {
+        console.warn(`Leaderboard import endpoint not usable at ${url}`);
+        continue;
+      }
+
+      logAxiosError(`Leaderboard import failed for ${url}`, error);
+    }
+  }
+
+  const status = lastError?.response?.status || null;
+
+  return {
+    fetched: false,
+    status,
+    reason: sawLeaderboardEndpoint ? 'empty' : status === 404 || status === 405 ? 'not_found' : 'unavailable',
+    message: sawLeaderboardEndpoint
+      ? 'No leaderboard snapshot has been published yet.'
+      : 'Leaderboard import is unavailable right now.',
+    error: lastError,
+  };
+};
+
 const DISPUTE_PARTY_KEYS = ['byTeam', 'byOpponent'];
 
 const getDisputeResolutionLabelForStatus = status => {
@@ -936,6 +987,118 @@ const buildResultDataFromDispute = dispute => {
 };
 const WEB_FALLBACK_TEAMS = SEEDED_TEAMS;
 
+const getFirstPresentValue = (...values) => {
+  for (const value of values) {
+    if (value !== null && value !== undefined && value !== '') {
+      return value;
+    }
+  }
+
+  return '';
+};
+
+const normalizeImportedCompetitionRecord = record => {
+  const parsedRecord = parseRegistrationPayload(record);
+  const submissionJson =
+    typeof parsedRecord.submission_json === 'string' && parsedRecord.submission_json.trim()
+      ? parsedRecord.submission_json
+      : JSON.stringify(parsedRecord);
+
+  return normalizeStoredDayPayload({
+    ...parsedRecord,
+    track_name: getFirstPresentValue(parsedRecord.track_name, parsedRecord.trackName),
+    sticker_number: getFirstPresentValue(
+      parsedRecord.sticker_number,
+      parsedRecord.stickerNumber,
+      parsedRecord.car_number,
+      parsedRecord.carNumber
+    ),
+    driver_name: getFirstPresentValue(parsedRecord.driver_name, parsedRecord.driverName),
+    codriver_name: getFirstPresentValue(
+      parsedRecord.codriver_name,
+      parsedRecord.coDriverName,
+      parsedRecord.codriverName
+    ),
+    category: getFirstPresentValue(parsedRecord.category),
+    bunting_count: getFirstPresentValue(parsedRecord.bunting_count, parsedRecord.bustingCount, 0),
+    seatbelt_count: getFirstPresentValue(parsedRecord.seatbelt_count, parsedRecord.seatbeltCount, 0),
+    ground_touch_count: getFirstPresentValue(parsedRecord.ground_touch_count, parsedRecord.groundTouchCount, 0),
+    late_start_count: getFirstPresentValue(parsedRecord.late_start_count, parsedRecord.lateStartCount, 0),
+    attempt_count: getFirstPresentValue(parsedRecord.attempt_count, parsedRecord.attemptCount, 0),
+    task_skipped_count: getFirstPresentValue(parsedRecord.task_skipped_count, parsedRecord.taskSkippedCount, 0),
+    wrong_course_count: getFirstPresentValue(parsedRecord.wrong_course_count, parsedRecord.wrongCourseCount, 0),
+    fourth_attempt_count: getFirstPresentValue(parsedRecord.fourth_attempt_count, parsedRecord.fourthAttemptCount, 0),
+    is_dns: Boolean(parsedRecord.is_dns || parsedRecord.isDNS),
+    total_penalties_time: getFirstPresentValue(
+      parsedRecord.total_penalties_time,
+      parsedRecord.totalPenaltiesTime,
+      0
+    ),
+    performance_time: getFirstPresentValue(
+      parsedRecord.performance_time,
+      parsedRecord.performanceTimeDisplay
+    ),
+    total_time: getFirstPresentValue(parsedRecord.total_time, parsedRecord.totalTimeDisplay),
+    selected_day_id: getFirstPresentValue(
+      parsedRecord.selected_day_id,
+      parsedRecord.selectedDayId,
+      parsedRecord.day_id,
+      parsedRecord.dayId
+    ),
+    selected_day_label: getFirstPresentValue(
+      parsedRecord.selected_day_label,
+      parsedRecord.selectedDayLabel,
+      parsedRecord.day_label,
+      parsedRecord.dayLabel
+    ),
+    selected_day_date: getFirstPresentValue(
+      parsedRecord.selected_day_date,
+      parsedRecord.selectedDayDate,
+      parsedRecord.day_date,
+      parsedRecord.dayDate
+    ),
+    submission_json: submissionJson,
+  });
+};
+
+const importLeaderboardSnapshotRecords = async snapshot => {
+  const resultRows = Array.isArray(snapshot?.results) ? snapshot.results : [];
+  const disputeRows = Array.isArray(snapshot?.disputes) ? snapshot.disputes : [];
+  const summary = {
+    resultsImported: 0,
+    resultsSkipped: 0,
+    resultsFailed: 0,
+    disputesImported: 0,
+    disputesFailed: 0,
+  };
+
+  for (const record of resultRows) {
+    try {
+      await ResultsService.addResult(normalizeImportedCompetitionRecord(record));
+      summary.resultsImported += 1;
+    } catch (error) {
+      if (error?.code === 'DUPLICATE_RESULT') {
+        summary.resultsSkipped += 1;
+      } else {
+        summary.resultsFailed += 1;
+        console.warn('Unable to import leaderboard result:', error);
+      }
+    }
+  }
+
+  for (const record of disputeRows) {
+    try {
+      await DisputesService.saveDispute(normalizeImportedCompetitionRecord(record));
+      summary.disputesImported += 1;
+    } catch (error) {
+      summary.disputesFailed += 1;
+      console.warn('Unable to import leaderboard dispute:', error);
+    }
+  }
+
+  return summary;
+};
+
 const saveWebLeaderboardSnapshot = snapshot => {
   if (!isWeb) {
     return;
@@ -963,6 +1126,32 @@ export const LeaderboardService = {
   },
 
   buildLeaderboardExportSnapshot: async () => buildLeaderboardExportSnapshot(),
+
+  importLeaderboardData: async ({ syncBaseUrl = '' } = {}) => {
+    const fetchResult = await fetchLeaderboardSnapshotWithBaseUrl(syncBaseUrl);
+
+    if (!fetchResult.fetched) {
+      return {
+        imported: false,
+        fetchResult,
+        summary: {
+          resultsImported: 0,
+          resultsSkipped: 0,
+          resultsFailed: 0,
+          disputesImported: 0,
+          disputesFailed: 0,
+        },
+      };
+    }
+
+    const summary = await importLeaderboardSnapshotRecords(fetchResult.snapshot);
+
+    return {
+      imported: true,
+      fetchResult,
+      summary,
+    };
+  },
 
   syncLeaderboardData: async () => {
     const snapshot = await buildLeaderboardExportSnapshot();

@@ -67,6 +67,248 @@ const formatCell = value => {
   return escapeHtml(value);
 };
 
+const normalizeValue = value =>
+  String(value || '')
+    .trim()
+    .toLowerCase();
+
+const normalizeCategoryKey = value =>
+  String(value || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '_');
+
+const getDayIdentity = item =>
+  normalizeValue(
+    item?.selected_day_id ||
+      item?.selectedDayId ||
+      item?.selected_day_label ||
+      item?.selectedDayLabel ||
+      item?.selected_day_date ||
+      item?.selectedDayDate ||
+      ''
+  );
+
+const getResultIdentityKey = item =>
+  [
+    normalizeCategoryKey(item?.category),
+    normalizeValue(item?.track_name || item?.trackName),
+    normalizeValue(item?.sticker_number || item?.stickerNumber || item?.car_number || item?.carNumber),
+    normalizeValue(item?.driver_name || item?.driverName),
+    getDayIdentity(item),
+  ].join('|');
+
+const getTeamIdentityKey = item =>
+  [
+    normalizeCategoryKey(item?.category),
+    normalizeValue(item?.car_number || item?.carNumber || item?.sticker_number || item?.stickerNumber),
+    normalizeValue(item?.driver_name || item?.driverName),
+  ].join('|');
+
+const getCategoryIdentityKey = item =>
+  normalizeCategoryKey(item?.key || item?.category || item?.name || item?.label || item?.title || '');
+
+const mergeArraysByKey = (existingItems = [], incomingItems = [], getKey) => {
+  const merged = new Map();
+  const addItems = items => {
+    (Array.isArray(items) ? items : []).forEach((item, index) => {
+      if (!item || typeof item !== 'object') {
+        return;
+      }
+
+      const key = getKey(item) || `unkeyed-${index}-${JSON.stringify(item).slice(0, 80)}`;
+      merged.set(key, {
+        ...(merged.get(key) || {}),
+        ...item,
+      });
+    });
+  };
+
+  addItems(existingItems);
+  addItems(incomingItems);
+  return Array.from(merged.values());
+};
+
+const mergeTracks = (existingTracks = [], incomingTracks = []) => {
+  const seen = new Set();
+  const tracks = [];
+
+  [...(existingTracks || []), ...(incomingTracks || [])].forEach(track => {
+    const key = normalizeValue(track);
+    if (!key || seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+    tracks.push(track);
+  });
+
+  return tracks;
+};
+
+const mergeCategoryOptions = (existingOptions = [], incomingOptions = []) => {
+  const merged = new Map();
+
+  [...(existingOptions || []), ...(incomingOptions || [])].forEach(option => {
+    const key = getCategoryIdentityKey(option);
+    if (!key) {
+      return;
+    }
+
+    const previous = merged.get(key) || {};
+    merged.set(key, {
+      ...previous,
+      ...option,
+      key: option.key || previous.key || key,
+      label: option.label || option.name || previous.label || key.replace(/_/g, ' '),
+      tracks: mergeTracks(previous.tracks, option.tracks),
+    });
+  });
+
+  return Array.from(merged.values()).sort((a, b) =>
+    String(a.label || '').localeCompare(String(b.label || ''))
+  );
+};
+
+const getPointsFromLabel = value => {
+  const match = String(value || '').match(/-?\d+/);
+  return match ? Number(match[0]) : 0;
+};
+
+const getTrackEntryKey = item =>
+  item?.key ||
+  [
+    normalizeValue(item?.dayLabel || item?.day || ''),
+    normalizeValue(item?.timingLabel || item?.timing || ''),
+    normalizeValue(item?.pointsLabel || item?.points || ''),
+    normalizeValue(item?.rankLabel || item?.rank || ''),
+  ].join('|');
+
+const mergeTrackEntries = (existingEntries = [], incomingEntries = []) =>
+  mergeArraysByKey(existingEntries, incomingEntries, getTrackEntryKey).sort(
+    (a, b) => Number(a?.dayOrder || 0) - Number(b?.dayOrder || 0)
+  );
+
+const mergeTrackSummaries = (existingSummaries = [], incomingSummaries = []) => {
+  const merged = new Map();
+
+  [...(existingSummaries || []), ...(incomingSummaries || [])].forEach(summary => {
+    const key = normalizeValue(summary?.trackLabel || summary?.track || '');
+    if (!key) {
+      return;
+    }
+
+    const previous = merged.get(key) || {};
+    const entries = mergeTrackEntries(previous.entries, summary.entries);
+    const calculatedPoints = entries.reduce((sum, entry) => sum + getPointsFromLabel(entry?.pointsLabel), 0);
+
+    merged.set(key, {
+      ...previous,
+      ...summary,
+      trackLabel: summary.trackLabel || previous.trackLabel || summary.track || 'Track',
+      entries,
+      totalPoints: calculatedPoints || summary.totalPoints || previous.totalPoints || 0,
+    });
+  });
+
+  return Array.from(merged.values());
+};
+
+const getLeaderboardRowKey = row =>
+  [
+    normalizeValue(row?.vehicleKey || ''),
+    normalizeValue(row?.stickerNumber || row?.sticker_number || ''),
+    normalizeValue(row?.driverName || row?.driver_name || ''),
+  ].join('|');
+
+const mergeLeaderboardRows = (existingRows = [], incomingRows = []) => {
+  const merged = new Map();
+
+  [...(existingRows || []), ...(incomingRows || [])].forEach(row => {
+    const key = getLeaderboardRowKey(row);
+    if (!key.replace(/\|/g, '')) {
+      return;
+    }
+
+    const previous = merged.get(key) || {};
+    const trackSummaries = mergeTrackSummaries(previous.trackSummaries, row.trackSummaries);
+    const calculatedTotal = trackSummaries.reduce((sum, summary) => sum + Number(summary.totalPoints || 0), 0);
+
+    merged.set(key, {
+      ...previous,
+      ...row,
+      trackSummaries,
+      totalPoints: calculatedTotal || row.totalPoints || previous.totalPoints || 0,
+    });
+  });
+
+  return Array.from(merged.values()).sort((a, b) => Number(b.totalPoints || 0) - Number(a.totalPoints || 0));
+};
+
+const mergeLeaderboardCategories = (existingCategories = [], incomingCategories = []) => {
+  const merged = new Map();
+
+  [...(existingCategories || []), ...(incomingCategories || [])].forEach(category => {
+    const key = getCategoryIdentityKey(category);
+    if (!key) {
+      return;
+    }
+
+    const previous = merged.get(key) || {};
+    merged.set(key, {
+      ...previous,
+      ...category,
+      key: category.key || previous.key || key,
+      label: category.label || previous.label || key.replace(/_/g, ' '),
+      tracks: mergeTracks(previous.tracks, category.tracks),
+      rows: mergeLeaderboardRows(previous.rows, category.rows),
+    });
+  });
+
+  return Array.from(merged.values()).sort((a, b) =>
+    String(a.label || '').localeCompare(String(b.label || ''))
+  );
+};
+
+const mergeSnapshots = (existingSnapshot, incomingSnapshot) => {
+  if (!existingSnapshot || typeof existingSnapshot !== 'object') {
+    return incomingSnapshot;
+  }
+
+  const teams = mergeArraysByKey(existingSnapshot.teams, incomingSnapshot.teams, getTeamIdentityKey);
+  const results = mergeArraysByKey(existingSnapshot.results, incomingSnapshot.results, getResultIdentityKey);
+  const disputes = mergeArraysByKey(existingSnapshot.disputes, incomingSnapshot.disputes, getResultIdentityKey);
+  const categoryOptions = mergeCategoryOptions(existingSnapshot.categoryOptions, incomingSnapshot.categoryOptions);
+  const leaderboardCategories = mergeLeaderboardCategories(
+    existingSnapshot?.leaderboard?.categories,
+    incomingSnapshot?.leaderboard?.categories
+  );
+
+  return {
+    ...existingSnapshot,
+    ...incomingSnapshot,
+    source: incomingSnapshot.source || existingSnapshot.source || 'tko-app',
+    schemaVersion: incomingSnapshot.schemaVersion || existingSnapshot.schemaVersion || 1,
+    teams,
+    results,
+    disputes,
+    categoryOptions,
+    leaderboard: {
+      ...(existingSnapshot.leaderboard || {}),
+      ...(incomingSnapshot.leaderboard || {}),
+      categories: leaderboardCategories.length ? leaderboardCategories : categoryOptions,
+    },
+    generatedAt: incomingSnapshot.generatedAt || existingSnapshot.generatedAt || new Date().toISOString(),
+    mergedAt: new Date().toISOString(),
+    importSummary: {
+      teams: teams.length,
+      results: results.length,
+      disputes: disputes.length,
+      categories: categoryOptions.length,
+    },
+  };
+};
+
 const renderLeaderboardHtml = snapshot => {
   const title = escapeHtml(snapshot?.focusCategory || 'Leaderboard');
   const generatedAt = escapeHtml(snapshot?.generatedAt || new Date().toISOString());
@@ -348,10 +590,12 @@ const handler = async (req, res) => {
         return;
       }
 
-      const snapshot = {
+      const incomingSnapshot = {
         ...body,
         receivedAt: new Date().toISOString(),
       };
+      const existingSnapshot = await readSnapshot();
+      const snapshot = mergeSnapshots(existingSnapshot, incomingSnapshot);
 
       await writeSnapshot(snapshot);
 

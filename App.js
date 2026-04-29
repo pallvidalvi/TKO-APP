@@ -23,6 +23,7 @@ import {
   CategoriesService,
   ResultsService,
   DisputesService,
+  LeaderboardService,
   promoteExpiredDisputesToResults,
 } from './src/services/dataService';
 import { DISPUTE_AUTO_SUBMIT_POLL_MS, getDisputeAutoSubmitStatus } from './src/utils/scoring';
@@ -3606,6 +3607,7 @@ export default function App() {
   const [settingsPasswordError, setSettingsPasswordError] = useState('');
   const [leaderboardSyncBaseUrlInput, setLeaderboardSyncBaseUrlInput] = useState('');
   const [leaderboardSyncError, setLeaderboardSyncError] = useState('');
+  const [leaderboardSyncLoading, setLeaderboardSyncLoading] = useState(false);
   const [settingsConfigDayId, setSettingsConfigDayId] = useState(REPORT_DAYS[0]?.id || '');
   const [settingsConfigCategoryKey, setSettingsConfigCategoryKey] = useState('EXTREME');
   const [settingsTrackTimerTrack, setSettingsTrackTimerTrack] = useState('');
@@ -4312,7 +4314,7 @@ export default function App() {
   };
 
   const getPreviousSettingsView = currentView => {
-    if (currentView === 'pin' || currentView === 'change-pin' || currentView === 'password' || currentView === 'leaderboard-sync') {
+    if (currentView === 'pin' || currentView === 'change-pin' || currentView === 'password') {
       return 'security';
     }
 
@@ -4381,7 +4383,7 @@ export default function App() {
       setLeaderboardSyncBaseUrl('');
       setLeaderboardSyncBaseUrlInput('');
       setLeaderboardSyncError('');
-      setSettingsView('security');
+      setSettingsView('menu');
       return;
     }
 
@@ -4393,14 +4395,99 @@ export default function App() {
     setLeaderboardSyncBaseUrl(normalizedBaseUrl);
     setLeaderboardSyncBaseUrlInput(normalizedBaseUrl);
     setLeaderboardSyncError('');
-    setSettingsView('security');
+    setSettingsView('menu');
   };
 
   const handleLeaderboardSyncClear = () => {
     setLeaderboardSyncBaseUrlInput('');
     setLeaderboardSyncBaseUrl('');
     setLeaderboardSyncError('');
-    setSettingsView('security');
+    setSettingsView('menu');
+  };
+
+  const getLeaderboardSyncActionBaseUrl = () => {
+    const normalizedInputUrl = normalizeLeaderboardSyncBaseUrl(leaderboardSyncBaseUrlInput);
+
+    if (normalizedInputUrl && !/^https?:\/\/.+/i.test(normalizedInputUrl)) {
+      setLeaderboardSyncError('Enter a valid URL such as http://192.168.1.10:3000');
+      return null;
+    }
+
+    return normalizedInputUrl || leaderboardSyncBaseUrl;
+  };
+
+  const handlePushLeaderboardData = async () => {
+    const syncBaseUrl = getLeaderboardSyncActionBaseUrl();
+
+    if (syncBaseUrl === null) {
+      return;
+    }
+
+    try {
+      setLeaderboardSyncLoading(true);
+      setLeaderboardSyncError('');
+      const exportResult = await LeaderboardService.exportLeaderboardData({ syncBaseUrl });
+
+      if (exportResult?.syncResult?.synced) {
+        const endpointLabel = exportResult?.syncResult?.endpoint ? `\n\nEndpoint: ${exportResult.syncResult.endpoint}` : '';
+        Alert.alert('Push Complete', `This tablet's leaderboard data has been pushed.${endpointLabel}`);
+      } else if (exportResult?.syncResult?.status === 404 || exportResult?.syncResult?.status === 405) {
+        Alert.alert(
+          'Push Failed',
+          'The leaderboard endpoint is not usable on the server. Make sure the backend accepts POST requests and is reachable from this tablet.'
+        );
+      } else {
+        Alert.alert(
+          'Push Failed',
+          exportResult?.syncResult?.message || 'Leaderboard data could not be pushed right now.'
+        );
+      }
+    } catch (error) {
+      console.error('Unable to push leaderboard data:', error);
+      Alert.alert('Push Failed', error?.message || 'Unable to push leaderboard data');
+    } finally {
+      setLeaderboardSyncLoading(false);
+    }
+  };
+
+  const handlePullLeaderboardData = async () => {
+    const syncBaseUrl = getLeaderboardSyncActionBaseUrl();
+
+    if (syncBaseUrl === null) {
+      return;
+    }
+
+    try {
+      setLeaderboardSyncLoading(true);
+      setLeaderboardSyncError('');
+      const importResult = await LeaderboardService.importLeaderboardData({ syncBaseUrl });
+
+      if (!importResult?.imported) {
+        Alert.alert(
+          'Pull Failed',
+          importResult?.fetchResult?.message || 'Leaderboard data could not be pulled right now.'
+        );
+        return;
+      }
+
+      await refreshCompletedTracks(teams, selectedDay?.id || '');
+      await refreshDisputes();
+      setLeaderboardRefreshKey(prev => prev + 1);
+
+      const summary = importResult.summary || {};
+      const endpointLabel = importResult?.fetchResult?.endpoint ? `\n\nEndpoint: ${importResult.fetchResult.endpoint}` : '';
+      Alert.alert(
+        'Pull Complete',
+        `Pulled ${summary.resultsImported || 0} results and ${summary.disputesImported || 0} disputes.\nSkipped ${
+          summary.resultsSkipped || 0
+        } duplicate results.${endpointLabel}`
+      );
+    } catch (error) {
+      console.error('Unable to pull leaderboard data:', error);
+      Alert.alert('Pull Failed', error?.message || 'Unable to pull leaderboard data');
+    } finally {
+      setLeaderboardSyncLoading(false);
+    }
   };
 
   const closeRecordPinModal = didVerify => {
@@ -5151,7 +5238,7 @@ const buildRegistrationData = formData => ({
                   : settingsView === 'disputes'
                     ? 'Review and resolve disputed stopwatch records for the selected day.'
                     : settingsView === 'leaderboard-sync'
-                      ? 'Set the website base URL used when exporting leaderboard data from this installed build.'
+                      ? 'Set the website base URL used to push and pull leaderboard data from this installed build.'
                     : settingsView === 'password'
                       ? 'Update the password used to open Settings.'
                     : 'Protected tools for race-day configuration.';
@@ -5730,8 +5817,6 @@ const buildRegistrationData = formData => ({
           categoryOptions={leaderboardCategoryOptions}
           teams={teams}
           dataRefreshKey={leaderboardRefreshKey}
-          settingsPassword={settingsPassword}
-          leaderboardSyncBaseUrl={leaderboardSyncBaseUrl}
           theme={theme}
         />
       ) : null}
@@ -6578,10 +6663,11 @@ const buildRegistrationData = formData => ({
             ) : null}
 
             {settingsView === 'leaderboard-sync' ? (
+              <>
               <View style={[styles.settingsFormCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                 <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Leaderboard Sync URL</Text>
                 <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
-                  Enter the base URL of the website that should receive exported leaderboard data.
+                  Enter the base URL of the website that should receive and share leaderboard data.
                   Example: http://192.168.1.10:3000
                 </Text>
                 <TextInput
@@ -6637,6 +6723,52 @@ const buildRegistrationData = formData => ({
                   </TouchableOpacity>
                 </View>
               </View>
+              <View style={[styles.settingsFormCard, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}>
+                <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Leaderboard Data</Text>
+                <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                  Push sends this tablet's saved results to the sync server. Pull imports the combined results from all
+                  tablets into this tablet.
+                </Text>
+                {leaderboardSyncLoading ? (
+                  <View style={styles.settingsLoadingRow}>
+                    <ActivityIndicator size="small" color={theme.accent} />
+                    <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                      Syncing leaderboard data...
+                    </Text>
+                  </View>
+                ) : null}
+                <View style={styles.settingsTrackTimerActionRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.settingsActionButton,
+                      styles.settingsSecondaryButton,
+                      { backgroundColor: theme.surface, borderColor: theme.border },
+                      leaderboardSyncLoading ? styles.settingsActionButtonDisabled : null,
+                    ]}
+                    onPress={handlePullLeaderboardData}
+                    activeOpacity={0.85}
+                    disabled={leaderboardSyncLoading}
+                  >
+                    <Text style={[styles.settingsActionButtonText, styles.settingsSecondaryButtonText, { color: theme.textPrimary }]}>
+                      Pull Data
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.settingsActionButton,
+                      styles.settingsPrimaryButton,
+                      { backgroundColor: theme.accent },
+                      leaderboardSyncLoading ? styles.settingsActionButtonDisabled : null,
+                    ]}
+                    onPress={handlePushLeaderboardData}
+                    activeOpacity={0.85}
+                    disabled={leaderboardSyncLoading}
+                  >
+                    <Text style={[styles.settingsActionButtonText, { color: theme.accentText }]}>Push Data</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              </>
             ) : null}
 
             {settingsView === 'password' ? (
