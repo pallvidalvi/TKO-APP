@@ -848,6 +848,7 @@ const LeaderboardScreen = ({
       trackCount * responsiveLayout.trackWidth
     );
   }, [responsiveLayout, selectedCategoryConfig]);
+  const detailModalMaxHeight = Math.max(360, screenHeight - (responsiveLayout.isTablet ? 40 : 32));
 
   return (
     <Modal
@@ -1134,7 +1135,16 @@ const LeaderboardScreen = ({
           statusBarTranslucent={Platform.OS === 'android'}
         >
           <View style={[styles.detailOverlay, { backgroundColor: theme.overlay }]}>
-            <View style={[styles.detailShell, { backgroundColor: theme.backgroundStrong, borderColor: theme.border }]}>
+            <View
+              style={[
+                styles.detailShell,
+                {
+                  backgroundColor: theme.backgroundStrong,
+                  borderColor: theme.border,
+                  maxHeight: detailModalMaxHeight,
+                },
+              ]}
+            >
               <View style={[styles.detailHeader, { borderBottomColor: theme.border }]}>
                 <View style={styles.detailHeaderText}>
                   <Text style={[styles.detailKicker, { color: theme.accent }]}>Track Details</Text>
@@ -1153,7 +1163,13 @@ const LeaderboardScreen = ({
                 </TouchableOpacity>
               </View>
 
-              <ScrollView contentContainerStyle={styles.detailScrollContent} showsVerticalScrollIndicator={false}>
+              <ScrollView
+                style={styles.detailScrollView}
+                contentContainerStyle={styles.detailScrollContent}
+                showsVerticalScrollIndicator
+                persistentScrollbar={Platform.OS === 'android'}
+                nestedScrollEnabled
+              >
                 <View style={styles.detailTopGrid}>
                   {[
                     { label: 'Day', value: selectedDetail.entry?.dayLabel || '--' },
@@ -1686,7 +1702,7 @@ const styles = StyleSheet.create({
   detailOverlay: {
     flex: 1,
     paddingHorizontal: 16,
-    paddingVertical: 24,
+    paddingVertical: 16,
     justifyContent: 'center',
   },
   detailShell: {
@@ -1696,7 +1712,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 20,
     overflow: 'hidden',
-    maxHeight: '92%',
+    flexShrink: 1,
   },
   detailHeader: {
     flexDirection: 'row',
@@ -1744,8 +1760,12 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     fontFamily: BODY_FONT,
   },
+  detailScrollView: {
+    flexShrink: 1,
+  },
   detailScrollContent: {
     padding: 16,
+    paddingBottom: 28,
     gap: 14,
   },
   detailTopGrid: {
