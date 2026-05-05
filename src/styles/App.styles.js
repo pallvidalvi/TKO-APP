@@ -840,7 +840,7 @@ const styles = StyleSheet.create({
   // List content styles
   listContent: {
     paddingHorizontal: 6,
-    paddingBottom: 20,
+    paddingBottom: 96,
   },
 
   columnWrapper: {
@@ -1027,7 +1027,7 @@ const styles = StyleSheet.create({
   },
 
   recordsListContent: {
-    paddingBottom: IS_TABLET ? 36 : 24,
+    paddingBottom: IS_TABLET ? 120 : 104,
   },
 
   registrationCard: {
@@ -1438,6 +1438,10 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     marginBottom: 8,
     letterSpacing: 0.5,
+  },
+
+  recordCoDriverLabel: {
+    marginTop: 12,
   },
 
   recordMetaValue: {
@@ -1892,11 +1896,13 @@ const styles = StyleSheet.create({
   fullPageContainer: {
     flex: 1,
     backgroundColor: '#1a2432',
+    minHeight: 0,
   },
 
   fullPageContent: {
     flex: 1,
     backgroundColor: '#1a2432',
+    minHeight: 0,
   },
 
   settingsOverlay: {
@@ -1944,6 +1950,8 @@ const styles = StyleSheet.create({
 
   authModalScroll: {
     width: '100%',
+    flex: 1,
+    minHeight: 0,
   },
 
   authModalScrollContent: {
@@ -2132,11 +2140,13 @@ const styles = StyleSheet.create({
   },
 
   disputeModalScroll: {
+    flexGrow: 0,
+    maxHeight: IS_TABLET ? 520 : 360,
     marginTop: 14,
   },
 
   disputeModalContent: {
-    paddingBottom: 10,
+    paddingBottom: 88,
   },
 
   disputeModalPartySection: {
@@ -2290,7 +2300,7 @@ const styles = StyleSheet.create({
 
   settingsPageContent: {
     padding: 20,
-    paddingBottom: 36,
+    paddingBottom: 128,
   },
 
   settingsMenuGrid: {
@@ -2694,6 +2704,20 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
+  formHeaderTitleBlock: {
+    flex: 1,
+    paddingRight: 12,
+  },
+
+  disputeResolvePageTitle: {
+    marginBottom: 4,
+    fontSize: 13,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    fontFamily: BODY_FONT,
+  },
+
   closeButton: {
     fontSize: 28,
     color: '#6c757d',
@@ -2734,7 +2758,12 @@ const styles = StyleSheet.create({
 
   formBodyScrollContent: {
     flexGrow: 1,
-    paddingBottom: 16,
+    paddingBottom: 28,
+  },
+
+  formBodyScrollContentNatural: {
+    flexGrow: 0,
+    paddingBottom: 36,
   },
 
   dashboardLayout: {
@@ -2762,11 +2791,11 @@ const styles = StyleSheet.create({
   },
 
   dashboardRightPanelContent: {
-    paddingBottom: 8,
+    paddingBottom: 96,
   },
 
   dashboardRightPanelContentLandscape: {
-    paddingBottom: 24,
+    paddingBottom: 128,
   },
 
   // Form section

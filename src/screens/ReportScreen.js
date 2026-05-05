@@ -878,7 +878,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   categoryRow: {
-    paddingBottom: 8,
+    paddingBottom: 96,
     gap: 12,
   },
   categoryCard: {
@@ -1090,7 +1090,7 @@ const styles = StyleSheet.create({
     fontFamily: BODY_FONT,
   },
   listContent: {
-    paddingBottom: 24,
+    paddingBottom: 120,
   },
   emptyState: {
     backgroundColor: '#111722',

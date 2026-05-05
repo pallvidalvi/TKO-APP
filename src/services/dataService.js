@@ -878,6 +878,10 @@ const buildResultDataFromDispute = dispute => {
       parsedDispute.bunting_count ?? parsedDispute.bustingCount ?? sourcePayload.bustingCount ?? 0,
     bustingCount:
       parsedDispute.bunting_count ?? parsedDispute.bustingCount ?? sourcePayload.bustingCount ?? 0,
+    pole_down_count:
+      parsedDispute.pole_down_count ?? parsedDispute.poleDownCount ?? sourcePayload.poleDownCount ?? 0,
+    poleDownCount:
+      parsedDispute.pole_down_count ?? parsedDispute.poleDownCount ?? sourcePayload.poleDownCount ?? 0,
     seatbelt_count:
       parsedDispute.seatbelt_count ?? parsedDispute.seatbeltCount ?? sourcePayload.seatbeltCount ?? 0,
     seatbeltCount:
@@ -968,6 +972,16 @@ const buildResultDataFromDispute = dispute => {
     dnf_points: parsedDispute.dnf_points ?? parsedDispute.dnfPoints ?? sourcePayload.dnfPoints ?? 0,
     bunting_penalty_time:
       parsedDispute.bunting_penalty_time ?? parsedDispute.bustingPenaltyTime ?? sourcePayload.bustingPenaltyTime ?? 0,
+    pole_down_penalty_time:
+      parsedDispute.pole_down_penalty_time ??
+      parsedDispute.poleDownPenaltyTime ??
+      sourcePayload.poleDownPenaltyTime ??
+      0,
+    poleDownPenaltyTime:
+      parsedDispute.pole_down_penalty_time ??
+      parsedDispute.poleDownPenaltyTime ??
+      sourcePayload.poleDownPenaltyTime ??
+      0,
     seatbelt_penalty_time:
       parsedDispute.seatbelt_penalty_time ?? parsedDispute.seatbeltPenaltyTime ?? sourcePayload.seatbeltPenaltyTime ?? 0,
     ground_touch_penalty_time:
@@ -1031,6 +1045,7 @@ const normalizeImportedCompetitionRecord = record => {
     ),
     category: getFirstPresentValue(parsedRecord.category),
     bunting_count: getFirstPresentValue(parsedRecord.bunting_count, parsedRecord.bustingCount, 0),
+    pole_down_count: getFirstPresentValue(parsedRecord.pole_down_count, parsedRecord.poleDownCount, 0),
     seatbelt_count: getFirstPresentValue(parsedRecord.seatbelt_count, parsedRecord.seatbeltCount, 0),
     ground_touch_count: getFirstPresentValue(parsedRecord.ground_touch_count, parsedRecord.groundTouchCount, 0),
     late_start_count: getFirstPresentValue(parsedRecord.late_start_count, parsedRecord.lateStartCount, 0),

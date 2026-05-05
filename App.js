@@ -631,26 +631,26 @@ const APP_THEMES = {
   },
   light: {
     mode: 'light',
-    background: '#050505',
-    backgroundStrong: '#0b0b0b',
-    surface: '#111111',
-    surfaceAlt: '#171717',
-    surfaceMuted: '#1c1c1c',
-    border: '#2a1a0f',
-    textPrimary: '#fff7ef',
-    textSecondary: '#e1ad7a',
-    textTertiary: '#aa7a52',
-    accent: '#ff7a00',
-    accentStrong: '#ff920f',
-    accentSoft: '#231308',
-    accentText: '#120a05',
+    background: '#f4f6fb',
+    backgroundStrong: '#ffffff',
+    surface: '#ffffff',
+    surfaceAlt: '#eef3f8',
+    surfaceMuted: '#e2e8f0',
+    border: '#cbd5e1',
+    textPrimary: '#102033',
+    textSecondary: '#52657a',
+    textTertiary: '#8794a6',
+    accent: '#d95f00',
+    accentStrong: '#b84f00',
+    accentSoft: '#fff0df',
+    accentText: '#ffffff',
     primaryButton: '#ff7a00',
-    primaryButtonText: '#120a05',
-    inputBackground: '#0b0b0b',
-    timerBackground: '#1a120a',
-    timerText: '#ff9b2f',
-    overlay: 'rgba(0, 0, 0, 0.72)',
-    shadow: '#000000',
+    primaryButtonText: '#ffffff',
+    inputBackground: '#ffffff',
+    timerBackground: '#eaf1fb',
+    timerText: '#174ea6',
+    overlay: 'rgba(15, 23, 42, 0.36)',
+    shadow: '#94a3b8',
   },
 };
 
@@ -1204,7 +1204,8 @@ const DISPUTE_DETAIL_GROUPS = [
     key: 'penalties',
     title: 'Penalties',
     items: [
-      { key: 'buntingPoleDown', label: 'Bunting & Pole Down' },
+      { key: 'buntingCut', label: 'Bunting Cut' },
+      { key: 'poleDown', label: 'Pole Down' },
       { key: 'seatbelt', label: 'Seatbelt' },
       { key: 'groundTouch', label: 'Ground Touch' },
     ],
@@ -1223,6 +1224,7 @@ const DISPUTE_DETAIL_GROUPS = [
     items: [
       { key: 'wrongCourse', label: 'Wrong Course' },
       { key: 'fourthAttempt', label: '4th Attempt' },
+      { key: 'vehicleOutOfTrack', label: 'Vehicle Out of the Track' },
       { key: 'timeOver', label: 'Time Over' },
     ],
   },
@@ -1525,6 +1527,8 @@ const buildExportRows = data => [[
   data.coDriverName,
   data.bustingCount,
   data.bustingPenaltyTime,
+  data.poleDownCount,
+  data.poleDownPenaltyTime,
   data.seatbeltCount,
   data.seatbeltPenaltyTime,
   data.groundTouchCount,
@@ -1561,8 +1565,10 @@ const RECORD_EXPORT_HEADERS = [
   'Sticker No.',
   'Driver Name',
   'Co-Driver Name',
-  'Bunting & Pole (Count)',
-  'Bunting & Pole (Time)',
+  'Bunting Cut (Count)',
+  'Bunting Cut (Time)',
+  'Pole Down (Count)',
+  'Pole Down (Time)',
   'Seatbelt (Count)',
   'Seatbelt (Time)',
   'Ground Touch (Count)',
@@ -1610,6 +1616,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
   const [driverName, setDriverName] = useState('');
   const [coDriverName, setCoDriverName] = useState('');
   const [bustingCount, setBustingCount] = useState('0');
+  const [poleDownCount, setPoleDownCount] = useState('0');
   const [seatbeltCount, setSeatbeltCount] = useState('0');
   const [groundTouchCount, setGroundTouchCount] = useState('0');
   const [attemptCount, setAttemptCount] = useState('0');
@@ -1634,10 +1641,11 @@ const RegistrationForm = React.memo(function RegistrationForm({
 
   const PENALTY_VALUES = {
     busting: 20,
+    poleDown: 20,
     seatbelt: 30,
     groundTouch: 30,
     attempt: 30,
-    taskSkipped: 60,
+    taskSkipped: 90,
   };
 
   const calculatePenaltyTime = (count, multiplier) => {
@@ -1646,6 +1654,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
   };
 
   const bustingPenaltyTime = calculatePenaltyTime(bustingCount, PENALTY_VALUES.busting);
+  const poleDownPenaltyTime = calculatePenaltyTime(poleDownCount, PENALTY_VALUES.poleDown);
   const seatbeltPenaltyTime = calculatePenaltyTime(seatbeltCount, PENALTY_VALUES.seatbelt);
   const groundTouchPenaltyTime = calculatePenaltyTime(groundTouchCount, PENALTY_VALUES.groundTouch);
   const attemptPenaltyTime = calculatePenaltyTime(attemptCount, PENALTY_VALUES.attempt);
@@ -1663,6 +1672,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
 
   const totalPenaltiesTime =
     bustingPenaltyTime +
+    poleDownPenaltyTime +
     seatbeltPenaltyTime +
     groundTouchPenaltyTime +
     attemptPenaltyTime +
@@ -1685,6 +1695,9 @@ const RegistrationForm = React.memo(function RegistrationForm({
     [initialRecord]
   );
   const resolvingDisputePartyKey = initialRecord?.source === 'dispute' ? initialRecord?.resolveDisputeCategory || '' : '';
+  const resolvingDisputePartyLabel = resolvingDisputePartyKey
+    ? DISPUTE_PARTY_LABEL_BY_KEY[resolvingDisputePartyKey] || resolvingDisputePartyKey
+    : '';
   const safeCategoryName = category?.name || initialRecord?.category || 'Category';
 
   useEffect(() => {
@@ -1734,6 +1747,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
       setTrackName(defaultTrack);
       setLateStartMode(initialRecord.lateStartMode || '');
       setBustingCount(String(initialRecord.bustingCount ?? 0));
+      setPoleDownCount(String(initialRecord.poleDownCount ?? initialRecord.pole_down_count ?? 0));
       setSeatbeltCount(String(initialRecord.seatbeltCount ?? 0));
       setGroundTouchCount(String(initialRecord.groundTouchCount ?? 0));
       setAttemptCount(String(initialRecord.attemptCount ?? 0));
@@ -1914,6 +1928,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
     setDriverName('');
     setCoDriverName('');
     setBustingCount('0');
+    setPoleDownCount('0');
     setSeatbeltCount('0');
     setGroundTouchCount('0');
     setAttemptCount('0');
@@ -1943,6 +1958,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
     const sourceRecord = parseRegistrationPayload(initialRecord || {});
     const currentSignature = [
       formData?.bustingCount || 0,
+      formData?.poleDownCount || 0,
       formData?.seatbeltCount || 0,
       formData?.groundTouchCount || 0,
       formData?.attemptCount || 0,
@@ -1962,6 +1978,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
 
     const originalSignature = [
       sourceRecord.bustingCount || sourceRecord.bunting_count || 0,
+      sourceRecord.poleDownCount || sourceRecord.pole_down_count || 0,
       sourceRecord.seatbeltCount || sourceRecord.seatbelt_count || 0,
       sourceRecord.groundTouchCount || sourceRecord.ground_touch_count || 0,
       sourceRecord.attemptCount || sourceRecord.attempt_count || 0,
@@ -1990,6 +2007,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
       : null;
     const disputeResolutionStatus = isEditingDispute ? (tkoResolutionOption?.status || getDisputeResolutionStatus({
       bustingCount,
+      poleDownCount,
       seatbeltCount,
       groundTouchCount,
       attemptCount,
@@ -2046,6 +2064,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
       trackTimerLimitSeconds: normalizedTrackTimerLimitSeconds,
       trackTimerLimitDisplay: trackTimerLimitLabel,
       bustingCount,
+      poleDownCount,
       seatbeltCount,
       groundTouchCount,
       lateStartMode,
@@ -2062,6 +2081,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
       dnfSelection,
       dnfPoints,
       bustingPenaltyTime,
+      poleDownPenaltyTime,
       seatbeltPenaltyTime,
       groundTouchPenaltyTime,
       attemptPenaltyTime,
@@ -2217,6 +2237,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
     stopwatchTime > 0 ||
     lateStartMode !== '' ||
     (parseInt(bustingCount, 10) || 0) > 0 ||
+    (parseInt(poleDownCount, 10) || 0) > 0 ||
     (parseInt(seatbeltCount, 10) || 0) > 0 ||
     (parseInt(groundTouchCount, 10) || 0) > 0 ||
     (parseInt(attemptCount, 10) || 0) > 0 ||
@@ -2230,6 +2251,8 @@ const RegistrationForm = React.memo(function RegistrationForm({
   const showDisputeButton = initialRecord?.source !== 'dispute';
   const showBackButton = !hasTimerStarted || initialRecord?.source === 'dispute';
   const useLandscapeTabletLayout = responsiveLayout.isTabletLandscape;
+  const isResolvingDispute = Boolean(resolvingDisputePartyKey);
+  const stopwatchControlsDisabled = isResolvingDispute;
 
   const formContent = (
     <>
@@ -2237,6 +2260,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
         style={[
           styles.dashboardLayout,
           {
+            flex: 0,
             flexDirection: responsiveLayout.useSplitLayout ? 'row' : 'column',
             gap: responsiveLayout.isSmallPhone ? 8 : 12,
           },
@@ -2248,19 +2272,33 @@ const RegistrationForm = React.memo(function RegistrationForm({
             { width: responsiveLayout.useSplitLayout ? '37%' : '100%' },
           ]}
         >
-          <View style={styles.vehicleSummaryCard}>
+          <View
+            style={[
+              styles.vehicleSummaryCard,
+              { backgroundColor: theme.surface, borderColor: theme.border, shadowColor: theme.shadow },
+            ]}
+          >
             <View style={styles.vehicleSummaryHeader}>
-              <Text style={styles.vehicleSummaryLabel}>Vehicle Details</Text>
+              <Text style={[styles.vehicleSummaryLabel, { color: theme.accent }]}>Vehicle Details</Text>
             </View>
-            <View style={styles.vehicleSummaryInlineRow}>
-              <Text style={styles.vehicleSummaryInlineText} adjustsFontSizeToFit minimumFontScale={0.7}>
-                Serial No.: <Text style={styles.vehicleSummaryInlineValue}>{srNo ? String(srNo).padStart(2, '0') : '--'}</Text>
+            <View
+              style={[
+                styles.vehicleSummaryInlineRow,
+                { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
+              ]}
+            >
+              <Text
+                style={[styles.vehicleSummaryInlineText, { color: theme.textSecondary }]}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+              >
+                Serial No.: <Text style={[styles.vehicleSummaryInlineValue, { color: theme.textPrimary }]}>{srNo ? String(srNo).padStart(2, '0') : '--'}</Text>
                 {' | '}
-                Sticker No.: <Text style={styles.vehicleSummaryInlineValue}>#{stickerNumber || '--'}</Text>
+                Sticker No.: <Text style={[styles.vehicleSummaryInlineValue, { color: theme.textPrimary }]}>#{stickerNumber || '--'}</Text>
                 {' | '}
-                Driver Name: <Text style={styles.vehicleSummaryInlineValue}>{driverName || '--'}</Text>
+                Driver Name: <Text style={[styles.vehicleSummaryInlineValue, { color: theme.textPrimary }]}>{driverName || '--'}</Text>
                 {' | '}
-                Co-Driver Name: <Text style={styles.vehicleSummaryInlineValue}>{coDriverName || '--'}</Text>
+                Co-Driver Name: <Text style={[styles.vehicleSummaryInlineValue, { color: theme.textPrimary }]}>{coDriverName || '--'}</Text>
               </Text>
             </View>
           </View>
@@ -2269,6 +2307,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
             style={[
               styles.timerHeroCard,
               {
+                backgroundColor: theme.timerBackground,
                 paddingHorizontal: responsiveLayout.isTablet ? 28 : responsiveLayout.isSmallPhone ? 12 : 18,
                 paddingVertical: responsiveLayout.isTablet ? 30 : responsiveLayout.isSmallPhone ? 16 : 22,
                 marginBottom: responsiveLayout.isSmallPhone ? 14 : 24,
@@ -2279,6 +2318,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
               style={[
                 styles.stopwatchDisplay,
                 {
+                  color: theme.timerText,
                   fontSize: responsiveLayout.isTablet ? 70 : responsiveLayout.isSmallPhone ? 38 : 48,
                   letterSpacing: responsiveLayout.isTablet ? 6 : responsiveLayout.isSmallPhone ? 1 : 2,
                   marginBottom: responsiveLayout.isSmallPhone ? 12 : 20,
@@ -2299,7 +2339,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
                   isStopwatchRunning
                     ? styles.stopwatchButtonStop
                     : styles.stopwatchButtonStart,
-                  startButtonDisabled && styles.stopwatchButtonDisabled,
+                  (startButtonDisabled || stopwatchControlsDisabled) && styles.stopwatchButtonDisabled,
                   {
                     paddingVertical: responsiveLayout.isSmallPhone ? 12 : 16,
                     paddingHorizontal: responsiveLayout.isSmallPhone ? 14 : 24,
@@ -2307,7 +2347,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
                   },
                 ]}
                 onPress={toggleStopwatch}
-                disabled={startButtonDisabled}
+                disabled={startButtonDisabled || stopwatchControlsDisabled}
                 hitSlop={TOUCH_HIT_SLOP}
               >
                 <Text
@@ -2324,11 +2364,11 @@ const RegistrationForm = React.memo(function RegistrationForm({
                   styles.stopwatchButton,
                   styles.stopwatchResetButton,
                   styles.stopwatchResetCompact,
-                  resetButtonDisabled && styles.stopwatchButtonDisabled,
+                  (resetButtonDisabled || stopwatchControlsDisabled) && styles.stopwatchButtonDisabled,
                   { minWidth: responsiveLayout.isTablet ? 110 : responsiveLayout.isSmallPhone ? 82 : 96 },
                 ]}
                 onPress={resetStopwatch}
-                disabled={resetButtonDisabled}
+                disabled={resetButtonDisabled || stopwatchControlsDisabled}
                 hitSlop={TOUCH_HIT_SLOP}
               >
                 <Text
@@ -2344,7 +2384,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
             <Text
               style={[
                 styles.timerLimitText,
-                { marginTop: responsiveLayout.isSmallPhone ? 10 : 12 },
+                { color: theme.textSecondary, marginTop: responsiveLayout.isSmallPhone ? 10 : 12 },
               ]}
             >
               {isTrackTimerLocked ? `Track Limit: ${trackTimerLimitLabel}` : 'Track Limit: Not set'}
@@ -2352,21 +2392,18 @@ const RegistrationForm = React.memo(function RegistrationForm({
           </View>
         </View>
 
-        <ScrollView
+        <View
           style={[
             styles.dashboardRightPanel,
             {
+              flex: 0,
+              backgroundColor: theme.surface,
+              borderColor: theme.border,
               width: responsiveLayout.useSplitLayout ? '61%' : '100%',
               padding: responsiveLayout.isTablet ? 18 : responsiveLayout.isSmallPhone ? 8 : 12,
+              paddingBottom: responsiveLayout.isTablet ? 28 : 20,
             },
           ]}
-          contentContainerStyle={[
-            styles.dashboardRightPanelContent,
-            useLandscapeTabletLayout && styles.dashboardRightPanelContentLandscape,
-          ]}
-          keyboardShouldPersistTaps="handled"
-          nestedScrollEnabled
-          showsVerticalScrollIndicator={false}
         >
           {initialRecord?.source === 'dispute' && currentDisputeEntries.length ? (
             <View style={[styles.section, styles.disputeInfoCard]}>
@@ -2406,10 +2443,18 @@ const RegistrationForm = React.memo(function RegistrationForm({
             />
             <View style={[styles.penaltyGrid, { gap: responsiveLayout.isSmallPhone ? 8 : 10 }]}>
               <PenaltyCounter
-                label="Bunting & Pole (20s)"
+                label="Bunting Cut (20s)"
                 count={bustingCount}
                 onCountChange={setBustingCount}
                 penaltyTime={bustingPenaltyTime}
+                layout={responsiveLayout}
+                disabled={penaltyControlsDisabled}
+              />
+              <PenaltyCounter
+                label="Pole Down (20s)"
+                count={poleDownCount}
+                onCountChange={setPoleDownCount}
+                penaltyTime={poleDownPenaltyTime}
                 layout={responsiveLayout}
                 disabled={penaltyControlsDisabled}
               />
@@ -2454,7 +2499,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
                 disabled={penaltyControlsDisabled}
               />
               <PenaltyCounter
-                label="Task Skip (60s)"
+                label="Task Skip (90s)"
                 count={taskSkippedCount}
                 onCountChange={setTaskSkippedCount}
                 penaltyTime={taskSkippedPenaltyTime}
@@ -2511,7 +2556,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
               }}
             />
           ) : null}
-        </ScrollView>
+        </View>
       </View>
 
       {responsiveLayout.useSplitLayout ? (
@@ -2545,12 +2590,12 @@ const RegistrationForm = React.memo(function RegistrationForm({
       statusBarTranslucent={Platform.OS === 'android'}
     >
         {category ? (
-          <View style={[styles.fullPageContainer, { backgroundColor: '#000000' }]}>
+          <View style={[styles.fullPageContainer, { backgroundColor: theme.background }]}>
           <View
             style={[
               styles.fullPageContent,
               {
-                backgroundColor: '#000000',
+                backgroundColor: theme.background,
                 width: '100%',
                 maxWidth: responsiveLayout.shellMaxWidth,
                 alignSelf: 'center',
@@ -2563,28 +2608,39 @@ const RegistrationForm = React.memo(function RegistrationForm({
                 {
                   paddingHorizontal: responsiveLayout.isTablet ? 28 : responsiveLayout.shellPadding,
                   paddingTop: 60,
+                  backgroundColor: theme.backgroundStrong,
                 },
               ]}
               pointerEvents="box-none"
             >
-              <Text
-                style={[
-                  styles.formTitle,
-                  { fontSize: responsiveLayout.isTablet ? 24 : responsiveLayout.isSmallPhone ? 18 : 20 },
-                ]}
-              >
-                {safeCategoryName}
+              <View style={styles.formHeaderTitleBlock}>
+                {resolvingDisputePartyLabel ? (
+                  <Text style={[styles.disputeResolvePageTitle, { color: theme.accent }]}>
+                    Resolve Dispute: {resolvingDisputePartyLabel}
+                  </Text>
+                ) : null}
                 <Text
-                  style={{
-                    color: theme.accent,
-                    fontSize: responsiveLayout.isTablet ? 22 : responsiveLayout.isSmallPhone ? 16 : 18,
-                    fontWeight: '600',
-                  }}
+                  style={[
+                    styles.formTitle,
+                    {
+                      color: theme.textPrimary,
+                      fontSize: responsiveLayout.isTablet ? 24 : responsiveLayout.isSmallPhone ? 18 : 20,
+                    },
+                  ]}
                 >
-                  {' | '}
-                  {trackName || 'Track'}
+                  {safeCategoryName}
+                  <Text
+                    style={{
+                      color: theme.accent,
+                      fontSize: responsiveLayout.isTablet ? 22 : responsiveLayout.isSmallPhone ? 16 : 18,
+                      fontWeight: '600',
+                    }}
+                  >
+                    {' | '}
+                    {trackName || 'Track'}
+                  </Text>
                 </Text>
-              </Text>
+              </View>
               {showBackButton ? (
                 <TouchableOpacity
                   onPress={onBack}
@@ -2612,19 +2668,18 @@ const RegistrationForm = React.memo(function RegistrationForm({
               ]}
               pointerEvents="box-none"
             >
-              {useLandscapeTabletLayout ? (
-                <ScrollView
-                  style={styles.formBodyScroll}
-                  contentContainerStyle={styles.formBodyScrollContent}
-                  keyboardShouldPersistTaps="handled"
-                  nestedScrollEnabled
-                  showsVerticalScrollIndicator={false}
-                >
-                  {formContent}
-                </ScrollView>
-              ) : (
-                formContent
-              )}
+              <ScrollView
+                style={styles.formBodyScroll}
+                contentContainerStyle={[
+                  styles.formBodyScrollContent,
+                  !useLandscapeTabletLayout && styles.formBodyScrollContentNatural,
+                ]}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled
+                showsVerticalScrollIndicator
+              >
+                {formContent}
+              </ScrollView>
             </View>
 
             <View
@@ -3008,7 +3063,7 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
             keyExtractor={(item, index) => String(item.id || item.car_number || index)}
             contentContainerStyle={[
               styles.recordsListContent,
-              { paddingBottom: responsiveLayout.isTablet ? 36 : 24 },
+              { paddingBottom: responsiveLayout.isTablet ? 120 : 104 },
             ]}
             keyboardShouldPersistTaps="handled"
             nestedScrollEnabled
@@ -3078,6 +3133,10 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
                           <Text style={styles.recordMetaLabel}>Driver Name</Text>
                           <Text style={styles.recordDriverName}>
                             {item.driver_name || item.driverName || 'Unknown Driver'}
+                          </Text>
+                          <Text style={[styles.recordMetaLabel, styles.recordCoDriverLabel]}>Co-Driver Name</Text>
+                          <Text style={styles.recordDriverName}>
+                            {item.codriver_name || item.coDriverName || 'Unknown Co-Driver'}
                           </Text>
                         </View>
                       </View>
@@ -3188,6 +3247,9 @@ const DisputeRecordsPanel = React.memo(function DisputeRecordsPanel({
   onRefresh,
   onEdit,
   onResolve,
+  focusCategoryKey = '',
+  focusTrackKey = '',
+  focusToken = 0,
   layout,
   theme = APP_THEMES.dark,
 }) {
@@ -3200,6 +3262,15 @@ const DisputeRecordsPanel = React.memo(function DisputeRecordsPanel({
     setSelectedCategoryKey('');
     setSelectedTrackKey('');
   }, [selectedDay?.id]);
+
+  useEffect(() => {
+    if (!focusToken) {
+      return;
+    }
+
+    setSelectedCategoryKey(focusCategoryKey || '');
+    setSelectedTrackKey(focusTrackKey || '');
+  }, [focusCategoryKey, focusToken, focusTrackKey]);
 
   useEffect(() => {
     setNowTimestamp(Date.now());
@@ -3292,17 +3363,25 @@ const DisputeRecordsPanel = React.memo(function DisputeRecordsPanel({
   );
 
   useEffect(() => {
-    if (selectedCategoryKey && !disputeCategoryCards.some(item => item.key === selectedCategoryKey)) {
+    if (
+      selectedCategoryKey &&
+      selectedCategoryKey !== focusCategoryKey &&
+      !disputeCategoryCards.some(item => item.key === selectedCategoryKey)
+    ) {
       setSelectedCategoryKey('');
       setSelectedTrackKey('');
     }
-  }, [disputeCategoryCards, selectedCategoryKey]);
+  }, [disputeCategoryCards, focusCategoryKey, selectedCategoryKey]);
 
   useEffect(() => {
-    if (selectedTrackKey && !disputeTrackCards.some(item => item.key === selectedTrackKey)) {
+    if (
+      selectedTrackKey &&
+      selectedTrackKey !== focusTrackKey &&
+      !disputeTrackCards.some(item => item.key === selectedTrackKey)
+    ) {
       setSelectedTrackKey('');
     }
-  }, [disputeTrackCards, selectedTrackKey]);
+  }, [disputeTrackCards, focusTrackKey, selectedTrackKey]);
 
   if (!selectedDay?.id) {
     return (
@@ -3603,7 +3682,7 @@ const RegistrationResultsModal = React.memo(function RegistrationResultsModal({
             keyExtractor={(item, index) => String(item.id || index)}
             contentContainerStyle={[
               styles.recordsListContent,
-              { paddingBottom: responsiveLayout.isTablet ? 36 : 24 },
+              { paddingBottom: responsiveLayout.isTablet ? 120 : 104 },
             ]}
             keyboardShouldPersistTaps="handled"
             nestedScrollEnabled
@@ -3633,6 +3712,7 @@ const RegistrationResultsModal = React.memo(function RegistrationResultsModal({
               const performanceTime = item.performance_time || item.performanceTimeDisplay || '--';
               const totalTime = item.total_time || item.totalTimeDisplay || '--';
               const buntingCount = item.bunting_count ?? item.bustingCount ?? 0;
+              const poleDownCount = item.pole_down_count ?? item.poleDownCount ?? 0;
               const seatbeltCount = item.seatbelt_count ?? item.seatbeltCount ?? 0;
               const groundTouchCount = item.ground_touch_count ?? item.groundTouchCount ?? 0;
               const lateStartStatus = item.late_start_status || item.lateStartStatus || 'No';
@@ -3669,7 +3749,7 @@ const RegistrationResultsModal = React.memo(function RegistrationResultsModal({
                   <View style={styles.registrationSection}>
                     <Text style={styles.registrationSectionTitle}>Penalties</Text>
                     <Text style={styles.registrationSectionText}>
-                      Bunting: {buntingCount} | Seatbelt: {seatbeltCount} | Ground Touch: {groundTouchCount} | Late Start: {lateStartStatus} | Attempt: {attemptCount}
+                      Bunting Cut: {buntingCount} | Pole Down: {poleDownCount} | Seatbelt: {seatbeltCount} | Ground Touch: {groundTouchCount} | Late Start: {lateStartStatus} | Attempt: {attemptCount}
                     </Text>
                     <Text style={styles.registrationSectionText}>
                       Task Skipped: {taskSkippedCount}
@@ -3772,6 +3852,11 @@ export default function App() {
   const [settingsTrackTimerSeconds, setSettingsTrackTimerSeconds] = useState(0);
   const [disputeRecords, setDisputeRecords] = useState([]);
   const [disputesLoading, setDisputesLoading] = useState(false);
+  const [disputeReturnTarget, setDisputeReturnTarget] = useState({
+    categoryKey: '',
+    trackKey: '',
+    token: 0,
+  });
   const [currentPasswordInput, setCurrentPasswordInput] = useState('');
   const [newPasswordInput, setNewPasswordInput] = useState('');
   const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
@@ -5090,6 +5175,7 @@ export default function App() {
         codriver_name: safeRecord.codriver_name || safeRecord.coDriverName || '',
         category: selectedCategory?.name || '',
         bunting_count: 0,
+        pole_down_count: 0,
         seatbelt_count: 0,
         ground_touch_count: 0,
         late_start_count: 0,
@@ -5108,6 +5194,7 @@ export default function App() {
           ...dayPayload,
           is_dns: true,
           bunting_count: 0,
+          pole_down_count: 0,
           seatbelt_count: 0,
           ground_touch_count: 0,
           late_start_count: 0,
@@ -5127,6 +5214,9 @@ export default function App() {
         getTeamStickerNumber(safeRecord) || nullValue,
         safeRecord.driver_name || safeRecord.driverName || nullValue,
         safeRecord.codriver_name || safeRecord.coDriverName || nullValue,
+        nullValue,
+        nullValue,
+        nullValue,
         nullValue,
         nullValue,
         nullValue,
@@ -5220,6 +5310,8 @@ const buildRegistrationData = formData => ({
     selectedDayDate: formData.selectedDayDate || '',
     bunting_count: formData.bustingCount || 0,
     bustingCount: formData.bustingCount || 0,
+    pole_down_count: formData.poleDownCount || 0,
+    poleDownCount: formData.poleDownCount || 0,
     seatbelt_count: formData.seatbeltCount || 0,
     seatbeltCount: formData.seatbeltCount || 0,
     ground_touch_count: formData.groundTouchCount || 0,
@@ -5252,6 +5344,8 @@ const buildRegistrationData = formData => ({
     dnf_selection: formData.dnfSelection || null,
     dnf_points: formData.dnfPoints || 0,
     bunting_penalty_time: formData.bustingPenaltyTime || 0,
+    pole_down_penalty_time: formData.poleDownPenaltyTime || 0,
+    poleDownPenaltyTime: formData.poleDownPenaltyTime || 0,
     seatbelt_penalty_time: formData.seatbeltPenaltyTime || 0,
     ground_touch_penalty_time: formData.groundTouchPenaltyTime || 0,
     total_penalties_time: formData.totalPenaltiesTime || 0,
@@ -5293,6 +5387,17 @@ const buildRegistrationData = formData => ({
     }
   };
 
+  const focusDisputeTrack = useCallback((record = {}) => {
+    const categoryKey = normalizeCategoryKey(record?.category || selectedCategory?.name || '');
+    const trackKey = String(record?.trackName || record?.track_name || record?.selectedTrack || '').trim();
+
+    setDisputeReturnTarget(prev => ({
+      categoryKey,
+      trackKey,
+      token: prev.token + 1,
+    }));
+  }, [selectedCategory?.name]);
+
   const finalizeRecordSubmission = async formData => {
     try {
       const safeFormData = formData || {};
@@ -5300,6 +5405,11 @@ const buildRegistrationData = formData => ({
       const isDisputeRecord = safeFormData.source === 'dispute';
       const recordKey = selectedRecord?.recordKey || getRecordKey(selectedRecord || {});
       const registrationData = buildRegistrationData(safeFormData);
+      const disputeFocusRecord = {
+        ...selectedRecord,
+        category: safeFormData.category || selectedRecord?.category,
+        trackName: safeFormData.trackName || selectedRecord?.trackName || selectedRecord?.track_name,
+      };
 
       if (isDisputeRecord && safeFormData.disputeId) {
         const updatedDisputeSnapshot = {
@@ -5326,6 +5436,7 @@ const buildRegistrationData = formData => ({
         if (!areAllDisputePartiesResolved(updatedDisputeSnapshot)) {
           await DisputesService.saveDispute(updatedDisputeSnapshot);
           await refreshDisputes();
+          focusDisputeTrack(disputeFocusRecord);
           clearActiveRecordState(recordKey, true);
           setLeaderboardRefreshKey(prev => prev + 1);
           return true;
@@ -5365,8 +5476,14 @@ const buildRegistrationData = formData => ({
       }
 
       if (recordKey && completedTrack) {
+        if (isDisputeRecord) {
+          focusDisputeTrack(disputeFocusRecord);
+        }
         clearActiveRecordState(recordKey, isDisputeRecord);
       } else {
+        if (isDisputeRecord) {
+          focusDisputeTrack(disputeFocusRecord);
+        }
         clearActiveRecordState('', isDisputeRecord);
       }
 
@@ -5443,6 +5560,7 @@ const buildRegistrationData = formData => ({
   };
 
   const handleDisputeSubcategoryResolve = (disputeRecord, partyKey) => {
+    focusDisputeTrack(disputeRecord);
     handleDisputeEdit({
       ...(disputeRecord || {}),
       disputeId: disputeRecord?.id || disputeRecord?.disputeId,
@@ -6032,7 +6150,7 @@ const buildRegistrationData = formData => ({
           styles.listContent,
           {
             paddingHorizontal: Math.max(responsiveLayout.shellPadding - responsiveLayout.gridGap / 2, 0),
-            paddingBottom: responsiveLayout.isTablet ? 28 : 20,
+            paddingBottom: responsiveLayout.isTablet ? 120 : 104,
           },
         ]}
         columnWrapperStyle={
@@ -6859,6 +6977,9 @@ const buildRegistrationData = formData => ({
                 onRefresh={refreshDisputes}
                 onEdit={handleDisputeEdit}
                 onResolve={handleDisputeSubcategoryResolve}
+                focusCategoryKey={disputeReturnTarget.categoryKey}
+                focusTrackKey={disputeReturnTarget.trackKey}
+                focusToken={disputeReturnTarget.token}
                 layout={responsiveLayout}
                 theme={theme}
               />
@@ -7453,6 +7574,9 @@ const buildRegistrationData = formData => ({
             trackTimerLimitSeconds={selectedTrackTimerLimitSeconds}
             onBack={() => {
               const shouldReturnToDisputes = selectedRecord?.source === 'dispute';
+              if (shouldReturnToDisputes) {
+                focusDisputeTrack(selectedRecord);
+              }
               setFormVisible(false);
               setSelectedRecord(null);
               setActiveRecordKey('');

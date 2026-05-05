@@ -67,6 +67,8 @@ const DEFAULT_THEME = {
   shadow: '#000000',
 };
 
+const MAX_POINTS_PER_TRACK = 100;
+
 const getResponsiveLayout = (screenWidth, screenHeight) => {
   const shortestSide = Math.min(screenWidth, screenHeight);
   const isTablet = shortestSide >= 600;
@@ -228,9 +230,15 @@ const getLateStartStatusLabel = record => {
 
 const buildPenaltyBreakdownRows = record => [
   {
-    penalty: 'Bunting & Pole Down',
+    penalty: 'Bunting Cut',
     count: getFirstDefinedValue(record?.bunting_count, record?.bustingCount),
     penaltyTime: getFirstDefinedValue(record?.bunting_penalty_time, record?.bustingPenaltyTime),
+    status: '--',
+  },
+  {
+    penalty: 'Pole Down',
+    count: getFirstDefinedValue(record?.pole_down_count, record?.poleDownCount),
+    penaltyTime: getFirstDefinedValue(record?.pole_down_penalty_time, record?.poleDownPenaltyTime),
     status: '--',
   },
   {
@@ -848,6 +856,7 @@ const LeaderboardScreen = ({
       trackCount * responsiveLayout.trackWidth
     );
   }, [responsiveLayout, selectedCategoryConfig]);
+  const categoryMaxPoints = (selectedCategoryConfig?.tracks?.length || 0) * MAX_POINTS_PER_TRACK;
   const detailModalMaxHeight = Math.max(360, screenHeight - (responsiveLayout.isTablet ? 40 : 32));
 
   return (
@@ -945,7 +954,7 @@ const LeaderboardScreen = ({
                   </Text>
                   <Text style={[styles.stageSubtitle, { color: theme.textSecondary }]}>
                     {leaderboardRows.length} {leaderboardRows.length === 1 ? 'vehicle' : 'vehicles'} sorted by total
-                    points. Each track cell shows day-wise timing and points.
+                    points out of {categoryMaxPoints || 700}. Each track cell shows day-wise timing and points.
                   </Text>
                 </View>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end' }}>
@@ -962,7 +971,8 @@ const LeaderboardScreen = ({
                 <Text style={[styles.legendTitle, { color: theme.textPrimary }]}>Cell Format</Text>
                 <Text style={[styles.legendText, { color: theme.textSecondary }]}>
                   `Track total points` on top, then day-wise rows like `D1: 02:14:32 | 100 pts | P1`. If a track was not
-                  played, the cell shows `NA`. Disputed holds display their remaining auto-submit timer.
+                  played, the cell shows `NA`. Vehicle totals are shown out of {categoryMaxPoints || 700} points.
+                  Disputed holds display their remaining auto-submit timer.
                 </Text>
               </View>
 
@@ -1063,7 +1073,9 @@ const LeaderboardScreen = ({
                             </Text>
                           </View>
                           <View style={[styles.pointsCell, { width: responsiveLayout.pointsWidth }]}>
-                            <Text style={[styles.totalPointsValue, { color: theme.accent }]}>{item.totalPoints}</Text>
+                            <Text style={[styles.totalPointsValue, { color: theme.accent }]}>
+                              {item.totalPoints}/{categoryMaxPoints || 700}
+                            </Text>
                             <Text style={[styles.totalPointsLabel, { color: theme.textSecondary }]}>pts</Text>
                           </View>
                           {item.trackSummaries.map(summary => (
@@ -1474,7 +1486,7 @@ const styles = StyleSheet.create({
     fontFamily: BODY_FONT,
   },
   categoryRow: {
-    paddingBottom: 8,
+    paddingBottom: 96,
     gap: 12,
   },
   categoryCard: {
@@ -1563,7 +1575,7 @@ const styles = StyleSheet.create({
     fontFamily: BODY_FONT,
   },
   horizontalTableScroll: {
-    paddingBottom: 24,
+    paddingBottom: 120,
   },
   tableHeaderRow: {
     flexDirection: 'row',
@@ -1593,7 +1605,7 @@ const styles = StyleSheet.create({
     textAlign: 'left',
   },
   tableBodyContent: {
-    paddingBottom: 10,
+    paddingBottom: 120,
   },
   tableBodyRow: {
     flexDirection: 'row',
@@ -1712,6 +1724,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 20,
     overflow: 'hidden',
+    flex: 1,
     flexShrink: 1,
   },
   detailHeader: {
@@ -1761,9 +1774,11 @@ const styles = StyleSheet.create({
     fontFamily: BODY_FONT,
   },
   detailScrollView: {
-    flexShrink: 1,
+    flex: 1,
+    minHeight: 0,
   },
   detailScrollContent: {
+    flexGrow: 1,
     padding: 16,
     paddingBottom: 28,
     gap: 14,
