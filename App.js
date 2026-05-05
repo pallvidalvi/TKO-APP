@@ -592,7 +592,7 @@ const IGNITION_SOUND_DURATION_MS = 3000;
 const IGNITION_VIBRATION_PATTERN = Platform.OS === 'android'
   ? [0, 70, 60, 110, 70, 160, 90, 220]
   : 220;
-const RESULTS_RESET_TOKEN = '2026-04-09-clear-report-records';
+const RESULTS_RESET_TOKEN = '2026-05-05-clear-all-track-records';
 const DEFAULT_SETTINGS_PASSWORD = 'admin123';
 const LEGACY_SETTINGS_PASSWORDS = ['Pritisangam@MH50'];
 const DEFAULT_SECURITY_PIN = '0000';
@@ -821,30 +821,36 @@ const matchesStoredSelectedDay = (item, selectedDay) => {
 const ensureResultsClearedOnce = async () => {
   try {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      const resetKey = 'tko_results_reset_token';
+      const resetKey = 'tko_track_records_reset_token';
       if (window.localStorage.getItem(resetKey) === RESULTS_RESET_TOKEN) {
         return false;
       }
 
-      await ResultsService.clearAllResults();
+      await Promise.all([
+        ResultsService.clearAllResults(),
+        DisputesService.clearAllDisputes(),
+      ]);
       window.localStorage.setItem(resetKey, RESULTS_RESET_TOKEN);
       return true;
     }
 
     if (FileSystem?.documentDirectory) {
-      const markerPath = `${FileSystem.documentDirectory}results-reset-${RESULTS_RESET_TOKEN}.txt`;
+      const markerPath = `${FileSystem.documentDirectory}track-records-reset-${RESULTS_RESET_TOKEN}.txt`;
       const markerInfo = await FileSystem.getInfoAsync(markerPath).catch(() => ({ exists: false }));
 
       if (markerInfo.exists) {
         return false;
       }
 
-      await ResultsService.clearAllResults();
+      await Promise.all([
+        ResultsService.clearAllResults(),
+        DisputesService.clearAllDisputes(),
+      ]);
       await FileSystem.writeAsStringAsync(markerPath, 'done');
       return true;
     }
   } catch (error) {
-    console.warn('Unable to clear stored results automatically:', error);
+    console.warn('Unable to clear stored track records automatically:', error);
   }
 
   return false;
@@ -2988,6 +2994,16 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
     [category?.name, completedTracksByRecord, orderedRecords, selectedTrackFilter]
   );
   const firstAvailableRecordKey = filteredRecords.length ? getRecordKey(filteredRecords[0]) : '';
+  const selectedTrackMappedRecordCount = useMemo(
+    () =>
+      selectedTrackFilter
+        ? orderedRecords.filter(record => getTeamTracks(record, category?.name).includes(selectedTrackFilter)).length
+        : 0,
+    [category?.name, orderedRecords, selectedTrackFilter]
+  );
+  const selectedTrackCompletedRecordCount = selectedTrackFilter
+    ? selectedTrackMappedRecordCount - filteredRecords.length
+    : 0;
 
   return (
     <Modal
@@ -3073,8 +3089,16 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
             })}
             ListEmptyComponent={
               <EmptyStateCard
-                title="No vehicles found"
-                message="No vehicles are mapped to this track yet."
+                title={
+                  selectedTrackMappedRecordCount > 0
+                    ? 'All vehicles completed'
+                    : 'No vehicles found'
+                }
+                message={
+                  selectedTrackMappedRecordCount > 0
+                    ? `${selectedTrackCompletedRecordCount} ${selectedTrackCompletedRecordCount === 1 ? 'vehicle has' : 'vehicles have'} already been saved or held for ${selectedTrackFilter}. Clear saved records/disputes to make them available again.`
+                    : 'No vehicles are mapped to this track yet.'
+                }
                 containerStyle={styles.emptyStateCard}
                 titleStyle={styles.emptyStateTitle}
                 messageStyle={styles.emptyStateText}
