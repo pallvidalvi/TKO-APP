@@ -22,6 +22,8 @@ import {
   getDayIdentity,
   getDisputeAutoSubmitStatus,
   getDisputeResolutionLabel,
+  getDnfBreakdownLabel,
+  getDnfDisplayLabel,
   getResultIdentityKey,
   getResultTimeValue,
   isDnfResult,
@@ -177,7 +179,7 @@ const getTimingLabel = (item, nowTimestamp) => {
   }
 
   if (isDnfResult(item)) {
-    return 'DNF';
+    return getDnfDisplayLabel(item);
   }
 
   return item?.total_time || item?.totalTimeDisplay || '--';
@@ -308,6 +310,10 @@ const buildDetailSections = record => [
         label: 'Vehicle Out of the Track',
         value: getYesNoLabel(record?.vehicle_out_of_track_selected ?? record?.vehicleOutOfTrackSelected),
       },
+      {
+        label: 'Vehicle Breakdown',
+        value: getYesNoLabel(record?.vehicle_breakdown_selected ?? record?.vehicleBreakdownSelected),
+      },
       { label: 'DNF Selection', value: record?.dnf_selection ?? record?.dnfSelection },
       { label: 'DNF Points', value: record?.dnf_points ?? record?.dnfPoints },
     ],
@@ -323,6 +329,11 @@ const DISPUTE_PARTY_LABEL_BY_KEY = DISPUTE_PARTY_OPTIONS.reduce((acc, item) => {
   acc[item.key] = item.label;
   return acc;
 }, {});
+
+const DISPUTE_SIGNATURE_OPTIONS = [
+  { key: 'driver', label: 'Driver' },
+  { key: 'coDriver', label: 'Co-driver' },
+];
 
 const DISPUTE_DETAIL_INPUTLESS_KEYS = new Set(['byTeam', 'byOpponent']);
 
@@ -392,6 +403,61 @@ const getDisputeDetailEntries = source => {
 const getDisputePartyKeysWithDetails = record => {
   const partyKeys = [...new Set(getDisputeDetailEntries(record).map(entry => entry.partyKey).filter(Boolean))];
   return partyKeys.length ? partyKeys : DISPUTE_PARTY_OPTIONS.map(party => party.key);
+};
+
+const getDisputeSignedByLabels = (record, partyKey = 'byTeam') => {
+  if (partyKey !== 'byTeam') {
+    return [];
+  }
+
+  const rawSignatures = safeParseJsonValue(record?.disputeSignatures ?? record?.dispute_signatures ?? {});
+  const rawSignedBy = safeParseJsonValue(record?.disputeSignedBy ?? record?.dispute_signed_by ?? []);
+  const byTeamSignature =
+    rawSignatures?.byTeam ||
+    rawSignatures?.by_team ||
+    rawSignatures?.team ||
+    rawSignatures ||
+    {};
+  const signedByMap = {};
+
+  if (byTeamSignature && typeof byTeamSignature === 'object' && !Array.isArray(byTeamSignature)) {
+    signedByMap.driver = Boolean(byTeamSignature.driver);
+    signedByMap.coDriver = Boolean(
+      byTeamSignature.coDriver || byTeamSignature.co_driver || byTeamSignature.codriver
+    );
+  }
+
+  const signedByList = Array.isArray(rawSignedBy)
+    ? rawSignedBy
+    : typeof rawSignedBy === 'string'
+    ? rawSignedBy.split(',')
+    : [];
+
+  signedByList.forEach(value => {
+    const normalizedValue = String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+
+    if (normalizedValue === 'driver') {
+      signedByMap.driver = true;
+    }
+
+    if (normalizedValue === 'codriver') {
+      signedByMap.coDriver = true;
+    }
+  });
+
+  return DISPUTE_SIGNATURE_OPTIONS.filter(option => Boolean(signedByMap[option.key])).map(option => option.label);
+};
+
+const buildDisputeSignatureItems = (record, partyKey = 'byTeam', shouldShowUnsigned = true) => {
+  const signedByLabels = getDisputeSignedByLabels(record, partyKey);
+
+  if (signedByLabels.length) {
+    return [{ label: 'Dispute Signed In By', value: signedByLabels.join(', ') }];
+  }
+
+  return partyKey === 'byTeam' && shouldShowUnsigned
+    ? [{ label: 'Dispute Signed In By', value: 'Not signed' }]
+    : [];
 };
 
 const getDisputeResolutionLabelForStatus = status => {
@@ -487,12 +553,14 @@ const appendDisputeResolutionSection = record => {
     };
     const resolution = disputeResolutions[partyKey] || {};
     const detailItems = buildDisputeDetailItems(record, partyKey);
+    const hasPartyDispute = Boolean(resolution.status || resolution.label || detailItems.length);
     const statusLabel = resolution.label || (detailItems.length ? 'Pending' : 'No Dispute Raised');
 
     return {
       title: `Dispute Resolution - ${party.label}`,
       items: [
         { label: 'Status', value: statusLabel },
+        ...buildDisputeSignatureItems(record, partyKey, hasPartyDispute),
         ...(resolution.penaltyDecisionLabel && resolution.penaltyDecisionLabel !== statusLabel
           ? [{ label: 'TKO Decision', value: resolution.penaltyDecisionLabel }]
           : []),
@@ -524,7 +592,10 @@ const appendDisputeDetailsSection = record => {
 
       return {
         title: `Dispute Details - ${party.label}`,
-        items: disputeDetailItems,
+        items: [
+          ...buildDisputeSignatureItems(record, partyKey),
+          ...disputeDetailItems,
+        ],
       };
     })
     .filter(Boolean);
@@ -1319,6 +1390,7 @@ const LeaderboardScreen = ({
                       { label: 'Total Time', value: selectedDetail.record?.total_time || selectedDetail.record?.totalTimeDisplay },
                       { label: 'Late Start Status', value: selectedDetail.record?.late_start_status || selectedDetail.record?.lateStartStatus },
                       { label: 'Late Start Penalty', value: selectedDetail.record?.late_start_penalty_time || selectedDetail.record?.lateStartPenaltyTime },
+                      { label: 'DNF Reason', value: getDnfBreakdownLabel(selectedDetail.record || {}) },
                       { label: 'DNF Points', value: selectedDetail.record?.dnf_points ?? selectedDetail.record?.dnfPoints },
                     ].map(item => (
                       <View key={item.label} style={[styles.detailFieldCard, { backgroundColor: theme.backgroundStrong }]}>
@@ -1637,7 +1709,7 @@ const styles = StyleSheet.create({
     fontFamily: BODY_FONT,
   },
   totalPointsValue: {
-    fontSize: 24,
+    fontSize: 21,
     fontWeight: '900',
     fontFamily: HEADING_FONT,
   },

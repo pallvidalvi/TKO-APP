@@ -569,7 +569,7 @@ const buildLeaderboardRows = (categoryOption, teams = [], uniqueResults = []) =>
     .sort(compareRows);
 };
 
-const buildLeaderboardExportSnapshot = async () => {
+const buildLeaderboardExportSnapshot = async ({ categoryOptionsOverride = [] } = {}) => {
   const [results, disputes, teams, categories] = await Promise.all([
     ResultsService.getAllResults(),
     DisputesService.getAllDisputes(),
@@ -594,9 +594,15 @@ const buildLeaderboardExportSnapshot = async () => {
     results: normalizedResults,
     disputes: normalizedDisputes,
   });
-  const categoryOptions = mergeCategoryOptions(
-    Array.isArray(categories) ? categories.map(normalizeCategoryOption) : [],
-    fallbackCategoryOptions
+  const overrideCategoryOptions = Array.isArray(categoryOptionsOverride)
+    ? categoryOptionsOverride.map(normalizeCategoryOption).filter(option => option.key)
+    : [];
+  const categoryOptions = (overrideCategoryOptions.length
+    ? mergeCategoryOptions(overrideCategoryOptions, [])
+    : mergeCategoryOptions(
+        Array.isArray(categories) ? categories.map(normalizeCategoryOption) : [],
+        fallbackCategoryOptions
+      )
   ).map(option => ({
     ...option,
     tracks:
@@ -817,6 +823,25 @@ const buildResultDataFromDispute = dispute => {
     [];
   const parsedDisputeDetails = parseMaybeJsonValue(rawDisputeDetails);
   const disputeDetails = Array.isArray(parsedDisputeDetails) ? parsedDisputeDetails : [];
+  const rawDisputeSignatures =
+    parsedDispute.disputeSignatures ||
+    parsedDispute.dispute_signatures ||
+    sourcePayload.disputeSignatures ||
+    sourcePayload.dispute_signatures ||
+    {};
+  const parsedDisputeSignatures = parseMaybeJsonValue(rawDisputeSignatures);
+  const disputeSignatures =
+    parsedDisputeSignatures && typeof parsedDisputeSignatures === 'object' && !Array.isArray(parsedDisputeSignatures)
+      ? parsedDisputeSignatures
+      : {};
+  const rawDisputeSignedBy =
+    parsedDispute.disputeSignedBy ||
+    parsedDispute.dispute_signed_by ||
+    sourcePayload.disputeSignedBy ||
+    sourcePayload.dispute_signed_by ||
+    [];
+  const parsedDisputeSignedBy = parseMaybeJsonValue(rawDisputeSignedBy);
+  const disputeSignedBy = Array.isArray(parsedDisputeSignedBy) ? parsedDisputeSignedBy : [];
   const disputeResolutions = getAutoSubmittedDisputeResolutions(
     parsedDispute,
     sourcePayload,
@@ -843,6 +868,10 @@ const buildResultDataFromDispute = dispute => {
     disputeId: dispute?.id || sourcePayload.disputeId || null,
     disputeDetails,
     dispute_details: disputeDetails,
+    disputeSignatures,
+    dispute_signatures: disputeSignatures,
+    disputeSignedBy,
+    dispute_signed_by: disputeSignedBy,
     disputeResolutions,
     dispute_resolutions: disputeResolutions,
     source: 'dispute-auto-submit',
@@ -966,6 +995,18 @@ const buildResultDataFromDispute = dispute => {
       parsedDispute.vehicleOutOfTrackSelected ??
       sourcePayload.vehicleOutOfTrackSelected ??
       false,
+    vehicle_breakdown_selected:
+      parsedDispute.vehicle_breakdown_selected ??
+      parsedDispute.vehicleBreakdownSelected ??
+      sourcePayload.vehicle_breakdown_selected ??
+      sourcePayload.vehicleBreakdownSelected ??
+      false,
+    vehicleBreakdownSelected:
+      parsedDispute.vehicle_breakdown_selected ??
+      parsedDispute.vehicleBreakdownSelected ??
+      sourcePayload.vehicle_breakdown_selected ??
+      sourcePayload.vehicleBreakdownSelected ??
+      false,
     is_dnf: parsedDispute.is_dnf ?? parsedDispute.isDNF ?? sourcePayload.isDNF ?? false,
     is_dns: parsedDispute.is_dns ?? parsedDispute.isDNS ?? sourcePayload.isDNS ?? false,
     dnf_selection: parsedDispute.dnf_selection ?? parsedDispute.dnfSelection ?? sourcePayload.dnfSelection ?? null,
@@ -1000,6 +1041,10 @@ const buildResultDataFromDispute = dispute => {
       parsedDispute.total_time || parsedDispute.totalTimeDisplay || sourcePayload.totalTimeDisplay || null,
     dispute_details: disputeDetails,
     disputeDetails,
+    dispute_signatures: disputeSignatures,
+    disputeSignatures,
+    dispute_signed_by: disputeSignedBy,
+    disputeSignedBy,
     dispute_resolutions: disputeResolutions,
     disputeResolutions,
     dispute_resolution_status: normalizedFormPayload.dispute_resolution_status,
@@ -1059,6 +1104,18 @@ const normalizeImportedCompetitionRecord = record => {
     vehicleOutOfTrackSelected: Boolean(
       parsedRecord.vehicle_out_of_track_selected || parsedRecord.vehicleOutOfTrackSelected
     ),
+    vehicle_breakdown_selected: Boolean(
+      parsedRecord.vehicle_breakdown_selected || parsedRecord.vehicleBreakdownSelected
+    ),
+    vehicleBreakdownSelected: Boolean(
+      parsedRecord.vehicle_breakdown_selected || parsedRecord.vehicleBreakdownSelected
+    ),
+    is_dnf: Boolean(parsedRecord.is_dnf || parsedRecord.isDNF),
+    isDNF: Boolean(parsedRecord.is_dnf || parsedRecord.isDNF),
+    dnf_selection: getFirstPresentValue(parsedRecord.dnf_selection, parsedRecord.dnfSelection),
+    dnfSelection: getFirstPresentValue(parsedRecord.dnf_selection, parsedRecord.dnfSelection),
+    dnf_points: getFirstPresentValue(parsedRecord.dnf_points, parsedRecord.dnfPoints, 0),
+    dnfPoints: getFirstPresentValue(parsedRecord.dnf_points, parsedRecord.dnfPoints, 0),
     is_dns: Boolean(parsedRecord.is_dns || parsedRecord.isDNS),
     total_penalties_time: getFirstPresentValue(
       parsedRecord.total_penalties_time,
@@ -1143,8 +1200,8 @@ const saveWebLeaderboardSnapshot = snapshot => {
 };
 
 export const LeaderboardService = {
-  exportLeaderboardData: async ({ focusCategory = '', syncBaseUrl = '' } = {}) => {
-    const snapshot = await buildLeaderboardExportSnapshot();
+  exportLeaderboardData: async ({ focusCategory = '', syncBaseUrl = '', categoryOptionsOverride = [] } = {}) => {
+    const snapshot = await buildLeaderboardExportSnapshot({ categoryOptionsOverride });
     if (focusCategory) {
       snapshot.focusCategory = focusCategory;
     }
@@ -1156,7 +1213,7 @@ export const LeaderboardService = {
     };
   },
 
-  buildLeaderboardExportSnapshot: async () => buildLeaderboardExportSnapshot(),
+  buildLeaderboardExportSnapshot: async options => buildLeaderboardExportSnapshot(options),
 
   importLeaderboardSnapshot: async snapshot => {
     const summary = await importLeaderboardSnapshotRecords(snapshot);

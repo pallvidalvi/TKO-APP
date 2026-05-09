@@ -2166,6 +2166,17 @@ const styles = StyleSheet.create({
     fontFamily: HEADING_FONT,
   },
 
+  disputeSignatureBlock: {
+    marginBottom: 16,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2a3441',
+  },
+
+  disputeSignatureOptions: {
+    gap: 10,
+  },
+
   disputeModalSection: {
     marginBottom: 16,
   },
@@ -2500,6 +2511,54 @@ const styles = StyleSheet.create({
   },
 
   settingsTrackStatusInactive: {
+    color: '#ff9da4',
+  },
+
+  settingsInlineFormRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+
+  settingsInlineFormInput: {
+    flex: 1,
+  },
+
+  settingsInlineActionButton: {
+    flex: 0,
+    minWidth: 92,
+  },
+
+  settingsTrackManagerRow: {
+    alignItems: 'stretch',
+  },
+
+  settingsTrackManagerInfo: {
+    flex: 1,
+  },
+
+  settingsTrackRenameInput: {
+    marginTop: 10,
+  },
+
+  settingsTrackManagerActions: {
+    width: 118,
+    gap: 8,
+  },
+
+  settingsCompactActionButton: {
+    flex: 0,
+    minHeight: 44,
+    marginTop: 0,
+    paddingHorizontal: 10,
+  },
+
+  settingsDangerActionButton: {
+    borderColor: '#7f2830',
+    backgroundColor: '#2a1015',
+  },
+
+  settingsDangerActionText: {
     color: '#ff9da4',
   },
 

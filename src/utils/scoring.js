@@ -211,14 +211,56 @@ export const parseTimeForSort = value => {
 
 export const isDnsResult = item => Boolean(item?.is_dns || item?.isDns);
 
+export const DNF_REASON_FIELDS = [
+  { label: 'Wrong Course', keys: ['wrong_course_selected', 'wrongCourseSelected'] },
+  { label: '4th Attempt', keys: ['fourth_attempt_selected', 'fourthAttemptSelected'] },
+  { label: 'Time Over', keys: ['time_over_selected', 'timeOverSelected'] },
+  { label: 'Vehicle Out of the Track', keys: ['vehicle_out_of_track_selected', 'vehicleOutOfTrackSelected'] },
+  { label: 'Vehicle Breakdown', keys: ['vehicle_breakdown_selected', 'vehicleBreakdownSelected'] },
+];
+
+const hasTruthyFlag = (item, keys) => keys.some(key => Boolean(item?.[key]));
+
+export const getDnfBreakdownLabel = item => {
+  const matchedReason = DNF_REASON_FIELDS.find(reason => hasTruthyFlag(item, reason.keys));
+  if (matchedReason?.label) {
+    return matchedReason.label;
+  }
+
+  const storedLabel = String(item?.total_time || item?.totalTimeDisplay || item?.performance_time || item?.performanceTimeDisplay || '')
+    .trim();
+  const storedReasonMatch = storedLabel.match(/^DNF\s*-\s*(.+)$/i);
+  return storedReasonMatch ? storedReasonMatch[1].trim() : '';
+};
+
 export const isDnfResult = item => {
   if (Boolean(item?.is_dnf || item?.isDNF)) {
+    return true;
+  }
+
+  if (getDnfBreakdownLabel(item)) {
     return true;
   }
 
   const totalTimeValue = String(item?.total_time || item?.totalTimeDisplay || '').trim().toUpperCase();
   const completionTimeValue = String(item?.completion_time || item?.completionTime || '').trim().toUpperCase();
   return totalTimeValue.startsWith('DNF') || completionTimeValue === 'DNF';
+};
+
+export const getDnfDisplayLabel = item => {
+  if (!isDnfResult(item)) {
+    return '';
+  }
+
+  const storedLabel = String(item?.total_time || item?.totalTimeDisplay || item?.performance_time || item?.performanceTimeDisplay || '')
+    .trim();
+
+  if (/^DNF\b/i.test(storedLabel) && storedLabel.length > 3) {
+    return storedLabel;
+  }
+
+  const breakdownLabel = getDnfBreakdownLabel(item);
+  return breakdownLabel ? `DNF - ${breakdownLabel}` : 'DNF';
 };
 
 export const getResultTimeValue = item =>

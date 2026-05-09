@@ -16,6 +16,9 @@ import { CloseActionButton, NavigationActionButton } from '../components/Navigat
 import {
   DISPUTE_AUTO_SUBMIT_POLL_MS,
   getDisputeAutoSubmitStatus,
+  getDnfBreakdownLabel,
+  getDnfDisplayLabel,
+  isDnfResult,
   isDnsResult,
   rankTrackResults,
 } from '../utils/scoring';
@@ -698,6 +701,7 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], dat
                       const driverName = item.driver_name || item.driverName || '--';
                       const coDriverName = item.codriver_name || item.coDriverName || '--';
                       const disputeDetailSummary = item.isDisputed ? formatDisputeEntriesInline(item) : '';
+                      const dnfBreakdownLabel = getDnfBreakdownLabel(item);
                       const disputeDisplayStatus = getReportDisputeDisplayStatus(item);
                       const isHoldStatus = disputeDisplayStatus === 'Hold';
                       const isResolvedDisputeStatus = disputeDisplayStatus === 'Resolved';
@@ -706,6 +710,8 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], dat
                         ? disputeDisplayStatus
                         : isDnsResult(item)
                         ? 'DNS'
+                        : isDnfResult(item)
+                        ? getDnfDisplayLabel(item)
                         : item.total_time || item.totalTimeDisplay || '--';
                       const pointsLabel =
                         item.reportPoints === null || item.reportPoints === undefined ? '--' : `${item.reportPoints}`;
@@ -750,6 +756,11 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], dat
                                     Resolution: {disputeResolutionLabel}
                                   </Text>
                                 ) : null}
+                                {dnfBreakdownLabel ? (
+                                  <Text style={[styles.pointsMetaText, { color: theme.accent }]}>
+                                    DNF: {dnfBreakdownLabel}
+                                  </Text>
+                                ) : null}
                               </View>
                             </View>
                             <Text style={[styles.disputeDetailText, { color: theme.textSecondary }]}>
@@ -785,6 +796,11 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], dat
                             {disputeResolutionLabel ? (
                               <Text style={[styles.pointsMetaText, { color: theme.accent }]}>
                                 Resolution: {disputeResolutionLabel}
+                              </Text>
+                            ) : null}
+                            {dnfBreakdownLabel ? (
+                              <Text style={[styles.pointsMetaText, { color: theme.accent }]}>
+                                DNF: {dnfBreakdownLabel}
                               </Text>
                             ) : null}
                           </View>

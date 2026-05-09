@@ -11,11 +11,13 @@ const DNFSelector = React.memo(function DNFSelector({
   fourthAttemptSelected,
   timeOverSelected,
   vehicleOutOfTrackSelected,
+  vehicleBreakdownSelected,
   pointsValue,
   onWrongCourseChange,
   onFourthAttemptChange,
   onTimeOverChange,
   onVehicleOutOfTrackChange = () => {},
+  onVehicleBreakdownChange = () => {},
   onPointsChange,
   timeOverLocked = false,
   timeOverLimitLabel = '',
@@ -24,7 +26,12 @@ const DNFSelector = React.memo(function DNFSelector({
 }) {
   const responsiveLayout = layout || INITIAL_LAYOUT;
   const [isOpen, setIsOpen] = useState(false);
-  const hasSelection = wrongCourseSelected || fourthAttemptSelected || timeOverSelected || vehicleOutOfTrackSelected;
+  const hasSelection =
+    wrongCourseSelected ||
+    fourthAttemptSelected ||
+    timeOverSelected ||
+    vehicleOutOfTrackSelected ||
+    vehicleBreakdownSelected;
   const selectedReason = wrongCourseSelected
     ? 'wrongCourse'
     : fourthAttemptSelected
@@ -33,13 +40,16 @@ const DNFSelector = React.memo(function DNFSelector({
         ? 'timeOver'
         : vehicleOutOfTrackSelected
           ? 'vehicleOutOfTrack'
-          : '';
+          : vehicleBreakdownSelected
+            ? 'vehicleBreakdown'
+            : '';
 
   const setExclusiveReason = reason => {
     onWrongCourseChange(reason === 'wrongCourse');
     onFourthAttemptChange(reason === 'fourthAttempt');
     onTimeOverChange(reason === 'timeOver');
     onVehicleOutOfTrackChange(reason === 'vehicleOutOfTrack');
+    onVehicleBreakdownChange(reason === 'vehicleBreakdown');
   };
 
   const handleToggle = () => {
@@ -122,6 +132,18 @@ const DNFSelector = React.memo(function DNFSelector({
           </TouchableOpacity>
 
           <TouchableOpacity
+            style={styles.dnfCheckboxRow}
+            onPress={() => setExclusiveReason('vehicleBreakdown')}
+            activeOpacity={0.85}
+            hitSlop={TOUCH_HIT_SLOP}
+          >
+            <View style={[styles.dnfRadio, selectedReason === 'vehicleBreakdown' && styles.dnfRadioSelected]}>
+              {selectedReason === 'vehicleBreakdown' ? <View style={styles.dnfRadioDot} /> : null}
+            </View>
+            <Text style={styles.dnfCheckboxLabel}>Vehicle Breakdown</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
             style={[styles.dnfCheckboxRow, timeOverLocked && styles.dnfCheckboxRowDisabled]}
             onPress={() => {
               if (!timeOverLocked) {
@@ -176,6 +198,7 @@ const DNFSelector = React.memo(function DNFSelector({
                 onFourthAttemptChange(false);
                 onTimeOverChange(false);
                 onVehicleOutOfTrackChange(false);
+                onVehicleBreakdownChange(false);
                 onPointsChange('');
                 setIsOpen(false);
               }}

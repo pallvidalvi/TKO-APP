@@ -27,7 +27,12 @@ import {
   promoteExpiredDisputesToResults,
 } from './src/services/dataService';
 import { LocalWifiSyncService } from './src/services/localWifiSyncService';
-import { DISPUTE_AUTO_SUBMIT_POLL_MS, getDisputeAutoSubmitStatus } from './src/utils/scoring';
+import {
+  DISPUTE_AUTO_SUBMIT_POLL_MS,
+  getDisputeAutoSubmitStatus,
+  getDnfBreakdownLabel,
+  getDnfDisplayLabel,
+} from './src/utils/scoring';
 import ReportScreen from './src/screens/ReportScreen';
 import LeaderboardScreen from './src/screens/LeaderboardScreen';
 import TouchableOpacity from './src/components/FastTouchableOpacity';
@@ -285,6 +290,8 @@ const CATEGORY_TRACKS = {
   LADIES: ['K2', 'EVEREST', 'SAHYADRI', 'HIMALAYA', 'KALASUBAI', 'VALMIKI', 'SATPUDA'],
   LADIES_CATEGORY: ['K2', 'EVEREST', 'SAHYADRI', 'HIMALAYA', 'KALASUBAI', 'VALMIKI', 'SATPUDA'],
 };
+
+const MAX_TRACKS_PER_CATEGORY = 10;
 
 const REPORT_DAYS = [
   {
@@ -688,14 +695,61 @@ const normalizeCategoryKey = (value = '') => {
   return normalizedValue;
 };
 
-const attachTeamCountsToCategories = (categories = [], teams = []) =>
+const normalizeTrackDisplayName = value => String(value || '').trim().replace(/\s+/g, ' ').toUpperCase();
+
+const getDefaultCategoryTrackConfig = () =>
+  Object.keys(CATEGORY_TRACKS).reduce((acc, categoryKey) => {
+    acc[categoryKey] = [...CATEGORY_TRACKS[categoryKey]].slice(0, MAX_TRACKS_PER_CATEGORY);
+    return acc;
+  }, {});
+
+const syncLadiesCategoryTracks = config => ({
+  ...config,
+  LADIES: [...(config.LADIES_CATEGORY || config.LADIES || [])],
+});
+
+const normalizeCategoryTrackConfig = storedConfig => {
+  const fallback = getDefaultCategoryTrackConfig();
+  const nextConfig = Object.keys(fallback).reduce((acc, categoryKey) => {
+    const sourceTracks = Array.isArray(storedConfig?.[categoryKey])
+      ? storedConfig[categoryKey]
+      : fallback[categoryKey];
+    const seen = new Set();
+
+    acc[categoryKey] = sourceTracks.reduce((tracks, trackName) => {
+      const normalizedTrackName = normalizeTrackDisplayName(trackName);
+      const trackKey = normalizedTrackName.toLowerCase();
+
+      if (!normalizedTrackName || seen.has(trackKey) || tracks.length >= MAX_TRACKS_PER_CATEGORY) {
+        return tracks;
+      }
+
+      seen.add(trackKey);
+      tracks.push(normalizedTrackName);
+      return tracks;
+    }, []);
+
+    return acc;
+  }, {});
+
+  return syncLadiesCategoryTracks(nextConfig);
+};
+
+const getCategoryTrackList = (categoryName, categoryTrackConfig = null) => {
+  const categoryKey = normalizeCategoryKey(categoryName || '');
+  const normalizedConfig = categoryTrackConfig || CATEGORY_TRACKS;
+
+  return normalizedConfig[categoryKey] || normalizedConfig.LADIES_CATEGORY || [];
+};
+
+const attachTeamCountsToCategories = (categories = [], teams = [], categoryTrackConfig = null) =>
   categories.map(category => ({
     ...category,
     imageSource:
       category.imageSource ||
       CATEGORY_IMAGE_SOURCES[normalizeCategoryKey(category.name)] ||
       null,
-    trackCount: getCategoryTracks(category.name).length,
+    trackCount: getCategoryTracks(category.name, categoryTrackConfig).length,
     teamCount: teams.filter(
       team => normalizeCategoryKey(team.category) === normalizeCategoryKey(category.name)
     ).length,
@@ -856,7 +910,7 @@ const ensureResultsClearedOnce = async () => {
   return false;
 };
 
-const getTeamTracks = (team = {}, categoryName = '') => {
+const getTeamTracks = (team = {}, categoryName = '', categoryTrackConfig = null) => {
   const rawTracks =
     team.tracks ||
     team.track_name ||
@@ -877,18 +931,16 @@ const getTeamTracks = (team = {}, categoryName = '') => {
   }
 
   const categoryKey = normalizeCategoryKey(team.category || categoryName || team.name || '');
-  return CATEGORY_TRACKS[categoryKey] || CATEGORY_TRACKS.LADIES_CATEGORY;
+  return getCategoryTrackList(categoryKey, categoryTrackConfig);
 };
 
-const getCategoryTracks = categoryName => {
-  const categoryKey = normalizeCategoryKey(categoryName || '');
-  return CATEGORY_TRACKS[categoryKey] || CATEGORY_TRACKS.LADIES_CATEGORY;
-};
+const getCategoryTracks = (categoryName, categoryTrackConfig = null) =>
+  getCategoryTrackList(categoryName, categoryTrackConfig);
 
-const buildDefaultTrackActivationConfig = () =>
+const buildDefaultTrackActivationConfig = (categoryTrackConfig = CATEGORY_TRACKS) =>
   REPORT_DAYS.reduce((dayAcc, day) => {
-    dayAcc[day.id] = Object.keys(CATEGORY_TRACKS).reduce((categoryAcc, categoryKey) => {
-      categoryAcc[categoryKey] = (CATEGORY_TRACKS[categoryKey] || []).reduce((trackAcc, trackName) => {
+    dayAcc[day.id] = Object.keys(categoryTrackConfig).reduce((categoryAcc, categoryKey) => {
+      categoryAcc[categoryKey] = (categoryTrackConfig[categoryKey] || []).reduce((trackAcc, trackName) => {
         trackAcc[trackName] = true;
         return trackAcc;
       }, {});
@@ -897,9 +949,9 @@ const buildDefaultTrackActivationConfig = () =>
     return dayAcc;
   }, {});
 
-const buildDefaultCategoryActivationConfig = () =>
+const buildDefaultCategoryActivationConfig = (categoryTrackConfig = CATEGORY_TRACKS) =>
   REPORT_DAYS.reduce((dayAcc, day) => {
-    dayAcc[day.id] = Object.keys(CATEGORY_TRACKS).reduce((categoryAcc, categoryKey) => {
+    dayAcc[day.id] = Object.keys(categoryTrackConfig).reduce((categoryAcc, categoryKey) => {
       categoryAcc[categoryKey] = true;
       return categoryAcc;
     }, {});
@@ -930,10 +982,10 @@ const formatTrackTimerLimit = totalSeconds => {
   return `${minutes}:${seconds.toString().padStart(2, '0')}.0`;
 };
 
-const buildDefaultTrackTimerConfig = () =>
+const buildDefaultTrackTimerConfig = (categoryTrackConfig = CATEGORY_TRACKS) =>
   REPORT_DAYS.reduce((dayAcc, day) => {
-    dayAcc[day.id] = Object.keys(CATEGORY_TRACKS).reduce((categoryAcc, categoryKey) => {
-      categoryAcc[categoryKey] = (CATEGORY_TRACKS[categoryKey] || []).reduce((trackAcc, trackName) => {
+    dayAcc[day.id] = Object.keys(categoryTrackConfig).reduce((categoryAcc, categoryKey) => {
+      categoryAcc[categoryKey] = (categoryTrackConfig[categoryKey] || []).reduce((trackAcc, trackName) => {
         trackAcc[trackName] = null;
         return trackAcc;
       }, {});
@@ -942,12 +994,12 @@ const buildDefaultTrackTimerConfig = () =>
     return dayAcc;
   }, {});
 
-const normalizeTrackActivationConfig = storedConfig => {
-  const fallback = buildDefaultTrackActivationConfig();
+const normalizeTrackActivationConfig = (storedConfig, categoryTrackConfig = CATEGORY_TRACKS) => {
+  const fallback = buildDefaultTrackActivationConfig(categoryTrackConfig);
 
   return REPORT_DAYS.reduce((dayAcc, day) => {
-    dayAcc[day.id] = Object.keys(CATEGORY_TRACKS).reduce((categoryAcc, categoryKey) => {
-      categoryAcc[categoryKey] = (CATEGORY_TRACKS[categoryKey] || []).reduce((trackAcc, trackName) => {
+    dayAcc[day.id] = Object.keys(categoryTrackConfig).reduce((categoryAcc, categoryKey) => {
+      categoryAcc[categoryKey] = (categoryTrackConfig[categoryKey] || []).reduce((trackAcc, trackName) => {
         const storedValue = storedConfig?.[day.id]?.[categoryKey]?.[trackName];
         trackAcc[trackName] = typeof storedValue === 'boolean' ? storedValue : true;
         return trackAcc;
@@ -958,12 +1010,12 @@ const normalizeTrackActivationConfig = storedConfig => {
   }, fallback);
 };
 
-const normalizeTrackTimerConfig = storedConfig => {
-  const fallback = buildDefaultTrackTimerConfig();
+const normalizeTrackTimerConfig = (storedConfig, categoryTrackConfig = CATEGORY_TRACKS) => {
+  const fallback = buildDefaultTrackTimerConfig(categoryTrackConfig);
 
   return REPORT_DAYS.reduce((dayAcc, day) => {
-    dayAcc[day.id] = Object.keys(CATEGORY_TRACKS).reduce((categoryAcc, categoryKey) => {
-      categoryAcc[categoryKey] = (CATEGORY_TRACKS[categoryKey] || []).reduce((trackAcc, trackName) => {
+    dayAcc[day.id] = Object.keys(categoryTrackConfig).reduce((categoryAcc, categoryKey) => {
+      categoryAcc[categoryKey] = (categoryTrackConfig[categoryKey] || []).reduce((trackAcc, trackName) => {
         const storedValue = storedConfig?.[day.id]?.[categoryKey]?.[trackName];
         trackAcc[trackName] =
           storedValue === null || storedValue === undefined ? null : clampTrackTimerSeconds(storedValue);
@@ -975,11 +1027,11 @@ const normalizeTrackTimerConfig = storedConfig => {
   }, fallback);
 };
 
-const normalizeCategoryActivationConfig = storedConfig => {
-  const fallback = buildDefaultCategoryActivationConfig();
+const normalizeCategoryActivationConfig = (storedConfig, categoryTrackConfig = CATEGORY_TRACKS) => {
+  const fallback = buildDefaultCategoryActivationConfig(categoryTrackConfig);
 
   return REPORT_DAYS.reduce((dayAcc, day) => {
-    dayAcc[day.id] = Object.keys(CATEGORY_TRACKS).reduce((categoryAcc, categoryKey) => {
+    dayAcc[day.id] = Object.keys(categoryTrackConfig).reduce((categoryAcc, categoryKey) => {
       const storedValue = storedConfig?.[day.id]?.[categoryKey];
       categoryAcc[categoryKey] = typeof storedValue === 'boolean' ? storedValue : true;
       return categoryAcc;
@@ -1002,8 +1054,8 @@ const isCategoryActiveForDay = (categoryActivationConfig, dayId, categoryName) =
   return categoryActivationConfig?.[dayId]?.[categoryKey] !== false;
 };
 
-const getActiveTracksForDayCategory = (trackActivationConfig, dayId, categoryName) => {
-  const allTracks = getCategoryTracks(categoryName);
+const getActiveTracksForDayCategory = (trackActivationConfig, dayId, categoryName, categoryTrackConfig = null) => {
+  const allTracks = getCategoryTracks(categoryName, categoryTrackConfig);
 
   if (!dayId) {
     return allTracks;
@@ -1070,12 +1122,14 @@ const isAcceptedSettingsPassword = (input, currentPassword) => {
 };
 
 const loadStoredAppSettings = async () => {
+  const fallbackCategoryTrackConfig = normalizeCategoryTrackConfig();
   const fallback = {
     password: DEFAULT_SETTINGS_PASSWORD,
     pin: DEFAULT_SECURITY_PIN,
-    categoryActivationConfig: buildDefaultCategoryActivationConfig(),
-    trackActivationConfig: buildDefaultTrackActivationConfig(),
-    trackTimerConfig: buildDefaultTrackTimerConfig(),
+    categoryTrackConfig: fallbackCategoryTrackConfig,
+    categoryActivationConfig: buildDefaultCategoryActivationConfig(fallbackCategoryTrackConfig),
+    trackActivationConfig: buildDefaultTrackActivationConfig(fallbackCategoryTrackConfig),
+    trackTimerConfig: buildDefaultTrackTimerConfig(fallbackCategoryTrackConfig),
     themeMode: DEFAULT_THEME_MODE,
     leaderboardSyncBaseUrl: DEFAULT_LEADERBOARD_SYNC_BASE_URL,
   };
@@ -1089,12 +1143,14 @@ const loadStoredAppSettings = async () => {
       }
 
       const parsed = JSON.parse(raw);
+      const categoryTrackConfig = normalizeCategoryTrackConfig(parsed?.categoryTrackConfig);
       return {
         password: normalizeStoredSettingsPassword(parsed?.password),
         pin: normalizeSecurityPin(parsed?.pin),
-        categoryActivationConfig: normalizeCategoryActivationConfig(parsed?.categoryActivationConfig),
-        trackActivationConfig: normalizeTrackActivationConfig(parsed?.trackActivationConfig),
-        trackTimerConfig: normalizeTrackTimerConfig(parsed?.trackTimerConfig),
+        categoryTrackConfig,
+        categoryActivationConfig: normalizeCategoryActivationConfig(parsed?.categoryActivationConfig, categoryTrackConfig),
+        trackActivationConfig: normalizeTrackActivationConfig(parsed?.trackActivationConfig, categoryTrackConfig),
+        trackTimerConfig: normalizeTrackTimerConfig(parsed?.trackTimerConfig, categoryTrackConfig),
         themeMode: normalizeThemeMode(parsed?.themeMode),
         leaderboardSyncBaseUrl: normalizeLeaderboardSyncBaseUrl(parsed?.leaderboardSyncBaseUrl),
       };
@@ -1110,12 +1166,14 @@ const loadStoredAppSettings = async () => {
 
       const raw = await FileSystem.readAsStringAsync(filePath);
       const parsed = JSON.parse(raw);
+      const categoryTrackConfig = normalizeCategoryTrackConfig(parsed?.categoryTrackConfig);
       return {
         password: normalizeStoredSettingsPassword(parsed?.password),
         pin: normalizeSecurityPin(parsed?.pin),
-        categoryActivationConfig: normalizeCategoryActivationConfig(parsed?.categoryActivationConfig),
-        trackActivationConfig: normalizeTrackActivationConfig(parsed?.trackActivationConfig),
-        trackTimerConfig: normalizeTrackTimerConfig(parsed?.trackTimerConfig),
+        categoryTrackConfig,
+        categoryActivationConfig: normalizeCategoryActivationConfig(parsed?.categoryActivationConfig, categoryTrackConfig),
+        trackActivationConfig: normalizeTrackActivationConfig(parsed?.trackActivationConfig, categoryTrackConfig),
+        trackTimerConfig: normalizeTrackTimerConfig(parsed?.trackTimerConfig, categoryTrackConfig),
         themeMode: normalizeThemeMode(parsed?.themeMode),
         leaderboardSyncBaseUrl: normalizeLeaderboardSyncBaseUrl(parsed?.leaderboardSyncBaseUrl),
       };
@@ -1128,12 +1186,14 @@ const loadStoredAppSettings = async () => {
 };
 
 const saveStoredAppSettings = async settings => {
+  const categoryTrackConfig = normalizeCategoryTrackConfig(settings.categoryTrackConfig);
   const payload = JSON.stringify({
     password: settings.password || DEFAULT_SETTINGS_PASSWORD,
     pin: normalizeSecurityPin(settings.pin),
-    categoryActivationConfig: normalizeCategoryActivationConfig(settings.categoryActivationConfig),
-    trackActivationConfig: normalizeTrackActivationConfig(settings.trackActivationConfig),
-    trackTimerConfig: normalizeTrackTimerConfig(settings.trackTimerConfig),
+    categoryTrackConfig,
+    categoryActivationConfig: normalizeCategoryActivationConfig(settings.categoryActivationConfig, categoryTrackConfig),
+    trackActivationConfig: normalizeTrackActivationConfig(settings.trackActivationConfig, categoryTrackConfig),
+    trackTimerConfig: normalizeTrackTimerConfig(settings.trackTimerConfig, categoryTrackConfig),
     themeMode: normalizeThemeMode(settings.themeMode),
     leaderboardSyncBaseUrl: normalizeLeaderboardSyncBaseUrl(settings.leaderboardSyncBaseUrl),
   });
@@ -1205,6 +1265,11 @@ const DISPUTE_PARTY_LABEL_BY_KEY = DISPUTE_PARTY_OPTIONS.reduce((acc, item) => {
   return acc;
 }, {});
 
+const DISPUTE_SIGNATURE_OPTIONS = [
+  { key: 'driver', label: 'Driver' },
+  { key: 'coDriver', label: 'Co-driver' },
+];
+
 const DISPUTE_DETAIL_GROUPS = [
   {
     key: 'penalties',
@@ -1231,6 +1296,7 @@ const DISPUTE_DETAIL_GROUPS = [
       { key: 'wrongCourse', label: 'Wrong Course' },
       { key: 'fourthAttempt', label: '4th Attempt' },
       { key: 'vehicleOutOfTrack', label: 'Vehicle Out of the Track' },
+      { key: 'vehicleBreakdown', label: 'Vehicle Breakdown' },
       { key: 'timeOver', label: 'Time Over' },
     ],
   },
@@ -1268,6 +1334,13 @@ const createEmptyDisputeFormState = () =>
     acc[party.key] = getEmptyDisputeReasonState();
     return acc;
   }, {});
+
+const createEmptyDisputeSignatureState = () => ({
+  byTeam: DISPUTE_SIGNATURE_OPTIONS.reduce((acc, option) => {
+    acc[option.key] = false;
+    return acc;
+  }, {}),
+});
 
 const safeParseDisputeJsonValue = value => {
   if (!value || typeof value !== 'string') {
@@ -1359,6 +1432,54 @@ const getNormalizedDisputeDetailEntries = source => {
 
   return [];
 };
+
+const getNormalizedDisputeSignatureState = source => {
+  const rawSignatures = safeParseDisputeJsonValue(source?.disputeSignatures ?? source?.dispute_signatures ?? {});
+  const legacySignedBy = safeParseDisputeJsonValue(source?.disputeSignedBy ?? source?.dispute_signed_by ?? []);
+  const nextState = createEmptyDisputeSignatureState();
+  const byTeamSignature =
+    rawSignatures?.byTeam ||
+    rawSignatures?.by_team ||
+    rawSignatures?.team ||
+    rawSignatures ||
+    {};
+
+  const applySignerValue = (key, value) => {
+    if (Object.prototype.hasOwnProperty.call(nextState.byTeam, key)) {
+      nextState.byTeam[key] = Boolean(value);
+    }
+  };
+
+  if (byTeamSignature && typeof byTeamSignature === 'object' && !Array.isArray(byTeamSignature)) {
+    applySignerValue('driver', byTeamSignature.driver);
+    applySignerValue('coDriver', byTeamSignature.coDriver ?? byTeamSignature.co_driver ?? byTeamSignature.codriver);
+  }
+
+  const legacySignedByList = Array.isArray(legacySignedBy)
+    ? legacySignedBy
+    : typeof legacySignedBy === 'string'
+    ? legacySignedBy.split(',')
+    : [];
+
+  legacySignedByList.forEach(value => {
+    const normalizedValue = String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+
+    if (normalizedValue === 'driver') {
+      nextState.byTeam.driver = true;
+    }
+
+    if (normalizedValue === 'codriver') {
+      nextState.byTeam.coDriver = true;
+    }
+  });
+
+  return nextState;
+};
+
+const getDisputeSignedByLabels = (signatureState, partyKey = 'byTeam') =>
+  DISPUTE_SIGNATURE_OPTIONS.filter(option => Boolean(signatureState?.[partyKey]?.[option.key])).map(
+    option => option.label
+  );
 
 const buildDisputeFormStateFromSource = source => {
   const nextState = createEmptyDisputeFormState();
@@ -1551,6 +1672,7 @@ const buildExportRows = data => [[
   data.fourthAttemptSelected ? 'Yes' : 'No',
   data.timeOverSelected ? 'Yes' : 'No',
   data.vehicleOutOfTrackSelected ? 'Yes' : 'No',
+  data.vehicleBreakdownSelected ? 'Yes' : 'No',
   data.dnfPoints,
   data.totalPenaltiesTime,
   data.performanceTimeDisplay,
@@ -1591,6 +1713,7 @@ const RECORD_EXPORT_HEADERS = [
   '4th Attempt',
   'Time Over',
   'Vehicle Out of the Track',
+  'Vehicle Breakdown',
   'DNF Points',
   'Total Penalties Time (sec)',
   'Performance Time (MM:SS:MS)',
@@ -1607,6 +1730,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
   category,
   initialRecord,
   selectedDay,
+  categoryTrackConfig = null,
   trackTimerLimitSeconds = null,
   onBack = () => {},
   onSubmit,
@@ -1631,6 +1755,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
   const [fourthAttemptSelected, setFourthAttemptSelected] = useState(false);
   const [timeOverSelected, setTimeOverSelected] = useState(false);
   const [vehicleOutOfTrackSelected, setVehicleOutOfTrackSelected] = useState(false);
+  const [vehicleBreakdownSelected, setVehicleBreakdownSelected] = useState(false);
   const [dnfSelection, setDnfSelection] = useState('');
   const [lateStartMode, setLateStartMode] = useState('');
   const [stopwatchTime, setStopwatchTime] = useState(0);
@@ -1639,6 +1764,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
   const [hasTimerStopped, setHasTimerStopped] = useState(false);
   const [disputeModalVisible, setDisputeModalVisible] = useState(false);
   const [disputeFormState, setDisputeFormState] = useState(() => createEmptyDisputeFormState());
+  const [disputeSignatureState, setDisputeSignatureState] = useState(() => createEmptyDisputeSignatureState());
   const [resolutionCommentInput, setResolutionCommentInput] = useState('');
   const [tkoResolutionDecision, setTkoResolutionDecision] = useState('');
   const [isPinVerificationInProgress, setIsPinVerificationInProgress] = useState(false);
@@ -1666,7 +1792,12 @@ const RegistrationForm = React.memo(function RegistrationForm({
   const attemptPenaltyTime = calculatePenaltyTime(attemptCount, PENALTY_VALUES.attempt);
   const taskSkippedPenaltyTime = calculatePenaltyTime(taskSkippedCount, PENALTY_VALUES.taskSkipped);
   const dnfPoints = parseInt(dnfSelection, 10) || 0;
-  const isDNF = wrongCourseSelected || fourthAttemptSelected || timeOverSelected || vehicleOutOfTrackSelected;
+  const isDNF =
+    wrongCourseSelected ||
+    fourthAttemptSelected ||
+    timeOverSelected ||
+    vehicleOutOfTrackSelected ||
+    vehicleBreakdownSelected;
   const isDNFPointsMissing = isDNF && !dnfPoints;
   const hasLateStartPenalty = lateStartMode === 'late_start';
   const lateStartPenaltyTime = hasLateStartPenalty ? 30 : 0;
@@ -1735,7 +1866,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
 
   useEffect(() => {
     if (visible && initialRecord) {
-      const recordTracks = getTeamTracks(initialRecord, category?.name);
+      const recordTracks = getTeamTracks(initialRecord, category?.name, categoryTrackConfig);
       const defaultTrack =
         initialRecord.selectedTrack ||
         initialRecord.trackName ||
@@ -1764,6 +1895,9 @@ const RegistrationForm = React.memo(function RegistrationForm({
       setVehicleOutOfTrackSelected(
         Boolean(initialRecord.vehicleOutOfTrackSelected || initialRecord.vehicle_out_of_track_selected)
       );
+      setVehicleBreakdownSelected(
+        Boolean(initialRecord.vehicleBreakdownSelected || initialRecord.vehicle_breakdown_selected)
+      );
       setDnfSelection(initialRecord.dnfSelection ? String(initialRecord.dnfSelection) : '');
       setStopwatchTime(initialStopwatchTime);
       stopwatchElapsedRef.current = initialStopwatchTime;
@@ -1772,6 +1906,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
       setHasTimerStopped(Boolean(initialStopwatchTime) || Boolean(initialRecord.isDNF));
       setIsStopwatchRunning(false);
       setDisputeFormState(buildDisputeFormStateFromSource(initialRecord));
+      setDisputeSignatureState(getNormalizedDisputeSignatureState(initialRecord));
       if (initialRecord?.source === 'dispute') {
         const resolvingPartyKey = initialRecord?.resolveDisputeCategory || '';
         const existingResolution = getNormalizedDisputeResolutions(initialRecord)[resolvingPartyKey];
@@ -1790,6 +1925,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
       setResolutionCommentInput('');
     } else if (visible) {
       setDisputeFormState(createEmptyDisputeFormState());
+      setDisputeSignatureState(createEmptyDisputeSignatureState());
       setTkoResolutionDecision('');
       setResolutionCommentInput('');
     }
@@ -1814,7 +1950,13 @@ const RegistrationForm = React.memo(function RegistrationForm({
       return;
     }
 
-    if (timeOverSelected || wrongCourseSelected || fourthAttemptSelected || vehicleOutOfTrackSelected) {
+    if (
+      timeOverSelected ||
+      wrongCourseSelected ||
+      fourthAttemptSelected ||
+      vehicleOutOfTrackSelected ||
+      vehicleBreakdownSelected
+    ) {
       return;
     }
 
@@ -1835,6 +1977,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
     stopwatchTime,
     timeOverSelected,
     trackTimerLimitMilliseconds,
+    vehicleBreakdownSelected,
     vehicleOutOfTrackSelected,
     wrongCourseSelected,
   ]);
@@ -1883,6 +2026,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
     setFourthAttemptSelected(false);
     setTimeOverSelected(false);
     setVehicleOutOfTrackSelected(false);
+    setVehicleBreakdownSelected(false);
     setDnfSelection('');
   };
 
@@ -1903,27 +2047,16 @@ const RegistrationForm = React.memo(function RegistrationForm({
     return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}:${cs.toString().padStart(2, '0')}`;
   };
 
-  const getDNFLabel = () => {
-    if (wrongCourseSelected) {
-      return 'DNF - Wrong Course';
-    }
-
-    if (fourthAttemptSelected) {
-      return 'DNF - 4th Attempt';
-    }
-
-    if (timeOverSelected) {
-      return 'DNF - Time Over';
-    }
-
-    if (vehicleOutOfTrackSelected) {
-      return 'DNF - Vehicle Out of the Track';
-    }
-
-    return 'DNF';
+  const dnfState = {
+    wrongCourseSelected,
+    fourthAttemptSelected,
+    timeOverSelected,
+    vehicleOutOfTrackSelected,
+    vehicleBreakdownSelected,
+    isDNF,
   };
-
-  const dnfDisplayLabel = getDNFLabel();
+  const dnfDisplayLabel = getDnfDisplayLabel(dnfState) || 'DNF';
+  const dnfReasonLabel = getDnfBreakdownLabel(dnfState);
   const performanceTimeDisplay = isDNF ? dnfDisplayLabel : formatDuration(stopwatchTime);
   const totalTimeDisplay = isDNF ? dnfDisplayLabel : formatDuration(totalTimeMilliseconds);
 
@@ -1943,6 +2076,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
     setFourthAttemptSelected(false);
     setTimeOverSelected(false);
     setVehicleOutOfTrackSelected(false);
+    setVehicleBreakdownSelected(false);
     setDnfSelection('');
     setLateStartMode('');
     stopwatchStartTimestampRef.current = null;
@@ -1952,6 +2086,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
     setHasTimerStopped(false);
     setDisputeModalVisible(false);
     setDisputeFormState(createEmptyDisputeFormState());
+    setDisputeSignatureState(createEmptyDisputeSignatureState());
     setTkoResolutionDecision('');
     setResolutionCommentInput('');
   };
@@ -1976,6 +2111,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
       Boolean(formData?.fourthAttemptSelected),
       Boolean(formData?.timeOverSelected),
       Boolean(formData?.vehicleOutOfTrackSelected),
+      Boolean(formData?.vehicleBreakdownSelected),
       Boolean(formData?.isDNF),
       formData?.dnfSelection || '',
       formData?.dnfPoints || 0,
@@ -1996,6 +2132,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
       Boolean(sourceRecord.fourthAttemptSelected || sourceRecord.fourth_attempt_selected),
       Boolean(sourceRecord.timeOverSelected || sourceRecord.time_over_selected),
       Boolean(sourceRecord.vehicleOutOfTrackSelected || sourceRecord.vehicle_out_of_track_selected),
+      Boolean(sourceRecord.vehicleBreakdownSelected || sourceRecord.vehicle_breakdown_selected),
       Boolean(sourceRecord.isDNF || sourceRecord.is_dnf),
       sourceRecord.dnfSelection || sourceRecord.dnf_selection || '',
       sourceRecord.dnfPoints || sourceRecord.dnf_points || 0,
@@ -2025,12 +2162,17 @@ const RegistrationForm = React.memo(function RegistrationForm({
       fourthAttemptSelected,
       timeOverSelected,
       vehicleOutOfTrackSelected,
+      vehicleBreakdownSelected,
       isDNF,
       dnfSelection,
       dnfPoints,
       totalPenaltiesTime,
     })) : '';
     const disputeResolutions = isEditingDispute ? getNormalizedDisputeResolutions(initialRecord) : {};
+    const disputeSignatures = isEditingDispute
+      ? getNormalizedDisputeSignatureState(initialRecord)
+      : disputeSignatureState;
+    const disputeSignedBy = getDisputeSignedByLabels(disputeSignatures, 'byTeam');
     const resolutionComment = resolvingPartyKey ? String(resolutionCommentInput || '').trim() : '';
 
     if (isEditingDispute && resolvingPartyKey) {
@@ -2052,6 +2194,10 @@ const RegistrationForm = React.memo(function RegistrationForm({
       disputeDetails: isEditingDispute ? getNormalizedDisputeDetailEntries(initialRecord) : [],
       disputeResolutions,
       dispute_resolutions: disputeResolutions,
+      disputeSignatures,
+      dispute_signatures: disputeSignatures,
+      disputeSignedBy,
+      dispute_signed_by: disputeSignedBy,
       resolveDisputeCategory: resolvingPartyKey,
       disputeResolutionStatus: overallDisputeResolutionStatus || disputeResolutionStatus || '',
       disputeResolutionLabel: getDisputeResolutionLabelForStatus(overallDisputeResolutionStatus || disputeResolutionStatus),
@@ -2084,6 +2230,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
       fourthAttemptSelected,
       timeOverSelected,
       vehicleOutOfTrackSelected,
+      vehicleBreakdownSelected,
       dnfSelection,
       dnfPoints,
       bustingPenaltyTime,
@@ -2197,9 +2344,20 @@ const RegistrationForm = React.memo(function RegistrationForm({
     }));
   };
 
+  const handleDisputeSignatureToggle = (partyKey, signerKey) => {
+    setDisputeSignatureState(prev => ({
+      ...prev,
+      [partyKey]: {
+        ...(prev?.[partyKey] || {}),
+        [signerKey]: !prev?.[partyKey]?.[signerKey],
+      },
+    }));
+  };
+
   const handleDisputeModalClose = () => {
     setDisputeModalVisible(false);
     setDisputeFormState(buildDisputeFormStateFromSource(initialRecord));
+    setDisputeSignatureState(getNormalizedDisputeSignatureState(initialRecord));
   };
 
   const handleConfirmDispute = async () => {
@@ -2252,6 +2410,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
     fourthAttemptSelected ||
     timeOverSelected ||
     vehicleOutOfTrackSelected ||
+    vehicleBreakdownSelected ||
     dnfSelection !== '';
   const resetButtonDisabled = isStopwatchRunning || isDNF || !hasAnyResettableValue;
   const showDisputeButton = initialRecord?.source !== 'dispute';
@@ -2533,11 +2692,13 @@ const RegistrationForm = React.memo(function RegistrationForm({
                 fourthAttemptSelected={fourthAttemptSelected}
                 timeOverSelected={timeOverSelected}
                 vehicleOutOfTrackSelected={vehicleOutOfTrackSelected}
+                vehicleBreakdownSelected={vehicleBreakdownSelected}
                 pointsValue={dnfSelection}
                 onWrongCourseChange={setWrongCourseSelected}
                 onFourthAttemptChange={setFourthAttemptSelected}
                 onTimeOverChange={setTimeOverSelected}
                 onVehicleOutOfTrackChange={setVehicleOutOfTrackSelected}
+                onVehicleBreakdownChange={setVehicleBreakdownSelected}
                 onPointsChange={setDnfSelection}
                 timeOverLocked={isTrackTimerLocked}
                 timeOverLimitLabel={trackTimerLimitLabel}
@@ -2554,6 +2715,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
               lateStartPenaltyTime={lateStartPenaltyTime}
               performanceTimeDisplay={performanceTimeDisplay}
               isDNF={isDNF}
+              dnfReasonLabel={dnfReasonLabel}
               dnfSelection={dnfSelection}
               totalTimeDisplay={totalTimeDisplay}
               containerStyle={{
@@ -2573,6 +2735,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
             lateStartPenaltyTime={lateStartPenaltyTime}
             performanceTimeDisplay={performanceTimeDisplay}
             isDNF={isDNF}
+            dnfReasonLabel={dnfReasonLabel}
             dnfSelection={dnfSelection}
             totalTimeDisplay={totalTimeDisplay}
             containerStyle={{
@@ -2833,6 +2996,36 @@ const RegistrationForm = React.memo(function RegistrationForm({
               {DISPUTE_PARTY_OPTIONS.map(party => (
                 <View key={party.key} style={styles.disputeModalPartySection}>
                   <Text style={styles.disputeModalPartyTitle}>{party.label}</Text>
+                  {party.key === 'byTeam' ? (
+                    <View style={styles.disputeSignatureBlock}>
+                      <Text style={styles.disputeModalSectionTitle}>Signed In By</Text>
+                      <View style={styles.disputeSignatureOptions}>
+                        {DISPUTE_SIGNATURE_OPTIONS.map(option => {
+                          const isSigned = Boolean(disputeSignatureState?.[party.key]?.[option.key]);
+
+                          return (
+                            <TouchableOpacity
+                              key={`${party.key}-${option.key}`}
+                              style={styles.disputeModalOptionHeader}
+                              onPress={() => handleDisputeSignatureToggle(party.key, option.key)}
+                              activeOpacity={0.85}
+                              hitSlop={TOUCH_HIT_SLOP}
+                            >
+                              <View
+                                style={[
+                                  styles.disputeCheckbox,
+                                  isSigned && styles.disputeCheckboxChecked,
+                                ]}
+                              >
+                                {isSigned ? <Text style={styles.disputeCheckboxTick}>✓</Text> : null}
+                              </View>
+                              <Text style={styles.disputeModalOptionLabel}>{option.label}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  ) : null}
                   {DISPUTE_DETAIL_GROUPS.map(group => (
                     <View key={`${party.key}-${group.key}`} style={styles.disputeModalSection}>
                       <Text style={styles.disputeModalSectionTitle}>{group.title}</Text>
@@ -2924,6 +3117,7 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
   visible,
   category,
   categoryTracks,
+  categoryTrackConfig,
   records,
   onClose,
   onStart,
@@ -2986,20 +3180,20 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
             const completedTracks = completedTracksByRecord[recordKey] || [];
 
             return (
-              getTeamTracks(record, category?.name).includes(selectedTrackFilter) &&
+              getTeamTracks(record, category?.name, categoryTrackConfig).includes(selectedTrackFilter) &&
               !completedTracks.includes(selectedTrackFilter)
             );
           })
         : [],
-    [category?.name, completedTracksByRecord, orderedRecords, selectedTrackFilter]
+    [category?.name, categoryTrackConfig, completedTracksByRecord, orderedRecords, selectedTrackFilter]
   );
   const firstAvailableRecordKey = filteredRecords.length ? getRecordKey(filteredRecords[0]) : '';
   const selectedTrackMappedRecordCount = useMemo(
     () =>
       selectedTrackFilter
-        ? orderedRecords.filter(record => getTeamTracks(record, category?.name).includes(selectedTrackFilter)).length
+        ? orderedRecords.filter(record => getTeamTracks(record, category?.name, categoryTrackConfig).includes(selectedTrackFilter)).length
         : 0,
-    [category?.name, orderedRecords, selectedTrackFilter]
+    [category?.name, categoryTrackConfig, orderedRecords, selectedTrackFilter]
   );
   const selectedTrackCompletedRecordCount = selectedTrackFilter
     ? selectedTrackMappedRecordCount - filteredRecords.length
@@ -3538,6 +3732,7 @@ const DisputeRecordsPanel = React.memo(function DisputeRecordsPanel({
                 const disputeResolutions = getNormalizedDisputeResolutions(item);
                 const disputeStatus = getDisputeAutoSubmitStatus(item, nowTimestamp);
                 const disputeId = item.id || `${stickerNumber}-${driverName}`;
+                const dnfBreakdownLabel = getDnfBreakdownLabel(item);
 
                 return (
                   <View key={`dispute-${disputeId}`} style={[styles.registrationCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
@@ -3581,6 +3776,11 @@ const DisputeRecordsPanel = React.memo(function DisputeRecordsPanel({
                       <Text style={styles.registrationSectionText}>
                         Total: {item.total_time || item.totalTimeDisplay || '--'}
                       </Text>
+                      {dnfBreakdownLabel ? (
+                        <Text style={styles.registrationSectionText}>
+                          DNF: {dnfBreakdownLabel} | Points: {item.dnf_points ?? item.dnfPoints ?? '--'}
+                        </Text>
+                      ) : null}
                     </View>
 
                     <View style={styles.registrationSection}>
@@ -3741,6 +3941,7 @@ const RegistrationResultsModal = React.memo(function RegistrationResultsModal({
               const groundTouchCount = item.ground_touch_count ?? item.groundTouchCount ?? 0;
               const lateStartStatus = item.late_start_status || item.lateStartStatus || 'No';
               const attemptCount = item.attempt_count ?? item.attemptCount ?? 0;
+              const dnfBreakdownLabel = getDnfBreakdownLabel(item);
 
               return (
                 <View style={styles.registrationCard}>
@@ -3798,7 +3999,8 @@ const RegistrationResultsModal = React.memo(function RegistrationResultsModal({
                       Category: {item.category || '--'}
                     </Text>
                     <Text style={styles.registrationFooterText}>
-                      DNF: {formatBoolValue(item.is_dnf ?? item.isDnf)}
+                      DNF: {formatBoolValue(item.is_dnf ?? item.isDNF ?? item.isDnf)}
+                      {dnfBreakdownLabel ? ` (${dnfBreakdownLabel})` : ''}
                     </Text>
                     <Text style={styles.registrationFooterText}>
                       DNS: {formatBoolValue(item.is_dns ?? item.isDns)}
@@ -3848,6 +4050,7 @@ export default function App() {
   const [securityPin, setSecurityPin] = useState(DEFAULT_SECURITY_PIN);
   const [themeMode, setThemeMode] = useState(DEFAULT_THEME_MODE);
   const [leaderboardSyncBaseUrl, setLeaderboardSyncBaseUrl] = useState(DEFAULT_LEADERBOARD_SYNC_BASE_URL);
+  const [categoryTrackConfig, setCategoryTrackConfig] = useState(() => normalizeCategoryTrackConfig());
   const [categoryActivationConfig, setCategoryActivationConfig] = useState(() => buildDefaultCategoryActivationConfig());
   const [trackActivationConfig, setTrackActivationConfig] = useState(() => buildDefaultTrackActivationConfig());
   const [trackTimerConfig, setTrackTimerConfig] = useState(() => buildDefaultTrackTimerConfig());
@@ -3871,6 +4074,8 @@ export default function App() {
   const [localWifiReceiverMessage, setLocalWifiReceiverMessage] = useState('');
   const [settingsConfigDayId, setSettingsConfigDayId] = useState(REPORT_DAYS[0]?.id || '');
   const [settingsConfigCategoryKey, setSettingsConfigCategoryKey] = useState('EXTREME');
+  const [settingsTrackNameInput, setSettingsTrackNameInput] = useState('');
+  const [settingsTrackRenameInputs, setSettingsTrackRenameInputs] = useState({});
   const [settingsTrackTimerTrack, setSettingsTrackTimerTrack] = useState('');
   const [settingsTrackTimerMinutes, setSettingsTrackTimerMinutes] = useState(0);
   const [settingsTrackTimerSeconds, setSettingsTrackTimerSeconds] = useState(0);
@@ -3984,6 +4189,7 @@ export default function App() {
 
       setSettingsPassword(storedSettings.password);
       setSecurityPin(storedSettings.pin);
+      setCategoryTrackConfig(storedSettings.categoryTrackConfig);
       setCategoryActivationConfig(storedSettings.categoryActivationConfig);
       setTrackActivationConfig(storedSettings.trackActivationConfig);
       setTrackTimerConfig(storedSettings.trackTimerConfig);
@@ -4008,6 +4214,7 @@ export default function App() {
     saveStoredAppSettings({
       password: settingsPassword,
       pin: securityPin,
+      categoryTrackConfig,
       categoryActivationConfig,
       trackActivationConfig,
       trackTimerConfig,
@@ -4016,7 +4223,7 @@ export default function App() {
     }).catch(error => {
       console.warn('Unable to save admin settings:', error);
     });
-  }, [categoryActivationConfig, leaderboardSyncBaseUrl, securityPin, settingsLoaded, settingsPassword, themeMode, trackActivationConfig, trackTimerConfig]);
+  }, [categoryActivationConfig, categoryTrackConfig, leaderboardSyncBaseUrl, securityPin, settingsLoaded, settingsPassword, themeMode, trackActivationConfig, trackTimerConfig]);
 
   useEffect(() => {
     if (appStage !== 'splash') {
@@ -4215,7 +4422,7 @@ export default function App() {
         // Load categories and add team counts
         const categoriesData = await CategoriesService.getAllCategories();
         const baseCategories = categoriesData.length > 0 ? categoriesData : categories;
-        const categoriesWithTeamCounts = attachTeamCountsToCategories(baseCategories, teamsData);
+        const categoriesWithTeamCounts = attachTeamCountsToCategories(baseCategories, teamsData, categoryTrackConfig);
 
         setTeams(teamsData);
         await refreshCompletedTracks(teamsData);
@@ -4338,7 +4545,7 @@ export default function App() {
     return categories.reduce((acc, category) => {
       const categoryKey = normalizeCategoryKey(category.name);
 
-      if (seen.has(categoryKey) || !CATEGORY_TRACKS[categoryKey]) {
+      if (seen.has(categoryKey) || !categoryTrackConfig[categoryKey]) {
         return acc;
       }
 
@@ -4349,14 +4556,23 @@ export default function App() {
       });
       return acc;
     }, []);
-  }, [categories]);
+  }, [categories, categoryTrackConfig]);
+
+  useEffect(() => {
+    if (!teams.length) {
+      return;
+    }
+
+    const sourceCategories = categoriesWithCounts.length > 0 ? categoriesWithCounts : categories;
+    setCategoriesWithCounts(attachTeamCountsToCategories(sourceCategories, teams, categoryTrackConfig));
+  }, [categoryTrackConfig, teams]);
 
   const selectedCategoryTracks = useMemo(
     () =>
       isCategoryActiveForDay(categoryActivationConfig, selectedDay?.id, selectedCategory?.name)
-        ? getActiveTracksForDayCategory(trackActivationConfig, selectedDay?.id, selectedCategory?.name)
+        ? getActiveTracksForDayCategory(trackActivationConfig, selectedDay?.id, selectedCategory?.name, categoryTrackConfig)
         : [],
-    [categoryActivationConfig, selectedCategory?.name, selectedDay?.id, trackActivationConfig]
+    [categoryActivationConfig, categoryTrackConfig, selectedCategory?.name, selectedDay?.id, trackActivationConfig]
   );
 
   const dayScopedCategories = useMemo(() => {
@@ -4364,7 +4580,12 @@ export default function App() {
 
     return sourceCategories
       .map(category => {
-        const activeTracks = getActiveTracksForDayCategory(trackActivationConfig, selectedDay?.id, category.name);
+        const activeTracks = getActiveTracksForDayCategory(
+          trackActivationConfig,
+          selectedDay?.id,
+          category.name,
+          categoryTrackConfig
+        );
         const isCategoryActive = isCategoryActiveForDay(categoryActivationConfig, selectedDay?.id, category.name);
 
         return {
@@ -4375,7 +4596,7 @@ export default function App() {
         };
       })
       .filter(category => category.isCategoryActive && category.trackCount > 0);
-  }, [categories, categoriesWithCounts, categoryActivationConfig, selectedDay?.id, trackActivationConfig]);
+  }, [categories, categoriesWithCounts, categoryActivationConfig, categoryTrackConfig, selectedDay?.id, trackActivationConfig]);
 
   const activeSettingsCategoryOptions = useMemo(
     () =>
@@ -4390,9 +4611,9 @@ export default function App() {
       activeSettingsCategoryOptions.map(category => ({
         key: category.key,
         label: category.label,
-        tracks: getActiveTracksForDayCategory(trackActivationConfig, selectedDay?.id, category.key),
+        tracks: getActiveTracksForDayCategory(trackActivationConfig, selectedDay?.id, category.key, categoryTrackConfig),
       })),
-    [activeSettingsCategoryOptions, selectedDay?.id, trackActivationConfig]
+    [activeSettingsCategoryOptions, categoryTrackConfig, selectedDay?.id, trackActivationConfig]
   );
 
   const leaderboardCategoryOptions = useMemo(
@@ -4400,14 +4621,14 @@ export default function App() {
       activeSettingsCategoryOptions.map(category => ({
         key: category.key,
         label: category.label,
-        tracks: CATEGORY_TRACKS[category.key] || [],
+        tracks: getCategoryTracks(category.key, categoryTrackConfig),
       })),
-    [activeSettingsCategoryOptions]
+    [activeSettingsCategoryOptions, categoryTrackConfig]
   );
 
   const configurationTracks = useMemo(
-    () => CATEGORY_TRACKS[settingsConfigCategoryKey] || [],
-    [settingsConfigCategoryKey]
+    () => getCategoryTracks(settingsConfigCategoryKey, categoryTrackConfig),
+    [categoryTrackConfig, settingsConfigCategoryKey]
   );
 
   const selectedTrackTimerLimitSeconds = useMemo(() => {
@@ -4563,6 +4784,10 @@ export default function App() {
     setSettingsView('config-track-timer');
   };
 
+  const handleOpenTrackManagerSettings = () => {
+    setSettingsView('config-track-manager');
+  };
+
   const handleOpenDisputes = async () => {
     try {
       await refreshDisputes();
@@ -4584,7 +4809,7 @@ export default function App() {
       return 'security';
     }
 
-    if (currentView === 'config-visibility' || currentView === 'config-track-timer') {
+    if (currentView === 'config-visibility' || currentView === 'config-track-manager' || currentView === 'config-track-timer') {
       return 'config';
     }
 
@@ -4689,7 +4914,10 @@ export default function App() {
     try {
       setLeaderboardSyncLoading(true);
       setLeaderboardSyncError('');
-      const exportResult = await LeaderboardService.exportLeaderboardData({ syncBaseUrl });
+      const exportResult = await LeaderboardService.exportLeaderboardData({
+        syncBaseUrl,
+        categoryOptionsOverride: leaderboardCategoryOptions,
+      });
 
       if (exportResult?.syncResult?.synced) {
         const endpointLabel = exportResult?.syncResult?.endpoint ? `\n\nEndpoint: ${exportResult.syncResult.endpoint}` : '';
@@ -5005,6 +5233,188 @@ export default function App() {
     });
   };
 
+  const handleAddCategoryTrack = () => {
+    const categoryKey = settingsConfigCategoryKey;
+    const nextTrackName = normalizeTrackDisplayName(settingsTrackNameInput);
+    const currentTracks = getCategoryTracks(categoryKey, categoryTrackConfig);
+
+    if (!nextTrackName) {
+      Alert.alert('Track Manager', 'Enter a track name before adding it.');
+      return;
+    }
+
+    if (currentTracks.length >= MAX_TRACKS_PER_CATEGORY) {
+      Alert.alert('Track Limit', `Each category can have up to ${MAX_TRACKS_PER_CATEGORY} tracks.`);
+      return;
+    }
+
+    if (currentTracks.some(track => track.toLowerCase() === nextTrackName.toLowerCase())) {
+      Alert.alert('Duplicate Track', `${nextTrackName} already exists for this category.`);
+      return;
+    }
+
+    setCategoryTrackConfig(prev =>
+      syncLadiesCategoryTracks({
+        ...prev,
+        [categoryKey]: [...(prev?.[categoryKey] || []), nextTrackName],
+      })
+    );
+
+    setTrackActivationConfig(prev =>
+      REPORT_DAYS.reduce((acc, day) => {
+        acc[day.id] = {
+          ...(acc?.[day.id] || {}),
+          [categoryKey]: {
+            ...(acc?.[day.id]?.[categoryKey] || {}),
+            [nextTrackName]: true,
+          },
+        };
+        return acc;
+      }, { ...prev })
+    );
+
+    setTrackTimerConfig(prev =>
+      REPORT_DAYS.reduce((acc, day) => {
+        acc[day.id] = {
+          ...(acc?.[day.id] || {}),
+          [categoryKey]: {
+            ...(acc?.[day.id]?.[categoryKey] || {}),
+            [nextTrackName]: null,
+          },
+        };
+        return acc;
+      }, { ...prev })
+    );
+
+    setSettingsTrackNameInput('');
+  };
+
+  const handleRemoveCategoryTrack = trackName => {
+    const categoryKey = settingsConfigCategoryKey;
+    const normalizedTrackName = String(trackName || '').trim();
+
+    setCategoryTrackConfig(prev =>
+      syncLadiesCategoryTracks({
+        ...prev,
+        [categoryKey]: (prev?.[categoryKey] || []).filter(track => track !== normalizedTrackName),
+      })
+    );
+
+    setTrackActivationConfig(prev =>
+      REPORT_DAYS.reduce((acc, day) => {
+        const categoryConfig = { ...(acc?.[day.id]?.[categoryKey] || {}) };
+        delete categoryConfig[normalizedTrackName];
+        acc[day.id] = {
+          ...(acc?.[day.id] || {}),
+          [categoryKey]: categoryConfig,
+        };
+        return acc;
+      }, { ...prev })
+    );
+
+    setTrackTimerConfig(prev =>
+      REPORT_DAYS.reduce((acc, day) => {
+        const categoryConfig = { ...(acc?.[day.id]?.[categoryKey] || {}) };
+        delete categoryConfig[normalizedTrackName];
+        acc[day.id] = {
+          ...(acc?.[day.id] || {}),
+          [categoryKey]: categoryConfig,
+        };
+        return acc;
+      }, { ...prev })
+    );
+
+    setSettingsTrackRenameInputs(prev => {
+      const nextInputs = { ...prev };
+      delete nextInputs[`${categoryKey}::${normalizedTrackName}`];
+      return nextInputs;
+    });
+
+    if (selectedCategoryTrack === normalizedTrackName) {
+      setSelectedCategoryTrack('');
+    }
+  };
+
+  const handleRenameCategoryTrack = oldTrackName => {
+    const categoryKey = settingsConfigCategoryKey;
+    const currentTracks = getCategoryTracks(categoryKey, categoryTrackConfig);
+    const normalizedOldTrackName = String(oldTrackName || '').trim();
+    const renameInputKey = `${categoryKey}::${normalizedOldTrackName}`;
+    const nextTrackName = normalizeTrackDisplayName(
+      settingsTrackRenameInputs[renameInputKey] ?? normalizedOldTrackName
+    );
+
+    if (!nextTrackName) {
+      Alert.alert('Track Manager', 'Track name cannot be empty.');
+      return;
+    }
+
+    if (nextTrackName === normalizedOldTrackName) {
+      return;
+    }
+
+    if (
+      currentTracks.some(
+        track => track !== normalizedOldTrackName && track.toLowerCase() === nextTrackName.toLowerCase()
+      )
+    ) {
+      Alert.alert('Duplicate Track', `${nextTrackName} already exists for this category.`);
+      return;
+    }
+
+    setCategoryTrackConfig(prev =>
+      syncLadiesCategoryTracks({
+        ...prev,
+        [categoryKey]: (prev?.[categoryKey] || []).map(track =>
+          track === normalizedOldTrackName ? nextTrackName : track
+        ),
+      })
+    );
+
+    setTrackActivationConfig(prev =>
+      REPORT_DAYS.reduce((acc, day) => {
+        const categoryConfig = { ...(acc?.[day.id]?.[categoryKey] || {}) };
+        if (Object.prototype.hasOwnProperty.call(categoryConfig, normalizedOldTrackName)) {
+          categoryConfig[nextTrackName] = categoryConfig[normalizedOldTrackName];
+          delete categoryConfig[normalizedOldTrackName];
+        }
+        acc[day.id] = {
+          ...(acc?.[day.id] || {}),
+          [categoryKey]: categoryConfig,
+        };
+        return acc;
+      }, { ...prev })
+    );
+
+    setTrackTimerConfig(prev =>
+      REPORT_DAYS.reduce((acc, day) => {
+        const categoryConfig = { ...(acc?.[day.id]?.[categoryKey] || {}) };
+        if (Object.prototype.hasOwnProperty.call(categoryConfig, normalizedOldTrackName)) {
+          categoryConfig[nextTrackName] = categoryConfig[normalizedOldTrackName];
+          delete categoryConfig[normalizedOldTrackName];
+        }
+        acc[day.id] = {
+          ...(acc?.[day.id] || {}),
+          [categoryKey]: categoryConfig,
+        };
+        return acc;
+      }, { ...prev })
+    );
+
+    setSettingsTrackRenameInputs(prev => {
+      const nextInputs = { ...prev };
+      delete nextInputs[renameInputKey];
+      return nextInputs;
+    });
+
+    if (selectedCategoryTrack === normalizedOldTrackName) {
+      setSelectedCategoryTrack(nextTrackName);
+    }
+    if (settingsTrackTimerTrack === normalizedOldTrackName) {
+      setSettingsTrackTimerTrack(nextTrackName);
+    }
+  };
+
   const adjustSettingsTrackTimer = (unit, delta) => {
     const currentTotalSeconds = settingsTrackTimerMinutes * 60 + settingsTrackTimerSeconds;
     const nextTotalSeconds =
@@ -5207,6 +5617,8 @@ export default function App() {
         task_skipped_count: 0,
         wrong_course_count: 0,
         fourth_attempt_count: 0,
+        vehicle_breakdown_selected: false,
+        vehicleBreakdownSelected: false,
         is_dns: true,
         total_penalties_time: 0,
         performance_time: '0',
@@ -5226,6 +5638,8 @@ export default function App() {
           task_skipped_count: 0,
           wrong_course_count: 0,
           fourth_attempt_count: 0,
+          vehicle_breakdown_selected: false,
+          vehicleBreakdownSelected: false,
           total_penalties_time: 0,
           performance_time: '0',
           total_time: '0',
@@ -5238,6 +5652,7 @@ export default function App() {
         getTeamStickerNumber(safeRecord) || nullValue,
         safeRecord.driver_name || safeRecord.driverName || nullValue,
         safeRecord.codriver_name || safeRecord.coDriverName || nullValue,
+        nullValue,
         nullValue,
         nullValue,
         nullValue,
@@ -5363,6 +5778,8 @@ const buildRegistrationData = formData => ({
     time_over_selected: formData.timeOverSelected || false,
     vehicle_out_of_track_selected: formData.vehicleOutOfTrackSelected || false,
     vehicleOutOfTrackSelected: formData.vehicleOutOfTrackSelected || false,
+    vehicle_breakdown_selected: formData.vehicleBreakdownSelected || false,
+    vehicleBreakdownSelected: formData.vehicleBreakdownSelected || false,
     is_dnf: formData.isDNF || false,
     is_dns: formData.isDNS || false,
     dnf_selection: formData.dnfSelection || null,
@@ -5377,6 +5794,10 @@ const buildRegistrationData = formData => ({
     disputeDetails: formData.disputeDetails || formData.dispute_details || [],
     dispute_resolutions: formData.disputeResolutions || formData.dispute_resolutions || {},
     disputeResolutions: formData.disputeResolutions || formData.dispute_resolutions || {},
+    dispute_signatures: formData.disputeSignatures || formData.dispute_signatures || {},
+    disputeSignatures: formData.disputeSignatures || formData.dispute_signatures || {},
+    dispute_signed_by: formData.disputeSignedBy || formData.dispute_signed_by || [],
+    disputeSignedBy: formData.disputeSignedBy || formData.dispute_signed_by || [],
     dispute_resolution_status: formData.disputeResolutionStatus || null,
     disputeResolutionStatus: formData.disputeResolutionStatus || null,
     dispute_resolution_label: formData.disputeResolutionLabel || null,
@@ -5446,6 +5867,10 @@ const buildRegistrationData = formData => ({
           disputeDetails: registrationData.disputeDetails || [],
           dispute_resolutions: registrationData.dispute_resolutions || {},
           disputeResolutions: registrationData.disputeResolutions || {},
+          dispute_signatures: registrationData.dispute_signatures || {},
+          disputeSignatures: registrationData.disputeSignatures || {},
+          dispute_signed_by: registrationData.dispute_signed_by || [],
+          disputeSignedBy: registrationData.disputeSignedBy || [],
           submission_json: JSON.stringify({
             ...safeFormData,
             source: 'dispute',
@@ -5454,6 +5879,10 @@ const buildRegistrationData = formData => ({
             disputeDetails: registrationData.disputeDetails || [],
             dispute_resolutions: registrationData.dispute_resolutions || {},
             disputeResolutions: registrationData.disputeResolutions || {},
+            dispute_signatures: registrationData.dispute_signatures || {},
+            disputeSignatures: registrationData.disputeSignatures || {},
+            dispute_signed_by: registrationData.dispute_signed_by || [],
+            disputeSignedBy: registrationData.disputeSignedBy || [],
           }),
         };
 
@@ -5538,7 +5967,13 @@ const buildRegistrationData = formData => ({
         selected_day_date: safeFormData.selectedDayDate || '',
         selectedDayDate: safeFormData.selectedDayDate || '',
         dispute_details: safeFormData.disputeDetails || [],
+        disputeDetails: safeFormData.disputeDetails || [],
+        dispute_signatures: safeFormData.disputeSignatures || safeFormData.dispute_signatures || {},
+        disputeSignatures: safeFormData.disputeSignatures || safeFormData.dispute_signatures || {},
+        dispute_signed_by: safeFormData.disputeSignedBy || safeFormData.dispute_signed_by || [],
+        disputeSignedBy: safeFormData.disputeSignedBy || safeFormData.dispute_signed_by || [],
         dispute_resolutions: safeFormData.disputeResolutions || safeFormData.dispute_resolutions || {},
+        disputeResolutions: safeFormData.disputeResolutions || safeFormData.dispute_resolutions || {},
         total_penalties_time: safeFormData.totalPenaltiesTime || 0,
         performance_time: safeFormData.performanceTimeDisplay || null,
         total_time: safeFormData.totalTimeDisplay || null,
@@ -5645,9 +6080,11 @@ const buildRegistrationData = formData => ({
         ? 'Configuration'
         : settingsView === 'config-visibility'
           ? 'Track Visibility'
-          : settingsView === 'config-track-timer'
-            ? 'Track Timer'
-            : settingsView === 'security'
+          : settingsView === 'config-track-manager'
+            ? 'Track Manager'
+            : settingsView === 'config-track-timer'
+              ? 'Track Timer'
+              : settingsView === 'security'
               ? 'Security'
               : settingsView === 'pin'
                 ? 'Pin Verification'
@@ -5664,9 +6101,11 @@ const buildRegistrationData = formData => ({
       ? 'Choose which configuration tool you want to manage for the selected day.'
       : settingsView === 'config-visibility'
         ? 'Control which tracks are visible for each day and category.'
-        : settingsView === 'config-track-timer'
-          ? 'Assign a dedicated stopwatch limit to each day, category, and track.'
-          : settingsView === 'security'
+        : settingsView === 'config-track-manager'
+          ? 'Add, remove, and rename the base track list for each vehicle category.'
+          : settingsView === 'config-track-timer'
+            ? 'Assign a dedicated stopwatch limit to each day, category, and track.'
+            : settingsView === 'security'
             ? 'Manage the protected tools used to verify race-day actions.'
             : settingsView === 'pin'
               ? 'Require a 4-digit PIN before Submit, DNS, and Confirm Dispute can continue.'
@@ -6212,6 +6651,7 @@ const buildRegistrationData = formData => ({
             visible={recordsVisible}
             category={selectedCategory}
             categoryTracks={selectedCategoryTracks}
+            categoryTrackConfig={categoryTrackConfig}
             records={selectedCategoryRecords}
             selectedTrackFilter={selectedCategoryTrack}
             onTrackCardSelect={handleTrackCardSelect}
@@ -6501,6 +6941,18 @@ const buildRegistrationData = formData => ({
 
                 <TouchableOpacity
                   style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={handleOpenTrackManagerSettings}
+                  activeOpacity={0.88}
+                >
+                  <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Configuration</Text>
+                  <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Track Manager</Text>
+                  <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
+                    Add, remove, or rename up to 10 tracks for each vehicle category.
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
                   onPress={handleOpenTrackTimerSettings}
                   activeOpacity={0.88}
                 >
@@ -6511,6 +6963,165 @@ const buildRegistrationData = formData => ({
                   </Text>
                 </TouchableOpacity>
               </View>
+            ) : null}
+
+            {settingsView === 'config-track-manager' ? (
+              <>
+                <View style={styles.settingsInfoCard}>
+                  <Text style={[styles.settingsInfoTitle, { color: theme.accent }]}>Track Manager</Text>
+                  <Text style={[styles.settingsInfoText, { color: theme.textSecondary }]}>
+                    Manage the base track list for each vehicle category. This is separate from day-wise active or inactive track visibility.
+                  </Text>
+                </View>
+
+                <View style={styles.settingsSection}>
+                  <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Select Category</Text>
+                  <View style={styles.settingsChipWrap}>
+                    {settingsCategoryOptions.map(option => {
+                      const selected = settingsConfigCategoryKey === option.key;
+
+                      return (
+                        <TouchableOpacity
+                          key={`track-manager-category-${option.key}`}
+                          style={[
+                            styles.settingsChip,
+                            { backgroundColor: theme.surface, borderColor: theme.border },
+                            selected && [styles.settingsChipSelected, { backgroundColor: theme.accent, borderColor: theme.accent }],
+                          ]}
+                          onPress={() => setSettingsConfigCategoryKey(option.key)}
+                          activeOpacity={0.85}
+                        >
+                          <Text
+                            style={[
+                              styles.settingsChipText,
+                              { color: theme.textPrimary },
+                              selected && [styles.settingsChipTextSelected, { color: theme.accentText }],
+                            ]}
+                          >
+                            {option.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                <View style={[styles.settingsFormCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                  <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Add Track</Text>
+                  <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                    {settingsCategoryOptions.find(option => option.key === settingsConfigCategoryKey)?.label || 'Category'} has{' '}
+                    {configurationTracks.length}/{MAX_TRACKS_PER_CATEGORY} tracks.
+                  </Text>
+                  <View style={styles.settingsInlineFormRow}>
+                    <TextInput
+                      {...STABLE_TEXT_INPUT_PROPS}
+                      value={settingsTrackNameInput}
+                      onChangeText={setSettingsTrackNameInput}
+                      style={[styles.settingsInput, styles.settingsInlineFormInput]}
+                      placeholder="Track name"
+                      placeholderTextColor="#8f9bad"
+                      autoCapitalize="characters"
+                    />
+                    <TouchableOpacity
+                      style={[
+                        styles.settingsActionButton,
+                        styles.settingsPrimaryButton,
+                        styles.settingsInlineActionButton,
+                        { backgroundColor: theme.accent },
+                        configurationTracks.length >= MAX_TRACKS_PER_CATEGORY ? styles.settingsActionButtonDisabled : null,
+                      ]}
+                      onPress={handleAddCategoryTrack}
+                      activeOpacity={0.85}
+                      disabled={configurationTracks.length >= MAX_TRACKS_PER_CATEGORY}
+                    >
+                      <Text style={[styles.settingsActionButtonText, { color: theme.accentText }]}>Add</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <View style={styles.settingsSection}>
+                  <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Tracks</Text>
+                  <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                    Rename a track for this category, or remove it from the category track list.
+                  </Text>
+
+                  <View style={styles.settingsTrackList}>
+                    {configurationTracks.map(trackName => {
+                      const renameInputKey = `${settingsConfigCategoryKey}::${trackName}`;
+                      const draftName = settingsTrackRenameInputs[renameInputKey] ?? trackName;
+                      const hasRenameChange = normalizeTrackDisplayName(draftName) !== trackName;
+
+                      return (
+                        <View
+                          key={`manager-track-${settingsConfigCategoryKey}-${trackName}`}
+                          style={[styles.settingsTrackRow, styles.settingsTrackManagerRow, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                        >
+                          <View style={styles.settingsTrackManagerInfo}>
+                            <View style={styles.settingsTrackNameRow}>
+                              <View style={[styles.settingsTrackMarker, styles.settingsTrackMarkerActive]} />
+                              <Text style={[styles.settingsTrackName, { color: theme.textPrimary }]}>{trackName}</Text>
+                            </View>
+                            <TextInput
+                              {...STABLE_TEXT_INPUT_PROPS}
+                              value={draftName}
+                              onChangeText={value =>
+                                setSettingsTrackRenameInputs(prev => ({
+                                  ...prev,
+                                  [renameInputKey]: value,
+                                }))
+                              }
+                              style={[styles.settingsInput, styles.settingsTrackRenameInput]}
+                              placeholder="Rename track"
+                              placeholderTextColor="#8f9bad"
+                              autoCapitalize="characters"
+                            />
+                          </View>
+                          <View style={styles.settingsTrackManagerActions}>
+                            <TouchableOpacity
+                              style={[
+                                styles.settingsActionButton,
+                                styles.settingsSecondaryButton,
+                                styles.settingsCompactActionButton,
+                                { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
+                                !hasRenameChange ? styles.settingsActionButtonDisabled : null,
+                              ]}
+                              onPress={() => handleRenameCategoryTrack(trackName)}
+                              activeOpacity={0.85}
+                              disabled={!hasRenameChange}
+                            >
+                              <Text style={[styles.settingsActionButtonText, styles.settingsSecondaryButtonText, { color: theme.textPrimary }]}>
+                                Rename
+                              </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[
+                                styles.settingsActionButton,
+                                styles.settingsSecondaryButton,
+                                styles.settingsCompactActionButton,
+                                styles.settingsDangerActionButton,
+                              ]}
+                              onPress={() => handleRemoveCategoryTrack(trackName)}
+                              activeOpacity={0.85}
+                            >
+                              <Text style={[styles.settingsActionButtonText, styles.settingsDangerActionText]}>Remove</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      );
+                    })}
+                    {!configurationTracks.length ? (
+                      <View style={[styles.settingsTrackRow, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                        <View style={styles.settingsTrackInfo}>
+                          <Text style={[styles.settingsTrackName, { color: theme.textPrimary }]}>No tracks configured</Text>
+                          <Text style={[styles.settingsTrackStatus, { color: theme.textSecondary }]}>
+                            Add a track to make this category available in race workflows.
+                          </Text>
+                        </View>
+                      </View>
+                    ) : null}
+                  </View>
+                </View>
+              </>
             ) : null}
 
             {settingsView === 'config-visibility' ? (
@@ -7595,6 +8206,7 @@ const buildRegistrationData = formData => ({
             category={selectedCategory}
             initialRecord={selectedRecord}
             selectedDay={selectedDay}
+            categoryTrackConfig={categoryTrackConfig}
             trackTimerLimitSeconds={selectedTrackTimerLimitSeconds}
             onBack={() => {
               const shouldReturnToDisputes = selectedRecord?.source === 'dispute';

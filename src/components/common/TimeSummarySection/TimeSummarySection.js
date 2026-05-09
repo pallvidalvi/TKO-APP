@@ -9,6 +9,7 @@ const TimeSummarySection = React.memo(function TimeSummarySection({
   lateStartPenaltyTime,
   performanceTimeDisplay,
   isDNF,
+  dnfReasonLabel,
   dnfSelection,
   totalTimeDisplay,
   containerStyle,
@@ -42,10 +43,18 @@ const TimeSummarySection = React.memo(function TimeSummarySection({
         </Text>
       </View>
       {isDNF ? (
-        <View style={styles.summaryRow}>
-          <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>DNF Points:</Text>
-          <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>{dnfSelection}</Text>
-        </View>
+        <>
+          <View style={styles.summaryRow}>
+            <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>DNF Reason:</Text>
+            <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>
+              {dnfReasonLabel || '--'}
+            </Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={[styles.summaryLabel, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>DNF Points:</Text>
+            <Text style={[styles.summaryValue, { fontSize: responsiveLayout.isSmallPhone ? 13 : 14 }]}>{dnfSelection}</Text>
+          </View>
+        </>
       ) : null}
       <View style={styles.summaryDivider} />
       <View
