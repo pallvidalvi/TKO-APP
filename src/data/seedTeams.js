@@ -1,176 +1,114 @@
-const DRIVER_FIRST_NAMES = [
-  'Rudra',
-  'Aarav',
-  'Vivaan',
-  'Advait',
-  'Kunal',
-  'Samar',
-  'Yash',
-  'Pranav',
-  'Neel',
-  'Arjun',
-];
-
-const DRIVER_LAST_NAMES = [
-  'Patil',
-  'Jadhav',
-  'Shinde',
-  'Kale',
-  'More',
-  'Pawar',
-  'Chavan',
-  'Mane',
-  'Kulkarni',
-  'Khot',
-];
-
-const CODRIVER_FIRST_NAMES = [
-  'Sakshi',
-  'Pooja',
-  'Naina',
-  'Rutuja',
-  'Ananya',
-  'Tejaswini',
-  'Komal',
-  'Mugdha',
-  'Nupur',
-  'Vaidehi',
-];
-
-const CODRIVER_LAST_NAMES = [
-  'Deshmukh',
-  'Joshi',
-  'Bhosale',
-  'Naik',
-  'Gaikwad',
-  'Shelar',
-  'Salunkhe',
-  'Shirke',
-  'Pathare',
-  'Dalvi',
-];
-
-const DRIVER_BLOOD_GROUPS = ['A +ve', 'B +ve', 'O +ve', 'AB +ve', 'A -ve', 'B -ve', 'O -ve', 'AB -ve'];
-const CODRIVER_BLOOD_GROUPS = ['O +ve', 'A +ve', 'B +ve', 'AB +ve', 'O -ve', 'A -ve', 'B -ve', 'AB -ve'];
-
-const TEAM_SUFFIXES = [
-  'Trail Squad',
-  'Mud Masters',
-  'Ridge Runners',
-  'Torque Union',
-  'Summit Crew',
-  'Drift Force',
-  'Stone Racers',
-  'Dust Riders',
-  'Peak Patrol',
-  'Wild Lines',
-];
-
 const CATEGORY_TEAM_CONFIGS = [
   {
     category: 'EXTREME',
-    teamPrefix: 'Extreme',
-    stickerBase: 101,
-    vehicleName: 'Mahindra',
-    vehicleModel: 'Prototype X',
-    socialHandle: 'extreme',
+    label: 'Extreme',
+    baseCarNumber: 101,
+    vehicle_name: 'Mahindra',
+    vehicle_model: 'Proto Extreme',
   },
   {
     category: 'DIESEL_MODIFIED',
-    teamPrefix: 'Diesel Modified',
-    stickerBase: 201,
-    vehicleName: 'Toyota',
-    vehicleModel: 'Fortuner Build',
-    socialHandle: 'diesel_modified',
+    label: 'Diesel Modified',
+    baseCarNumber: 201,
+    vehicle_name: 'Toyota',
+    vehicle_model: 'Fortuner Diesel Modified',
   },
   {
     category: 'PETROL_MODIFIED',
-    teamPrefix: 'Petrol Modified',
-    stickerBase: 301,
-    vehicleName: 'Maruti Suzuki',
-    vehicleModel: 'Gypsy Tune',
-    socialHandle: 'petrol_modified',
+    label: 'Petrol Modified',
+    baseCarNumber: 301,
+    vehicle_name: 'Maruti Suzuki',
+    vehicle_model: 'Gypsy Petrol Modified',
   },
   {
     category: 'DIESEL_EXPERT',
-    teamPrefix: 'Diesel Expert',
-    stickerBase: 401,
-    vehicleName: 'Mahindra',
-    vehicleModel: 'Bolero Expert',
-    socialHandle: 'diesel_expert',
+    label: 'Diesel Expert',
+    baseCarNumber: 401,
+    vehicle_name: 'Mahindra',
+    vehicle_model: 'Bolero Diesel Expert',
   },
   {
     category: 'PETROL_EXPERT',
-    teamPrefix: 'Petrol Expert',
-    stickerBase: 501,
-    vehicleName: 'Suzuki',
-    vehicleModel: 'Gypsy Expert',
-    socialHandle: 'petrol_expert',
+    label: 'Petrol Expert',
+    baseCarNumber: 501,
+    vehicle_name: 'Suzuki',
+    vehicle_model: 'Jimny Petrol Expert',
   },
   {
     category: 'THAR_SUV',
-    teamPrefix: 'Thar SUV',
-    stickerBase: 601,
-    vehicleName: 'Mahindra',
-    vehicleModel: 'Thar Roxx',
-    socialHandle: 'thar_suv',
+    label: 'Thar SUV',
+    baseCarNumber: 601,
+    vehicle_name: 'Mahindra',
+    vehicle_model: 'Thar 4x4',
   },
   {
     category: 'JIMNY_SUV',
-    teamPrefix: 'Jimny SUV',
-    stickerBase: 701,
-    vehicleName: 'Maruti Suzuki',
-    vehicleModel: 'Jimny Alpha',
-    socialHandle: 'jimny_suv',
+    label: 'Jimny SUV',
+    baseCarNumber: 701,
+    vehicle_name: 'Maruti Suzuki',
+    vehicle_model: 'Jimny Alpha',
   },
   {
     category: 'SUV_MODIFIED',
-    teamPrefix: 'SUV Modified',
-    stickerBase: 801,
-    vehicleName: 'Ford',
-    vehicleModel: 'Endeavour Spec',
-    socialHandle: 'suv_modified',
+    label: 'SUV Modified',
+    baseCarNumber: 801,
+    vehicle_name: 'Ford',
+    vehicle_model: 'Endeavour Modified',
   },
   {
     category: 'STOCK_NDMS',
-    teamPrefix: 'Stock NDMS',
-    stickerBase: 901,
-    vehicleName: 'Mahindra',
-    vehicleModel: 'Scorpio N',
-    socialHandle: 'stock_ndms',
+    label: 'Stock NDMS',
+    baseCarNumber: 901,
+    vehicle_name: 'Mahindra',
+    vehicle_model: 'Scorpio N Stock',
   },
   {
-    category: 'LADIES',
-    teamPrefix: 'Ladies',
-    stickerBase: 1001,
-    vehicleName: 'Mahindra',
-    vehicleModel: 'Thar Roxx',
-    socialHandle: 'ladies',
+    category: 'LADIES_CATEGORY',
+    label: 'Ladies Category',
+    baseCarNumber: 1001,
+    vehicle_name: 'Mahindra',
+    vehicle_model: 'Thar Roxx',
   },
 ];
 
-const buildUniqueName = (firstNames, lastNames, globalIndex) =>
-  `${firstNames[globalIndex % firstNames.length]} ${lastNames[Math.floor(globalIndex / firstNames.length)]}`;
+const TEAM_TEMPLATES = [
+  ['Trail Blazers', 'Aarav Patil', 'Vivaan More', 'A+ve', 'O+ve'],
+  ['Ridge Runners', 'Ishaan Jadhav', 'Reyansh Pawar', 'B+ve', 'A+ve'],
+  ['Mud Masters', 'Arjun Shinde', 'Kabir Deshmukh', 'O+ve', 'B+ve'],
+  ['Rock Crawlers', 'Aditya Kadam', 'Rohan Kulkarni', 'AB+ve', 'O+ve'],
+  ['Valley Torque', 'Sahil Mane', 'Nikhil Chavan', 'A-ve', 'A+ve'],
+  ['Hill Command', 'Omkar Bhosale', 'Pranav Ghorpade', 'B-ve', 'AB+ve'],
+  ['Forest Line', 'Yash Salunkhe', 'Sanket Sawant', 'O-ve', 'B+ve'],
+  ['Cliff Riders', 'Atharva Khot', 'Harshad Gaikwad', 'A+ve', 'O-ve'],
+  ['Summit Drive', 'Rudra Nalawade', 'Tejas Patankar', 'B+ve', 'A-ve'],
+  ['River Cross', 'Kunal Suryavanshi', 'Sameer Nikam', 'O+ve', 'B-ve'],
+  ['Ghat Warriors', 'Prathamesh Kale', 'Abhay Dhere', 'AB-ve', 'A+ve'],
+  ['Dune Patrol', 'Siddharth Pujari', 'Ninad Lokhande', 'A+ve', 'AB-ve'],
+  ['Torque Tribe', 'Mihir Joshi', 'Tanishq Mahadik', 'B+ve', 'O+ve'],
+  ['Axle Squad', 'Vedant Karmarkar', 'Saurabh Bendre', 'O+ve', 'A+ve'],
+  ['Canyon Crew', 'Parth Sathe', 'Shreyas Inamdar', 'AB+ve', 'B+ve'],
+];
 
-const buildSeededTeam = (config, categoryIndex, entryIndex) => {
-  const globalIndex = categoryIndex * TEAM_SUFFIXES.length + entryIndex;
-  const vehicleSerial = String(entryIndex + 1).padStart(2, '0');
+const toSocialHandle = value => `@${value.toLowerCase().replace(/[^a-z0-9]+/g, '')}`;
 
-  return {
-    team_name: `${config.teamPrefix} ${TEAM_SUFFIXES[entryIndex]}`,
-    driver_name: buildUniqueName(DRIVER_FIRST_NAMES, DRIVER_LAST_NAMES, globalIndex),
-    driver_blood_group: DRIVER_BLOOD_GROUPS[globalIndex % DRIVER_BLOOD_GROUPS.length],
-    codriver_name: buildUniqueName(CODRIVER_FIRST_NAMES, CODRIVER_LAST_NAMES, globalIndex),
-    codriver_blood_group: CODRIVER_BLOOD_GROUPS[globalIndex % CODRIVER_BLOOD_GROUPS.length],
-    car_number: String(config.stickerBase + entryIndex),
-    category: config.category,
-    vehicle_name: config.vehicleName,
-    vehicle_model: `${config.vehicleModel} ${vehicleSerial}`,
-    socials: `@${config.socialHandle}_${entryIndex + 1}`,
-    status: 'SEEDED',
-  };
-};
+export const SEEDED_TEAMS = CATEGORY_TEAM_CONFIGS.flatMap(categoryConfig =>
+  TEAM_TEMPLATES.map(([teamName, driverName, coDriverName, driverBloodGroup, coDriverBloodGroup], index) => {
+    const sequence = String(index + 1).padStart(2, '0');
+    const categoryLabel = categoryConfig.label;
+    const fullTeamName = `${categoryLabel} ${teamName} ${sequence}`;
 
-export const SEEDED_TEAMS = CATEGORY_TEAM_CONFIGS.flatMap((config, categoryIndex) =>
-  TEAM_SUFFIXES.map((_, entryIndex) => buildSeededTeam(config, categoryIndex, entryIndex))
+    return {
+      team_name: fullTeamName,
+      driver_name: driverName,
+      driver_blood_group: driverBloodGroup,
+      codriver_name: coDriverName,
+      codriver_blood_group: coDriverBloodGroup,
+      car_number: String(categoryConfig.baseCarNumber + index),
+      category: categoryConfig.category,
+      vehicle_name: categoryConfig.vehicle_name,
+      vehicle_model: categoryConfig.vehicle_model,
+      socials: toSocialHandle(fullTeamName),
+      status: 'ACTIVE',
+    };
+  })
 );

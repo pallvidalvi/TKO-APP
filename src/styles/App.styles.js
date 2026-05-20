@@ -2139,6 +2139,42 @@ const styles = StyleSheet.create({
     fontFamily: BODY_FONT,
   },
 
+  disputeModalTabs: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 14,
+  },
+
+  disputeModalTabButton: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2a3441',
+    backgroundColor: '#0c111a',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+
+  disputeModalTabButtonActive: {
+    borderColor: '#ffb15a',
+    backgroundColor: '#1b130a',
+  },
+
+  disputeModalTabText: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '900',
+    color: '#cdbf9a',
+    fontFamily: BODY_FONT,
+    textAlign: 'center',
+  },
+
+  disputeModalTabTextActive: {
+    color: '#ffb15a',
+  },
+
   disputeModalScroll: {
     flexGrow: 0,
     maxHeight: IS_TABLET ? 520 : 360,
@@ -2206,6 +2242,13 @@ const styles = StyleSheet.create({
     color: '#fff6ea',
     fontFamily: BODY_FONT,
     flex: 1,
+  },
+
+  disputeModalRadioTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#fff6ea',
+    fontFamily: BODY_FONT,
   },
 
   disputeCheckbox: {
@@ -2725,6 +2768,113 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 12,
     marginTop: 8,
+  },
+
+  settingsVehicleCardFormGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 2,
+  },
+
+  settingsVehicleCardFormInput: {
+    flex: 1,
+    minWidth: 210,
+  },
+
+  settingsVehicleCardList: {
+    marginTop: 16,
+    gap: 10,
+  },
+
+  settingsVehicleCardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
+    gap: 12,
+  },
+
+  settingsVehicleCardSequence: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#18120a',
+  },
+
+  settingsVehicleCardSequenceText: {
+    fontSize: 15,
+    fontWeight: '900',
+    fontFamily: HEADING_FONT,
+  },
+
+  settingsVehicleCardInfo: {
+    flex: 1,
+    minWidth: 150,
+  },
+
+  settingsVehicleCardTitle: {
+    fontSize: 15,
+    fontWeight: '900',
+    fontFamily: HEADING_FONT,
+  },
+
+  settingsVehicleCardMeta: {
+    marginTop: 4,
+    fontSize: 12,
+    fontFamily: BODY_FONT,
+  },
+
+  settingsVehicleCardActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: 8,
+    maxWidth: 250,
+  },
+
+  settingsVehicleCardIconButton: {
+    minHeight: 38,
+    minWidth: 74,
+    borderRadius: 11,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+  },
+
+  settingsVehicleCardIconText: {
+    fontSize: 12,
+    fontWeight: '900',
+    fontFamily: BODY_FONT,
+  },
+
+  settingsAvailableVehicleRow: {
+    alignItems: 'flex-start',
+    flexWrap: 'wrap',
+  },
+
+  settingsAvailableVehicleActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 8,
+    minWidth: 238,
+    flexShrink: 0,
+  },
+
+  settingsAvailableVehicleButton: {
+    minHeight: 40,
+    minWidth: 72,
+    borderRadius: 11,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
   },
 
   settingsLoadingRow: {

@@ -683,6 +683,7 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], dat
                     ListHeaderComponent={
                       <View style={[styles.tableHeader, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                         <Text style={[styles.tableHeaderCell, styles.stickerCell, { color: theme.textSecondary }]}>Sticker No.</Text>
+                        <Text style={[styles.tableHeaderCell, styles.teamCell, { color: theme.textSecondary }]}>Team Name</Text>
                         <Text style={[styles.tableHeaderCell, styles.driverCell, { color: theme.textSecondary }]}>Driver Name</Text>
                         <Text style={[styles.tableHeaderCell, styles.codriverCell, { color: theme.textSecondary }]}>Co-Driver Name</Text>
                         <Text style={[styles.tableHeaderCell, styles.totalHeaderCell, { color: theme.textSecondary }]}>Timing / Points</Text>
@@ -698,6 +699,7 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], dat
                     }
                     renderItem={({ item }) => {
                       const stickerNumber = item.sticker_number || item.stickerNumber || '--';
+                      const teamName = item.team_name || item.teamName || item.team || '--';
                       const driverName = item.driver_name || item.driverName || '--';
                       const coDriverName = item.codriver_name || item.coDriverName || '--';
                       const disputeDetailSummary = item.isDisputed ? formatDisputeEntriesInline(item) : '';
@@ -731,6 +733,9 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], dat
                           <View style={[styles.tableRowGroup, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                             <View style={styles.tableRowMain}>
                               <Text style={[styles.tableCell, styles.stickerCell, { color: theme.textPrimary }]}>#{stickerNumber}</Text>
+                              <Text style={[styles.tableCell, styles.teamCell, { color: theme.textPrimary }]} numberOfLines={1}>
+                                {teamName}
+                              </Text>
                               <Text style={[styles.tableCell, styles.driverCell, { color: theme.textPrimary }]} numberOfLines={1}>
                                 {driverName}
                               </Text>
@@ -773,6 +778,9 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], dat
                       return (
                         <View style={[styles.tableRow, { backgroundColor: theme.surface, borderColor: theme.border }]}>
                           <Text style={[styles.tableCell, styles.stickerCell, { color: theme.textPrimary }]}>#{stickerNumber}</Text>
+                          <Text style={[styles.tableCell, styles.teamCell, { color: theme.textPrimary }]} numberOfLines={1}>
+                            {teamName}
+                          </Text>
                           <Text style={[styles.tableCell, styles.driverCell, { color: theme.textPrimary }]} numberOfLines={1}>
                             {driverName}
                           </Text>
@@ -1069,6 +1077,10 @@ const styles = StyleSheet.create({
     paddingRight: 8,
   },
   driverCell: {
+    flex: 1,
+    paddingRight: 8,
+  },
+  teamCell: {
     flex: 1,
     paddingRight: 8,
   },

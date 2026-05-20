@@ -768,7 +768,80 @@ const getRecordKey = (record = {}) =>
 const getTeamStickerNumber = (team = {}) =>
   team.stickerNumber || team.sticker_number || team.car_number || '';
 
+const getTeamName = (team = {}) => team.teamName || team.team_name || team.team || '';
+
 const normalizeLookupValue = value => String(value || '').trim().toUpperCase();
+const getVehicleCardKey = (record = {}) => {
+  const categoryKey = normalizeCategoryKey(record.category || record.name || '');
+  const stickerKey = normalizeLookupValue(getTeamStickerNumber(record));
+  const driverKey = normalizeLookupValue(record.driver_name || record.driverName || '');
+  const fallbackKey = normalizeLookupValue(getRecordKey(record));
+
+  return [categoryKey, stickerKey || driverKey || fallbackKey].filter(Boolean).join('::');
+};
+
+const getVehicleCardDisplayData = (record = {}) => ({
+  key: getVehicleCardKey(record),
+  id: record.id,
+  stickerNumber: getTeamStickerNumber(record) || '--',
+  driverName: record.driver_name || record.driverName || 'Unknown Driver',
+  coDriverName: record.codriver_name || record.coDriverName || 'Unknown Co-Driver',
+  teamName: getTeamName(record),
+});
+
+const getEmptyVehicleCardForm = () => ({
+  id: null,
+  originalCardKey: '',
+  teamName: '',
+  stickerNumber: '',
+  driverName: '',
+  driverBloodGroup: '',
+  coDriverName: '',
+  coDriverBloodGroup: '',
+  vehicleName: '',
+  vehicleModel: '',
+  socials: '',
+});
+
+const buildVehicleCardFormFromRecord = (record = {}) => ({
+  id: record.id || null,
+  originalCardKey: getVehicleCardKey(record),
+  teamName: getTeamName(record),
+  stickerNumber: getTeamStickerNumber(record) || '',
+  driverName: record.driver_name || record.driverName || '',
+  driverBloodGroup: record.driver_blood_group || record.driverBloodGroup || '',
+  coDriverName: record.codriver_name || record.coDriverName || '',
+  coDriverBloodGroup: record.codriver_blood_group || record.coDriverBloodGroup || '',
+  vehicleName: record.vehicle_name || record.vehicleName || '',
+  vehicleModel: record.vehicle_model || record.vehicleModel || '',
+  socials: record.socials || '',
+});
+
+const buildTeamPayloadFromVehicleCardForm = (formState, categoryKey) => {
+  const driverName = String(formState.driverName || '').trim();
+
+  return {
+    team_name: String(formState.teamName || '').trim() || `${driverName || 'Team'} Vehicle`,
+    driver_name: driverName,
+    driver_blood_group: String(formState.driverBloodGroup || '').trim(),
+    codriver_name: String(formState.coDriverName || '').trim(),
+    codriver_blood_group: String(formState.coDriverBloodGroup || '').trim(),
+    car_number: String(formState.stickerNumber || '').trim(),
+    category: normalizeCategoryKey(categoryKey || ''),
+    vehicle_name: String(formState.vehicleName || '').trim(),
+    vehicle_model: String(formState.vehicleModel || '').trim(),
+    socials: String(formState.socials || '').trim(),
+    status: 'ACTIVE',
+  };
+};
+
+const getVehicleCardKeyFromPayload = payload =>
+  getVehicleCardKey({
+    category: payload.category,
+    car_number: payload.car_number,
+    driver_name: payload.driver_name,
+  });
+
 const getStickerSortValue = record => {
   const rawValue = getTeamStickerNumber(record);
   const numericValue = Number(rawValue);
@@ -994,6 +1067,65 @@ const buildDefaultTrackTimerConfig = (categoryTrackConfig = CATEGORY_TRACKS) =>
     return dayAcc;
   }, {});
 
+const normalizeVehicleCardKeys = keys => {
+  if (!Array.isArray(keys)) {
+    return null;
+  }
+
+  const seen = new Set();
+  return keys.reduce((acc, key) => {
+    const normalizedKey = String(key || '').trim();
+
+    if (!normalizedKey || seen.has(normalizedKey)) {
+      return acc;
+    }
+
+    seen.add(normalizedKey);
+    acc.push(normalizedKey);
+    return acc;
+  }, []);
+};
+
+const normalizeDeletedVehicleCardKeys = keys => normalizeVehicleCardKeys(keys) || [];
+
+const filterDeletedVehicleCardRecords = (records = [], deletedKeys = []) => {
+  const deletedKeySet = new Set(normalizeDeletedVehicleCardKeys(deletedKeys));
+
+  if (!deletedKeySet.size) {
+    return records;
+  }
+
+  return records.filter(record => !deletedKeySet.has(getVehicleCardKey(record)));
+};
+
+const buildDefaultVehicleCardConfig = (categoryTrackConfig = CATEGORY_TRACKS) =>
+  REPORT_DAYS.reduce((dayAcc, day) => {
+    dayAcc[day.id] = Object.keys(categoryTrackConfig).reduce((categoryAcc, categoryKey) => {
+      categoryAcc[categoryKey] = (categoryTrackConfig[categoryKey] || []).reduce((trackAcc, trackName) => {
+        trackAcc[trackName] = null;
+        return trackAcc;
+      }, {});
+      return categoryAcc;
+    }, {});
+    return dayAcc;
+  }, {});
+
+const normalizeVehicleCardConfig = (storedConfig, categoryTrackConfig = CATEGORY_TRACKS) => {
+  const fallback = buildDefaultVehicleCardConfig(categoryTrackConfig);
+
+  return REPORT_DAYS.reduce((dayAcc, day) => {
+    dayAcc[day.id] = Object.keys(categoryTrackConfig).reduce((categoryAcc, categoryKey) => {
+      categoryAcc[categoryKey] = (categoryTrackConfig[categoryKey] || []).reduce((trackAcc, trackName) => {
+        const storedKeys = normalizeVehicleCardKeys(storedConfig?.[day.id]?.[categoryKey]?.[trackName]);
+        trackAcc[trackName] = storedKeys;
+        return trackAcc;
+      }, {});
+      return categoryAcc;
+    }, {});
+    return dayAcc;
+  }, fallback);
+};
+
 const normalizeTrackActivationConfig = (storedConfig, categoryTrackConfig = CATEGORY_TRACKS) => {
   const fallback = buildDefaultTrackActivationConfig(categoryTrackConfig);
 
@@ -1084,6 +1216,31 @@ const getTrackTimerLimitSeconds = (trackTimerConfig, dayId, categoryName, trackN
   return storedValue === null || storedValue === undefined ? null : clampTrackTimerSeconds(storedValue);
 };
 
+const getConfiguredVehicleCardKeys = (vehicleCardConfig, dayId, categoryName, trackName) => {
+  const normalizedTrackName = String(trackName || '').trim();
+
+  if (!dayId || !normalizedTrackName) {
+    return null;
+  }
+
+  const categoryKey = normalizeCategoryKey(categoryName || '');
+  const storedValue = vehicleCardConfig?.[dayId]?.[categoryKey]?.[normalizedTrackName];
+
+  return Array.isArray(storedValue) ? storedValue : null;
+};
+
+const getVehicleCardRecordsForTrack = (records = [], vehicleCardConfig, dayId, categoryName, trackName) => {
+  const configuredKeys = getConfiguredVehicleCardKeys(vehicleCardConfig, dayId, categoryName, trackName);
+
+  if (!Array.isArray(configuredKeys)) {
+    return records;
+  }
+
+  const recordsByCardKey = new Map(records.map(record => [getVehicleCardKey(record), record]));
+
+  return configuredKeys.map(key => recordsByCardKey.get(key)).filter(Boolean);
+};
+
 const normalizeLeaderboardSyncBaseUrl = value => {
   const raw = String(value || '').trim();
 
@@ -1130,6 +1287,8 @@ const loadStoredAppSettings = async () => {
     categoryActivationConfig: buildDefaultCategoryActivationConfig(fallbackCategoryTrackConfig),
     trackActivationConfig: buildDefaultTrackActivationConfig(fallbackCategoryTrackConfig),
     trackTimerConfig: buildDefaultTrackTimerConfig(fallbackCategoryTrackConfig),
+    vehicleCardConfig: buildDefaultVehicleCardConfig(fallbackCategoryTrackConfig),
+    deletedVehicleCardKeys: [],
     themeMode: DEFAULT_THEME_MODE,
     leaderboardSyncBaseUrl: DEFAULT_LEADERBOARD_SYNC_BASE_URL,
   };
@@ -1151,6 +1310,8 @@ const loadStoredAppSettings = async () => {
         categoryActivationConfig: normalizeCategoryActivationConfig(parsed?.categoryActivationConfig, categoryTrackConfig),
         trackActivationConfig: normalizeTrackActivationConfig(parsed?.trackActivationConfig, categoryTrackConfig),
         trackTimerConfig: normalizeTrackTimerConfig(parsed?.trackTimerConfig, categoryTrackConfig),
+        vehicleCardConfig: normalizeVehicleCardConfig(parsed?.vehicleCardConfig, categoryTrackConfig),
+        deletedVehicleCardKeys: normalizeDeletedVehicleCardKeys(parsed?.deletedVehicleCardKeys),
         themeMode: normalizeThemeMode(parsed?.themeMode),
         leaderboardSyncBaseUrl: normalizeLeaderboardSyncBaseUrl(parsed?.leaderboardSyncBaseUrl),
       };
@@ -1174,6 +1335,8 @@ const loadStoredAppSettings = async () => {
         categoryActivationConfig: normalizeCategoryActivationConfig(parsed?.categoryActivationConfig, categoryTrackConfig),
         trackActivationConfig: normalizeTrackActivationConfig(parsed?.trackActivationConfig, categoryTrackConfig),
         trackTimerConfig: normalizeTrackTimerConfig(parsed?.trackTimerConfig, categoryTrackConfig),
+        vehicleCardConfig: normalizeVehicleCardConfig(parsed?.vehicleCardConfig, categoryTrackConfig),
+        deletedVehicleCardKeys: normalizeDeletedVehicleCardKeys(parsed?.deletedVehicleCardKeys),
         themeMode: normalizeThemeMode(parsed?.themeMode),
         leaderboardSyncBaseUrl: normalizeLeaderboardSyncBaseUrl(parsed?.leaderboardSyncBaseUrl),
       };
@@ -1194,6 +1357,8 @@ const saveStoredAppSettings = async settings => {
     categoryActivationConfig: normalizeCategoryActivationConfig(settings.categoryActivationConfig, categoryTrackConfig),
     trackActivationConfig: normalizeTrackActivationConfig(settings.trackActivationConfig, categoryTrackConfig),
     trackTimerConfig: normalizeTrackTimerConfig(settings.trackTimerConfig, categoryTrackConfig),
+    vehicleCardConfig: normalizeVehicleCardConfig(settings.vehicleCardConfig, categoryTrackConfig),
+    deletedVehicleCardKeys: normalizeDeletedVehicleCardKeys(settings.deletedVehicleCardKeys),
     themeMode: normalizeThemeMode(settings.themeMode),
     leaderboardSyncBaseUrl: normalizeLeaderboardSyncBaseUrl(settings.leaderboardSyncBaseUrl),
   });
@@ -1270,6 +1435,170 @@ const DISPUTE_SIGNATURE_OPTIONS = [
   { key: 'coDriver', label: 'Co-driver' },
 ];
 
+const BY_TEAM_BUNTING_DISPUTE_KEY = 'buntingCut';
+
+const BY_TEAM_BUNTING_DISPUTE_OPTIONS = [
+  { key: 'invalidSingleBuntingPenaltyGiven', label: 'Invalid single bunting penalty given' },
+  { key: 'invalidMultipleBuntingPenaltiesGiven', label: 'Invalid multiple bunting penalties given' },
+];
+
+const BY_TEAM_POLE_DOWN_DISPUTE_KEY = 'poleDown';
+
+const BY_TEAM_POLE_DOWN_DISPUTE_OPTIONS = [
+  { key: 'invalidSinglePoleDownPenaltyGiven', label: 'Invalid single pole down penalty given' },
+  { key: 'invalidMultiplePoleDownPenaltiesGiven', label: 'Invalid multiple pole down penalties given' },
+];
+
+const BY_TEAM_SEATBELT_DISPUTE_KEY = 'seatbelt';
+
+const BY_TEAM_SEATBELT_DISPUTE_OPTIONS = [
+  { key: 'invalidSingleSeatbeltPenaltyGiven', label: 'Invalid single seatbelt penalty given' },
+  { key: 'invalidMultipleSeatbeltPenaltiesGiven', label: 'Invalid multiple seatbelt penalties given' },
+];
+
+const BY_TEAM_GROUND_TOUCH_DISPUTE_KEY = 'groundTouch';
+
+const BY_TEAM_GROUND_TOUCH_DISPUTE_OPTIONS = [
+  { key: 'invalidSingleGroundtouchPenaltyGiven', label: 'Invalid single groundtouch penalty given' },
+  { key: 'invalidMultipleGroundtouchPenaltiesGiven', label: 'Invalid multiple groundtouch penalties given' },
+];
+
+const BY_TEAM_SKIPPED_AFTER_THIRD_ATTEMPT_DISPUTE_KEY = 'taskAttempted';
+
+const BY_TEAM_SKIPPED_AFTER_THIRD_ATTEMPT_DISPUTE_OPTIONS = [
+  {
+    key: 'invalidSingleTaskSkippedAfterThirdAttemptDispute',
+    label: 'Invalid single task skipped after 3rd attempt dispute',
+  },
+  {
+    key: 'invalidMultipleTasksSkippedAfterThirdAttemptDispute',
+    label: 'Invalid multiple tasks skipped after 3rd attempt dispute',
+  },
+];
+
+const BY_TEAM_TASK_SKIPPED_DISPUTE_KEY = 'taskSkipped';
+
+const BY_TEAM_TASK_SKIPPED_DISPUTE_OPTIONS = [
+  {
+    key: 'invalidSingleTaskSkippedDirectlyGivenDispute',
+    label: 'Invalid single task skipped directly given dispute',
+  },
+  {
+    key: 'invalidMultipleTasksSkippedDirectlyGivenDispute',
+    label: 'Invalid multiple tasks skipped directly given dispute',
+  },
+];
+
+const BY_TEAM_PREDEFINED_DISPUTE_OPTIONS_BY_KEY = {
+  [BY_TEAM_BUNTING_DISPUTE_KEY]: BY_TEAM_BUNTING_DISPUTE_OPTIONS,
+  [BY_TEAM_POLE_DOWN_DISPUTE_KEY]: BY_TEAM_POLE_DOWN_DISPUTE_OPTIONS,
+  [BY_TEAM_SEATBELT_DISPUTE_KEY]: BY_TEAM_SEATBELT_DISPUTE_OPTIONS,
+  [BY_TEAM_GROUND_TOUCH_DISPUTE_KEY]: BY_TEAM_GROUND_TOUCH_DISPUTE_OPTIONS,
+  [BY_TEAM_SKIPPED_AFTER_THIRD_ATTEMPT_DISPUTE_KEY]: BY_TEAM_SKIPPED_AFTER_THIRD_ATTEMPT_DISPUTE_OPTIONS,
+  [BY_TEAM_TASK_SKIPPED_DISPUTE_KEY]: BY_TEAM_TASK_SKIPPED_DISPUTE_OPTIONS,
+};
+
+const BY_OPPONENT_BUNTING_DISPUTE_KEY = 'buntingCut';
+
+const BY_OPPONENT_BUNTING_DISPUTE_OPTIONS = [
+  { key: 'validSingleBuntingPenaltyNotGiven', label: 'Valid single bunting penalty not given' },
+  { key: 'validMultipleBuntingPenaltiesNotGiven', label: 'Valid multiple bunting penalties not given' },
+];
+
+const BY_OPPONENT_POLE_DOWN_DISPUTE_KEY = 'poleDown';
+
+const BY_OPPONENT_POLE_DOWN_DISPUTE_OPTIONS = [
+  { key: 'validSinglePoleDownPenaltyNotGiven', label: 'Valid single pole down penalty not given' },
+  { key: 'validMultiplePoleDownPenaltiesNotGiven', label: 'Valid multiple pole down penalties not given' },
+];
+
+const BY_OPPONENT_SEATBELT_DISPUTE_KEY = 'seatbelt';
+
+const BY_OPPONENT_SEATBELT_DISPUTE_OPTIONS = [
+  { key: 'validSingleSeatbeltPenaltyNotGiven', label: 'Valid single seatbelt penalty not given' },
+  { key: 'validMultipleSeatbeltPenaltiesNotGiven', label: 'Valid multiple seatbelt penalties not given' },
+];
+
+const BY_OPPONENT_GROUND_TOUCH_DISPUTE_KEY = 'groundTouch';
+
+const BY_OPPONENT_GROUND_TOUCH_DISPUTE_OPTIONS = [
+  { key: 'validSingleGroundtouchPenaltyNotGiven', label: 'Valid single groundtouch penalty not given' },
+  { key: 'validMultipleGroundtouchPenaltiesNotGiven', label: 'Valid multiple groundtouch penalties not given' },
+];
+
+const BY_OPPONENT_SKIPPED_AFTER_THIRD_ATTEMPT_DISPUTE_KEY = 'taskAttempted';
+
+const BY_OPPONENT_SKIPPED_AFTER_THIRD_ATTEMPT_DISPUTE_OPTIONS = [
+  {
+    key: 'validSingleTaskSkippedAfterThirdAttemptDisputeNotGiven',
+    label: 'Valid single task skipped after 3rd attempt dispute not given',
+  },
+  {
+    key: 'validMultipleTasksSkippedAfterThirdAttemptDisputeNotGiven',
+    label: 'Valid multiple tasks skipped after 3rd attempt dispute not given',
+  },
+];
+
+const BY_OPPONENT_TASK_SKIPPED_DISPUTE_KEY = 'taskSkipped';
+
+const BY_OPPONENT_TASK_SKIPPED_DISPUTE_OPTIONS = [
+  {
+    key: 'validSingleTaskSkippedDirectlyDisputeNotGiven',
+    label: 'Valid single task skipped directly dispute not given',
+  },
+  {
+    key: 'validMultipleTasksSkippedDirectlyDisputeNotGiven',
+    label: 'Valid multiple tasks skipped directly dispute not given',
+  },
+];
+
+const BY_OPPONENT_PREDEFINED_DISPUTE_OPTIONS_BY_KEY = {
+  [BY_OPPONENT_BUNTING_DISPUTE_KEY]: BY_OPPONENT_BUNTING_DISPUTE_OPTIONS,
+  [BY_OPPONENT_POLE_DOWN_DISPUTE_KEY]: BY_OPPONENT_POLE_DOWN_DISPUTE_OPTIONS,
+  [BY_OPPONENT_SEATBELT_DISPUTE_KEY]: BY_OPPONENT_SEATBELT_DISPUTE_OPTIONS,
+  [BY_OPPONENT_GROUND_TOUCH_DISPUTE_KEY]: BY_OPPONENT_GROUND_TOUCH_DISPUTE_OPTIONS,
+  [BY_OPPONENT_SKIPPED_AFTER_THIRD_ATTEMPT_DISPUTE_KEY]:
+    BY_OPPONENT_SKIPPED_AFTER_THIRD_ATTEMPT_DISPUTE_OPTIONS,
+  [BY_OPPONENT_TASK_SKIPPED_DISPUTE_KEY]: BY_OPPONENT_TASK_SKIPPED_DISPUTE_OPTIONS,
+};
+
+const PREDEFINED_DISPUTE_OPTIONS_BY_PARTY = {
+  byTeam: BY_TEAM_PREDEFINED_DISPUTE_OPTIONS_BY_KEY,
+  byOpponent: BY_OPPONENT_PREDEFINED_DISPUTE_OPTIONS_BY_KEY,
+};
+
+const getPredefinedDisputeOptions = (partyKey, itemKey) =>
+  PREDEFINED_DISPUTE_OPTIONS_BY_PARTY[partyKey]?.[itemKey] || [];
+
+const isPredefinedDispute = (partyKey, itemKey) => getPredefinedDisputeOptions(partyKey, itemKey).length > 0;
+
+const getPredefinedDisputeOptionLabel = (partyKey, itemKey, optionKey) =>
+  getPredefinedDisputeOptions(partyKey, itemKey).find(option => option.key === optionKey)?.label || '';
+
+const BY_TEAM_DNF_DISPUTE_LABELS_BY_KEY = {
+  wrongCourse: 'Invalid wrong course',
+  fourthAttempt: 'Invalid 4th attempt',
+  vehicleOutOfTrack: 'Invalid Vehicle out of the track',
+  vehicleBreakdown: 'Invalid vehicle breakdown',
+  timeOver: 'Invalid time over',
+};
+
+const BY_OPPONENT_DNF_DISPUTE_LABELS_BY_KEY = {
+  wrongCourse: 'Valid wrong course not given',
+  fourthAttempt: 'Valid 4th attempt not given',
+  vehicleOutOfTrack: 'Valid Vehicle out of the track not given',
+  vehicleBreakdown: 'Valid vehicle breakdown not given',
+  timeOver: 'Valid time over not given',
+};
+
+const DNF_DISPUTE_LABELS_BY_PARTY = {
+  byTeam: BY_TEAM_DNF_DISPUTE_LABELS_BY_KEY,
+  byOpponent: BY_OPPONENT_DNF_DISPUTE_LABELS_BY_KEY,
+};
+
+const getDisputeDetailItemLabel = (partyKey, item) =>
+  DNF_DISPUTE_LABELS_BY_PARTY[partyKey]?.[item?.key] || item?.label || '';
+
 const DISPUTE_DETAIL_GROUPS = [
   {
     key: 'penalties',
@@ -1325,6 +1654,7 @@ const getEmptyDisputeReasonState = () =>
     acc[key] = {
       checked: false,
       detail: '',
+      selectedOptionKey: '',
     };
     return acc;
   }, {});
@@ -1373,14 +1703,50 @@ const getNormalizedDisputeDetailEntries = source => {
       return null;
     }
 
+    const rawSelectedOptionKey = String(
+      entry?.selectedOptionKey || entry?.selected_option_key || entry?.optionKey || entry?.option_key || ''
+    ).trim();
+    const rawDetail = String(entry?.detail || '').trim();
+    const predefinedOptions = getPredefinedDisputeOptions(partyKey, key);
+    const inferredPredefinedOption = predefinedOptions.length
+      ? predefinedOptions.find(option => {
+          const normalizedLabel = option.label.trim().toLowerCase();
+          return (
+            option.key === rawSelectedOptionKey ||
+            normalizedLabel === rawSelectedOptionKey.toLowerCase() ||
+            rawDetail.toLowerCase() === normalizedLabel ||
+            rawDetail.toLowerCase().startsWith(`${normalizedLabel}:`)
+          );
+        })
+      : null;
+    const selectedOptionKey = getPredefinedDisputeOptionLabel(partyKey, key, rawSelectedOptionKey)
+      ? rawSelectedOptionKey
+      : inferredPredefinedOption?.key || '';
+    const selectedOptionLabel =
+      getPredefinedDisputeOptionLabel(partyKey, key, selectedOptionKey) ||
+      entry?.selectedOptionLabel ||
+      entry?.selected_option_label ||
+      entry?.optionLabel ||
+      entry?.option_label ||
+      '';
+    const hasAdditionalDetail =
+      Object.prototype.hasOwnProperty.call(entry, 'additionalDetail') ||
+      Object.prototype.hasOwnProperty.call(entry, 'additional_detail');
+    const additionalDetail = hasAdditionalDetail
+      ? String(entry?.additionalDetail ?? entry?.additional_detail ?? '').trim()
+      : undefined;
+
     return {
       key,
-      label: entry?.label || meta.label,
+      label: entry?.label || getDisputeDetailItemLabel(partyKey, meta),
       sectionKey: entry?.sectionKey || entry?.section_key || meta.sectionKey,
       sectionTitle: entry?.sectionTitle || entry?.section_title || meta.sectionTitle,
       partyKey,
       partyLabel: entry?.partyLabel || entry?.party_label || DISPUTE_PARTY_LABEL_BY_KEY[partyKey] || '',
-      detail: String(entry?.detail || '').trim(),
+      detail: rawDetail || selectedOptionLabel,
+      additionalDetail,
+      selectedOptionKey,
+      selectedOptionLabel,
     };
   };
 
@@ -1486,9 +1852,18 @@ const buildDisputeFormStateFromSource = source => {
 
   getNormalizedDisputeDetailEntries(source).forEach(entry => {
     const partyKey = entry.partyKey && nextState[entry.partyKey] ? entry.partyKey : DISPUTE_PARTY_OPTIONS[0].key;
+    const selectedOptionLabel =
+      entry.selectedOptionLabel ||
+      getPredefinedDisputeOptionLabel(partyKey, entry.key, entry.selectedOptionKey);
+    const inferredAdditionalDetail =
+      isPredefinedDispute(partyKey, entry.key) && selectedOptionLabel && entry.detail.startsWith(selectedOptionLabel)
+        ? entry.detail.replace(selectedOptionLabel, '').replace(/^:\s*/, '').trim()
+        : entry.detail;
+
     nextState[partyKey][entry.key] = {
       checked: true,
-      detail: entry.detail,
+      detail: entry.additionalDetail !== undefined ? entry.additionalDetail : inferredAdditionalDetail,
+      selectedOptionKey: entry.selectedOptionKey || '',
     };
   });
 
@@ -1506,14 +1881,26 @@ const buildDisputeEntriesFromState = disputeFormState =>
             return null;
           }
 
+          const itemLabel = getDisputeDetailItemLabel(party.key, item);
+
           return {
             key: item.key,
-            label: item.label,
+            label: itemLabel,
             sectionKey: group.key,
             sectionTitle: group.title,
             partyKey: party.key,
             partyLabel: party.label,
-            detail: String(itemState.detail || '').trim(),
+            detail: isPredefinedDispute(party.key, item.key)
+              ? [
+                  getPredefinedDisputeOptionLabel(party.key, item.key, itemState.selectedOptionKey),
+                  String(itemState.detail || '').trim(),
+                ]
+                  .filter(Boolean)
+                  .join(': ')
+              : String(itemState.detail || '').trim() || (group.key === 'dnf' ? 'Selected' : ''),
+            additionalDetail: String(itemState.detail || '').trim(),
+            selectedOptionKey: itemState.selectedOptionKey || '',
+            selectedOptionLabel: getPredefinedDisputeOptionLabel(party.key, item.key, itemState.selectedOptionKey),
           };
         })
         .filter(Boolean)
@@ -1646,43 +2033,78 @@ const buildOverallDisputeResolutionStatus = resolutions => {
       .map(entry => `${entry.partyLabel ? `${entry.partyLabel} - ` : ''}${entry.label}: ${entry.detail}`)
       .join(' • ');
 
+const getFirstExportValue = (...values) => {
+  const presentValue = values.find(value => value !== undefined && value !== null && value !== '');
+  return presentValue === undefined ? '' : presentValue;
+};
+
+const getExportBooleanValue = (...values) => {
+  const value = getFirstExportValue(...values);
+
+  if (typeof value === 'string') {
+    return ['true', 'yes', '1'].includes(value.trim().toLowerCase());
+  }
+
+  return Boolean(value);
+};
+
+const getExportBooleanLabel = (...values) => (getExportBooleanValue(...values) ? 'Yes' : 'No');
+
 const buildExportRows = data => [[
-  data.trackName,
-  data.srNo || '',
-  data.stickerNumber,
-  data.driverName,
-  data.coDriverName,
-  data.bustingCount,
-  data.bustingPenaltyTime,
-  data.poleDownCount,
-  data.poleDownPenaltyTime,
-  data.seatbeltCount,
-  data.seatbeltPenaltyTime,
-  data.groundTouchCount,
-  data.groundTouchPenaltyTime,
-  data.lateStartStatus,
-  data.lateStartPenaltyTime,
-  data.attemptCount,
-  data.attemptPenaltyTime,
-  data.taskSkippedCount,
-  data.taskSkippedPenaltyTime,
-  data.isDNF ? 'Yes' : 'No',
-  data.isDNS ? 'Yes' : 'No',
-  data.wrongCourseSelected ? 'Yes' : 'No',
-  data.fourthAttemptSelected ? 'Yes' : 'No',
-  data.timeOverSelected ? 'Yes' : 'No',
-  data.vehicleOutOfTrackSelected ? 'Yes' : 'No',
-  data.vehicleBreakdownSelected ? 'Yes' : 'No',
-  data.dnfPoints,
-  data.totalPenaltiesTime,
-  data.performanceTimeDisplay,
-  data.totalTimeDisplay,
-  new Date().toLocaleString(),
+  getFirstExportValue(data.trackName, data.track_name),
+  getFirstExportValue(data.srNo, data.sr_no),
+  getFirstExportValue(data.teamName, data.team_name, data.team),
+  getFirstExportValue(data.stickerNumber, data.sticker_number),
+  getFirstExportValue(data.driverName, data.driver_name),
+  getFirstExportValue(data.coDriverName, data.codriver_name),
+  getFirstExportValue(data.bustingCount, data.bunting_count, 0),
+  getFirstExportValue(data.bustingPenaltyTime, data.bunting_penalty_time, 0),
+  getFirstExportValue(data.poleDownCount, data.pole_down_count, 0),
+  getFirstExportValue(data.poleDownPenaltyTime, data.pole_down_penalty_time, 0),
+  getFirstExportValue(data.seatbeltCount, data.seatbelt_count, 0),
+  getFirstExportValue(data.seatbeltPenaltyTime, data.seatbelt_penalty_time, 0),
+  getFirstExportValue(data.groundTouchCount, data.ground_touch_count, 0),
+  getFirstExportValue(data.groundTouchPenaltyTime, data.ground_touch_penalty_time, 0),
+  getFirstExportValue(data.lateStartStatus, data.late_start_status, 'No'),
+  getFirstExportValue(data.lateStartPenaltyTime, data.late_start_penalty_time, 0),
+  getFirstExportValue(data.attemptCount, data.attempt_count, 0),
+  getFirstExportValue(data.attemptPenaltyTime, data.attempt_penalty_time, 0),
+  getFirstExportValue(data.taskSkippedCount, data.task_skipped_count, 0),
+  getFirstExportValue(data.taskSkippedPenaltyTime, data.task_skipped_penalty_time, 0),
+  getExportBooleanLabel(data.isDNF, data.is_dnf),
+  getExportBooleanLabel(data.isDNS, data.is_dns),
+  getExportBooleanLabel(data.wrongCourseSelected, data.wrong_course_selected, data.wrong_course_count),
+  getExportBooleanLabel(data.fourthAttemptSelected, data.fourth_attempt_selected, data.fourth_attempt_count),
+  getExportBooleanLabel(data.timeOverSelected, data.time_over_selected),
+  getExportBooleanLabel(data.vehicleOutOfTrackSelected, data.vehicle_out_of_track_selected),
+  getExportBooleanLabel(data.vehicleBreakdownSelected, data.vehicle_breakdown_selected),
+  getFirstExportValue(data.dnfPoints, data.dnf_points, 0),
+  getFirstExportValue(data.totalPenaltiesTime, data.total_penalties_time, 0),
+  getFirstExportValue(data.performanceTimeDisplay, data.performance_time),
+  getFirstExportValue(data.totalTimeDisplay, data.total_time),
+  getFirstExportValue(data.submissionDate, data.submission_date, data.createdAt, data.created_at, new Date().toLocaleString()),
 ]];
 
 const downloadResultCsv = async data => {
-  const fileName = `${data.category} - ${data.trackName}.csv`;
+  const categoryName = getFirstExportValue(data.category, 'Category');
+  const trackName = getFirstExportValue(data.trackName, data.track_name, 'Track');
+  const dnsSuffix = getExportBooleanValue(data.isDNS, data.is_dns) ? ' - DNS' : '';
+  const fileName = `${categoryName} - ${trackName}${dnsSuffix}.csv`;
   await CSVExporter.downloadFile(fileName, RECORD_EXPORT_HEADERS, buildExportRows(data));
+};
+
+const downloadSavedResultCsv = async data => {
+  try {
+    await downloadResultCsv(data);
+    return true;
+  } catch (error) {
+    console.error('File generation error:', error);
+    Alert.alert(
+      'CSV Download Failed',
+      `Record was saved, but CSV file could not be downloaded: ${error?.message || 'Unknown error'}`
+    );
+    return false;
+  }
 };
 
 const formatBoolValue = value => (value ? 'Yes' : 'No');
@@ -1690,6 +2112,7 @@ const formatBoolValue = value => (value ? 'Yes' : 'No');
 const RECORD_EXPORT_HEADERS = [
   'Track Name',
   'Sr.No.',
+  'Team Name',
   'Sticker No.',
   'Driver Name',
   'Co-Driver Name',
@@ -1742,6 +2165,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
   const responsiveLayout = layout || INITIAL_LAYOUT;
   const [trackName, setTrackName] = useState('');
   const [srNo, setSrNo] = useState('');
+  const [teamName, setTeamName] = useState('');
   const [stickerNumber, setStickerNumber] = useState('');
   const [driverName, setDriverName] = useState('');
   const [coDriverName, setCoDriverName] = useState('');
@@ -1763,6 +2187,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
   const [hasTimerStarted, setHasTimerStarted] = useState(false);
   const [hasTimerStopped, setHasTimerStopped] = useState(false);
   const [disputeModalVisible, setDisputeModalVisible] = useState(false);
+  const [activeDisputePartyKey, setActiveDisputePartyKey] = useState(DISPUTE_PARTY_OPTIONS[0].key);
   const [disputeFormState, setDisputeFormState] = useState(() => createEmptyDisputeFormState());
   const [disputeSignatureState, setDisputeSignatureState] = useState(() => createEmptyDisputeSignatureState());
   const [resolutionCommentInput, setResolutionCommentInput] = useState('');
@@ -1878,6 +2303,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
         initialRecord.stopwatchTime ??
         0;
       setSrNo(String(initialRecord.srNo || ''));
+      setTeamName(getTeamName(initialRecord));
       setStickerNumber(String(getTeamStickerNumber(initialRecord) || ''));
       setDriverName(initialRecord.driver_name || initialRecord.driverName || '');
       setCoDriverName(initialRecord.codriver_name || initialRecord.coDriverName || '');
@@ -2063,6 +2489,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
   const resetForm = () => {
     setTrackName('');
     setSrNo('');
+    setTeamName('');
     setStickerNumber('');
     setDriverName('');
     setCoDriverName('');
@@ -2207,6 +2634,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
       trackName,
       category: category?.name || initialRecord?.category || '',
       srNo,
+      teamName,
       stickerNumber,
       driverName,
       coDriverName,
@@ -2311,6 +2739,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
       return;
     }
 
+    setActiveDisputePartyKey(DISPUTE_PARTY_OPTIONS[0].key);
     setDisputeModalVisible(true);
   };
 
@@ -2325,6 +2754,26 @@ const RegistrationForm = React.memo(function RegistrationForm({
           [key]: {
             checked: nextChecked,
             detail: nextChecked ? prev?.[partyKey]?.[key]?.detail || '' : '',
+            selectedOptionKey: nextChecked ? prev?.[partyKey]?.[key]?.selectedOptionKey || '' : '',
+          },
+        },
+      };
+    });
+  };
+
+  const handleDisputeRadioSelect = (partyKey, key, selectedOptionKey) => {
+    setDisputeFormState(prev => {
+      const currentSelectedOptionKey = prev?.[partyKey]?.[key]?.selectedOptionKey || '';
+      const nextSelectedOptionKey = currentSelectedOptionKey === selectedOptionKey ? '' : selectedOptionKey;
+
+      return {
+        ...prev,
+        [partyKey]: {
+          ...(prev?.[partyKey] || getEmptyDisputeReasonState()),
+          [key]: {
+            checked: Boolean(nextSelectedOptionKey),
+            detail: prev?.[partyKey]?.[key]?.detail || '',
+            selectedOptionKey: nextSelectedOptionKey,
           },
         },
       };
@@ -2337,8 +2786,9 @@ const RegistrationForm = React.memo(function RegistrationForm({
       [partyKey]: {
         ...(prev?.[partyKey] || getEmptyDisputeReasonState()),
         [key]: {
-          checked: true,
+          checked: isPredefinedDispute(partyKey, key) ? Boolean(prev?.[partyKey]?.[key]?.selectedOptionKey) : true,
           detail: value,
+          selectedOptionKey: prev?.[partyKey]?.[key]?.selectedOptionKey || '',
         },
       },
     }));
@@ -2356,6 +2806,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
 
   const handleDisputeModalClose = () => {
     setDisputeModalVisible(false);
+    setActiveDisputePartyKey(DISPUTE_PARTY_OPTIONS[0].key);
     setDisputeFormState(buildDisputeFormStateFromSource(initialRecord));
     setDisputeSignatureState(getNormalizedDisputeSignatureState(initialRecord));
   };
@@ -2364,11 +2815,25 @@ const RegistrationForm = React.memo(function RegistrationForm({
     const disputeEntries = buildDisputeEntriesFromState(disputeFormState);
 
     if (!disputeEntries.length) {
-      Alert.alert('Dispute Details', 'Select at least one dispute reason and enter its details.');
+      Alert.alert('Dispute Details', 'Select at least one dispute reason.');
       return;
     }
 
-    const missingEntry = disputeEntries.find(entry => !entry.detail);
+    const missingPredefinedOption = disputeEntries.find(
+      entry => isPredefinedDispute(entry.partyKey, entry.key) && !entry.selectedOptionKey
+    );
+
+    if (missingPredefinedOption) {
+      Alert.alert(
+        `${missingPredefinedOption.label} Dispute`,
+        `Select one predefined option before registering the ${missingPredefinedOption.label.toLowerCase()} dispute.`
+      );
+      return;
+    }
+
+    const missingEntry = disputeEntries.find(
+      entry => !isPredefinedDispute(entry.partyKey, entry.key) && entry.sectionKey !== 'dnf' && !entry.detail
+    );
 
     if (missingEntry) {
       Alert.alert('Dispute Details', `Please enter details for ${missingEntry.label}.`);
@@ -2458,6 +2923,8 @@ const RegistrationForm = React.memo(function RegistrationForm({
                 minimumFontScale={0.7}
               >
                 Serial No.: <Text style={[styles.vehicleSummaryInlineValue, { color: theme.textPrimary }]}>{srNo ? String(srNo).padStart(2, '0') : '--'}</Text>
+                {' | '}
+                Team Name: <Text style={[styles.vehicleSummaryInlineValue, { color: theme.textPrimary }]}>{teamName || '--'}</Text>
                 {' | '}
                 Sticker No.: <Text style={[styles.vehicleSummaryInlineValue, { color: theme.textPrimary }]}>#{stickerNumber || '--'}</Text>
                 {' | '}
@@ -2986,6 +3453,26 @@ const RegistrationForm = React.memo(function RegistrationForm({
               Select the dispute reasons and add details for each selected item.
             </Text>
 
+            <View style={styles.disputeModalTabs}>
+              {DISPUTE_PARTY_OPTIONS.map(party => {
+                const isActive = activeDisputePartyKey === party.key;
+
+                return (
+                  <TouchableOpacity
+                    key={`dispute-tab-${party.key}`}
+                    style={[styles.disputeModalTabButton, isActive && styles.disputeModalTabButtonActive]}
+                    onPress={() => setActiveDisputePartyKey(party.key)}
+                    activeOpacity={0.85}
+                    hitSlop={TOUCH_HIT_SLOP}
+                  >
+                    <Text style={[styles.disputeModalTabText, isActive && styles.disputeModalTabTextActive]}>
+                      {party.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
             <ScrollView
               style={styles.disputeModalScroll}
               contentContainerStyle={styles.disputeModalContent}
@@ -2993,7 +3480,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
               nestedScrollEnabled
               showsVerticalScrollIndicator={false}
             >
-              {DISPUTE_PARTY_OPTIONS.map(party => (
+              {DISPUTE_PARTY_OPTIONS.filter(party => party.key === activeDisputePartyKey).map(party => (
                 <View key={party.key} style={styles.disputeModalPartySection}>
                   <Text style={styles.disputeModalPartyTitle}>{party.label}</Text>
                   {party.key === 'byTeam' ? (
@@ -3031,6 +3518,60 @@ const RegistrationForm = React.memo(function RegistrationForm({
                       <Text style={styles.disputeModalSectionTitle}>{group.title}</Text>
                       {group.items.map(item => {
                         const itemState = disputeFormState?.[party.key]?.[item.key] || { checked: false, detail: '' };
+                        const predefinedOptions = getPredefinedDisputeOptions(party.key, item.key);
+                        const itemLabel = getDisputeDetailItemLabel(party.key, item);
+
+                        if (isPredefinedDispute(party.key, item.key)) {
+                          return (
+                            <View key={`${party.key}-${item.key}`} style={styles.disputeModalOptionBlock}>
+                              <Text style={styles.disputeModalRadioTitle}>{itemLabel}</Text>
+                              <View style={styles.disputeResolutionRadioGroup}>
+                                {predefinedOptions.map(option => {
+                                  const isSelected = itemState.selectedOptionKey === option.key;
+
+                                  return (
+                                    <TouchableOpacity
+                                      key={`${party.key}-${item.key}-${option.key}`}
+                                      style={[
+                                        styles.disputeResolutionRadioRow,
+                                        isSelected && styles.disputeResolutionRadioRowSelected,
+                                      ]}
+                                      onPress={() => handleDisputeRadioSelect(party.key, item.key, option.key)}
+                                      activeOpacity={0.85}
+                                      hitSlop={TOUCH_HIT_SLOP}
+                                    >
+                                      <View
+                                        style={[
+                                          styles.disputeResolutionRadio,
+                                          isSelected && styles.disputeResolutionRadioSelected,
+                                        ]}
+                                      >
+                                        {isSelected ? <View style={styles.disputeResolutionRadioDot} /> : null}
+                                      </View>
+                                      <Text
+                                        style={[
+                                          styles.disputeResolutionRadioLabel,
+                                          isSelected && styles.disputeResolutionRadioLabelSelected,
+                                        ]}
+                                      >
+                                        {option.label}
+                                      </Text>
+                                    </TouchableOpacity>
+                                  );
+                                })}
+                              </View>
+                              <TextInput
+                                {...STABLE_TEXT_INPUT_PROPS}
+                                value={itemState.detail}
+                                onChangeText={value => handleDisputeDetailChange(party.key, item.key, value)}
+                                style={styles.disputeModalInput}
+                                placeholder="Additional details (optional)"
+                                placeholderTextColor="#8f9bad"
+                                multiline
+                              />
+                            </View>
+                          );
+                        }
 
                         return (
                           <View key={`${party.key}-${item.key}`} style={styles.disputeModalOptionBlock}>
@@ -3048,7 +3589,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
                               >
                                 {itemState.checked ? <Text style={styles.disputeCheckboxTick}>✓</Text> : null}
                               </View>
-                              <Text style={styles.disputeModalOptionLabel}>{item.label}</Text>
+                              <Text style={styles.disputeModalOptionLabel}>{itemLabel}</Text>
                             </TouchableOpacity>
                             {itemState.checked ? (
                               <TextInput
@@ -3056,7 +3597,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
                                 value={itemState.detail}
                                 onChangeText={value => handleDisputeDetailChange(party.key, item.key, value)}
                                 style={styles.disputeModalInput}
-                                placeholder={`Enter ${item.label.toLowerCase()} details`}
+                                placeholder={`Enter ${itemLabel.toLowerCase()} details`}
                                 placeholderTextColor="#8f9bad"
                                 multiline
                               />
@@ -3118,6 +3659,8 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
   category,
   categoryTracks,
   categoryTrackConfig,
+  vehicleCardConfig,
+  selectedDay,
   records,
   onClose,
   onStart,
@@ -3140,16 +3683,33 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
     () => [...records].sort(compareRecordsByStickerThenKey),
     [records]
   );
+  const sequencedRecords = useMemo(
+    () =>
+      selectedTrackFilter
+        ? getVehicleCardRecordsForTrack(
+            baseOrderedRecords,
+            vehicleCardConfig,
+            selectedDay?.id,
+            category?.name,
+            selectedTrackFilter
+          )
+        : baseOrderedRecords,
+    [baseOrderedRecords, category?.name, selectedDay?.id, selectedTrackFilter, vehicleCardConfig]
+  );
   const serialByRecordKey = useMemo(
     () =>
       new Map(
-        baseOrderedRecords.map((record, index) => [getRecordKey(record), index + 1])
+        sequencedRecords.map((record, index) => [getRecordKey(record), index + 1])
       ),
-    [baseOrderedRecords]
+    [sequencedRecords]
+  );
+  const sequenceByRecordKey = useMemo(
+    () => new Map(sequencedRecords.map((record, index) => [getRecordKey(record), index])),
+    [sequencedRecords]
   );
   const orderedRecords = useMemo(
     () =>
-      [...baseOrderedRecords].sort((a, b) => {
+      [...sequencedRecords].sort((a, b) => {
         const aLateStart =
           Boolean(selectedLateStartEnabledByRecord[getRecordKey(a)]) && Boolean(selectedLateStartByRecord[getRecordKey(a)]);
         const bLateStart =
@@ -3168,9 +3728,9 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
           }
         }
 
-        return compareRecordsByStickerThenKey(a, b);
+        return (sequenceByRecordKey.get(getRecordKey(a)) ?? 0) - (sequenceByRecordKey.get(getRecordKey(b)) ?? 0);
       }),
-    [baseOrderedRecords, lateStartActionOrderByRecord, selectedLateStartEnabledByRecord, selectedLateStartByRecord]
+    [lateStartActionOrderByRecord, selectedLateStartEnabledByRecord, selectedLateStartByRecord, sequenceByRecordKey, sequencedRecords]
   );
   const filteredRecords = useMemo(
     () =>
@@ -3191,9 +3751,9 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
   const selectedTrackMappedRecordCount = useMemo(
     () =>
       selectedTrackFilter
-        ? orderedRecords.filter(record => getTeamTracks(record, category?.name, categoryTrackConfig).includes(selectedTrackFilter)).length
+        ? sequencedRecords.filter(record => getTeamTracks(record, category?.name, categoryTrackConfig).includes(selectedTrackFilter)).length
         : 0,
-    [category?.name, categoryTrackConfig, orderedRecords, selectedTrackFilter]
+    [category?.name, categoryTrackConfig, selectedTrackFilter, sequencedRecords]
   );
   const selectedTrackCompletedRecordCount = selectedTrackFilter
     ? selectedTrackMappedRecordCount - filteredRecords.length
@@ -3344,6 +3904,13 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
                           <Text style={styles.recordMetaLabel}>Sticker No.</Text>
                           <Text style={styles.recordStickerValue}>
                             #{getTeamStickerNumber(item) || '--'}
+                          </Text>
+                        </View>
+
+                        <View style={[styles.recordInfoCard, styles.recordInfoCardWide]}>
+                          <Text style={styles.recordMetaLabel}>Team Name</Text>
+                          <Text style={styles.recordDriverName}>
+                            {getTeamName(item) || '--'}
                           </Text>
                         </View>
 
@@ -3726,6 +4293,7 @@ const DisputeRecordsPanel = React.memo(function DisputeRecordsPanel({
             ) : (
               selectedTrackDisputes.map(item => {
                 const stickerNumber = item.sticker_number || item.stickerNumber || '--';
+                const teamName = getTeamName(item) || '--';
                 const driverName = item.driver_name || item.driverName || '--';
                 const coDriverName = item.codriver_name || item.coDriverName || '--';
                 const disputeEntries = getNormalizedDisputeDetailEntries(item);
@@ -3748,6 +4316,10 @@ const DisputeRecordsPanel = React.memo(function DisputeRecordsPanel({
                     </View>
 
                     <View style={styles.registrationInfoGrid}>
+                      <View style={styles.registrationInfoCell}>
+                        <Text style={styles.registrationInfoLabel}>Team Name</Text>
+                        <Text style={styles.registrationInfoValue}>{teamName}</Text>
+                      </View>
                       <View style={styles.registrationInfoCell}>
                         <Text style={styles.registrationInfoLabel}>Driver Name</Text>
                         <Text style={styles.registrationInfoValue}>{driverName}</Text>
@@ -3928,6 +4500,7 @@ const RegistrationResultsModal = React.memo(function RegistrationResultsModal({
             renderItem={({ item, index }) => {
               const srNo = item.sr_no || item.srNo || index + 1;
               const trackName = item.track_name || item.trackName || '--';
+              const teamName = getTeamName(item) || '--';
               const driverName = item.driver_name || item.driverName || '--';
               const coDriverName = item.codriver_name || item.coDriverName || '--';
               const stickerNumber = item.sticker_number || item.stickerNumber || '--';
@@ -3957,6 +4530,10 @@ const RegistrationResultsModal = React.memo(function RegistrationResultsModal({
                   </View>
 
                   <View style={styles.registrationInfoGrid}>
+                    <View style={styles.registrationInfoCell}>
+                      <Text style={styles.registrationInfoLabel}>Team Name</Text>
+                      <Text style={styles.registrationInfoValue}>{teamName}</Text>
+                    </View>
                     <View style={styles.registrationInfoCell}>
                       <Text style={styles.registrationInfoLabel}>Driver Name</Text>
                       <Text style={styles.registrationInfoValue}>{driverName}</Text>
@@ -4054,6 +4631,8 @@ export default function App() {
   const [categoryActivationConfig, setCategoryActivationConfig] = useState(() => buildDefaultCategoryActivationConfig());
   const [trackActivationConfig, setTrackActivationConfig] = useState(() => buildDefaultTrackActivationConfig());
   const [trackTimerConfig, setTrackTimerConfig] = useState(() => buildDefaultTrackTimerConfig());
+  const [vehicleCardConfig, setVehicleCardConfig] = useState(() => buildDefaultVehicleCardConfig());
+  const [deletedVehicleCardKeys, setDeletedVehicleCardKeys] = useState([]);
   const [settingsPasswordModalVisible, setSettingsPasswordModalVisible] = useState(false);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [settingsView, setSettingsView] = useState('menu');
@@ -4077,6 +4656,9 @@ export default function App() {
   const [settingsTrackNameInput, setSettingsTrackNameInput] = useState('');
   const [settingsTrackRenameInputs, setSettingsTrackRenameInputs] = useState({});
   const [settingsTrackTimerTrack, setSettingsTrackTimerTrack] = useState('');
+  const [settingsVehicleCardTrack, setSettingsVehicleCardTrack] = useState('');
+  const [settingsVehicleCardForm, setSettingsVehicleCardForm] = useState(() => getEmptyVehicleCardForm());
+  const [settingsVehicleCardSaving, setSettingsVehicleCardSaving] = useState(false);
   const [settingsTrackTimerMinutes, setSettingsTrackTimerMinutes] = useState(0);
   const [settingsTrackTimerSeconds, setSettingsTrackTimerSeconds] = useState(0);
   const [disputeRecords, setDisputeRecords] = useState([]);
@@ -4193,6 +4775,8 @@ export default function App() {
       setCategoryActivationConfig(storedSettings.categoryActivationConfig);
       setTrackActivationConfig(storedSettings.trackActivationConfig);
       setTrackTimerConfig(storedSettings.trackTimerConfig);
+      setVehicleCardConfig(storedSettings.vehicleCardConfig);
+      setDeletedVehicleCardKeys(storedSettings.deletedVehicleCardKeys);
       setThemeMode(storedSettings.themeMode);
       setLeaderboardSyncBaseUrl(storedSettings.leaderboardSyncBaseUrl || DEFAULT_LEADERBOARD_SYNC_BASE_URL);
       setLeaderboardSyncBaseUrlInput(storedSettings.leaderboardSyncBaseUrl || DEFAULT_LEADERBOARD_SYNC_BASE_URL);
@@ -4218,12 +4802,22 @@ export default function App() {
       categoryActivationConfig,
       trackActivationConfig,
       trackTimerConfig,
+      vehicleCardConfig,
+      deletedVehicleCardKeys,
       themeMode,
       leaderboardSyncBaseUrl,
     }).catch(error => {
       console.warn('Unable to save admin settings:', error);
     });
-  }, [categoryActivationConfig, categoryTrackConfig, leaderboardSyncBaseUrl, securityPin, settingsLoaded, settingsPassword, themeMode, trackActivationConfig, trackTimerConfig]);
+  }, [categoryActivationConfig, categoryTrackConfig, deletedVehicleCardKeys, leaderboardSyncBaseUrl, securityPin, settingsLoaded, settingsPassword, themeMode, trackActivationConfig, trackTimerConfig, vehicleCardConfig]);
+
+  useEffect(() => {
+    if (!deletedVehicleCardKeys.length) {
+      return;
+    }
+
+    setTeams(prevTeams => filterDeletedVehicleCardRecords(prevTeams, deletedVehicleCardKeys));
+  }, [deletedVehicleCardKeys]);
 
   useEffect(() => {
     if (appStage !== 'splash') {
@@ -4376,6 +4970,17 @@ export default function App() {
     setCompletedTracksByRecord(buildCompletedTracksMap(teamRecords, results, dayId, disputes));
   };
 
+  const refreshTeamsFromStorage = useCallback(async (deletedKeysOverride = deletedVehicleCardKeys) => {
+    const teamsData = filterDeletedVehicleCardRecords(await TeamsService.getAllTeams(), deletedKeysOverride);
+    setTeams(teamsData);
+    setCategoriesWithCounts(prevCategories => {
+      const sourceCategories = prevCategories.length > 0 ? prevCategories : categories;
+      return attachTeamCountsToCategories(sourceCategories, teamsData, categoryTrackConfig);
+    });
+    await refreshCompletedTracks(teamsData, selectedDay?.id || '');
+    return teamsData;
+  }, [categoryTrackConfig, deletedVehicleCardKeys, selectedDay?.id]);
+
   const processExpiredDisputes = useCallback(async () => {
     if (disputeAutoSubmitInFlightRef.current) {
       return { processedCount: 0, promotedCount: 0, removedDuplicateCount: 0, failedCount: 0 };
@@ -4417,7 +5022,7 @@ export default function App() {
         await promoteExpiredDisputesToResults();
         
         // Load teams with native local DB preferred and API fallback
-        const teamsData = await TeamsService.getAllTeams();
+        const teamsData = filterDeletedVehicleCardRecords(await TeamsService.getAllTeams(), deletedVehicleCardKeys);
         console.log('Teams received on homepage load:', teamsData.length);
         // Load categories and add team counts
         const categoriesData = await CategoriesService.getAllCategories();
@@ -4631,6 +5236,55 @@ export default function App() {
     [categoryTrackConfig, settingsConfigCategoryKey]
   );
 
+  const settingsVehicleRecords = useMemo(
+    () =>
+      teams
+        .filter(team => normalizeCategoryKey(team.category || '') === settingsConfigCategoryKey)
+        .sort(compareRecordsByStickerThenKey),
+    [settingsConfigCategoryKey, teams]
+  );
+
+  const settingsVehicleRecordsByCardKey = useMemo(
+    () => new Map(settingsVehicleRecords.map(record => [getVehicleCardKey(record), record])),
+    [settingsVehicleRecords]
+  );
+
+  const configuredVehicleCardKeys = useMemo(
+    () =>
+      getConfiguredVehicleCardKeys(
+        vehicleCardConfig,
+        settingsConfigDayId,
+        settingsConfigCategoryKey,
+        settingsVehicleCardTrack
+      ),
+    [settingsConfigCategoryKey, settingsConfigDayId, settingsVehicleCardTrack, vehicleCardConfig]
+  );
+
+  const effectiveVehicleCardKeys = useMemo(
+    () =>
+      Array.isArray(configuredVehicleCardKeys)
+        ? configuredVehicleCardKeys
+        : settingsVehicleRecords.map(record => getVehicleCardKey(record)),
+    [configuredVehicleCardKeys, settingsVehicleRecords]
+  );
+
+  const orderedSettingsVehicleCards = useMemo(() => {
+    const recordsByCardKey = new Map(settingsVehicleRecords.map(record => [getVehicleCardKey(record), record]));
+
+    return effectiveVehicleCardKeys
+      .map(key => recordsByCardKey.get(key))
+      .filter(Boolean)
+      .map(getVehicleCardDisplayData);
+  }, [effectiveVehicleCardKeys, settingsVehicleRecords]);
+
+  const availableSettingsVehicleCards = useMemo(() => {
+    const selectedKeys = new Set(effectiveVehicleCardKeys);
+
+    return settingsVehicleRecords
+      .filter(record => !selectedKeys.has(getVehicleCardKey(record)))
+      .map(getVehicleCardDisplayData);
+  }, [effectiveVehicleCardKeys, settingsVehicleRecords]);
+
   const selectedTrackTimerLimitSeconds = useMemo(() => {
     const categoryName = selectedCategory?.name || selectedRecord?.category || '';
     const trackName =
@@ -4660,13 +5314,18 @@ export default function App() {
   useEffect(() => {
     if (!configurationTracks.length) {
       setSettingsTrackTimerTrack('');
+      setSettingsVehicleCardTrack('');
       return;
     }
 
     if (!configurationTracks.includes(settingsTrackTimerTrack)) {
       setSettingsTrackTimerTrack(configurationTracks[0]);
     }
-  }, [configurationTracks, settingsTrackTimerTrack]);
+
+    if (!configurationTracks.includes(settingsVehicleCardTrack)) {
+      setSettingsVehicleCardTrack(configurationTracks[0]);
+    }
+  }, [configurationTracks, settingsTrackTimerTrack, settingsVehicleCardTrack]);
 
   useEffect(() => {
     const nextTotalSeconds = appliedSettingsTrackTimerSeconds ?? 0;
@@ -4784,6 +5443,10 @@ export default function App() {
     setSettingsView('config-track-timer');
   };
 
+  const handleOpenVehicleCardSettings = () => {
+    setSettingsView('config-vehicle-cards');
+  };
+
   const handleOpenTrackManagerSettings = () => {
     setSettingsView('config-track-manager');
   };
@@ -4809,7 +5472,12 @@ export default function App() {
       return 'security';
     }
 
-    if (currentView === 'config-visibility' || currentView === 'config-track-manager' || currentView === 'config-track-timer') {
+    if (
+      currentView === 'config-visibility' ||
+      currentView === 'config-track-manager' ||
+      currentView === 'config-track-timer' ||
+      currentView === 'config-vehicle-cards'
+    ) {
       return 'config';
     }
 
@@ -5286,6 +5954,19 @@ export default function App() {
       }, { ...prev })
     );
 
+    setVehicleCardConfig(prev =>
+      REPORT_DAYS.reduce((acc, day) => {
+        acc[day.id] = {
+          ...(acc?.[day.id] || {}),
+          [categoryKey]: {
+            ...(acc?.[day.id]?.[categoryKey] || {}),
+            [nextTrackName]: null,
+          },
+        };
+        return acc;
+      }, { ...prev })
+    );
+
     setSettingsTrackNameInput('');
   };
 
@@ -5313,6 +5994,18 @@ export default function App() {
     );
 
     setTrackTimerConfig(prev =>
+      REPORT_DAYS.reduce((acc, day) => {
+        const categoryConfig = { ...(acc?.[day.id]?.[categoryKey] || {}) };
+        delete categoryConfig[normalizedTrackName];
+        acc[day.id] = {
+          ...(acc?.[day.id] || {}),
+          [categoryKey]: categoryConfig,
+        };
+        return acc;
+      }, { ...prev })
+    );
+
+    setVehicleCardConfig(prev =>
       REPORT_DAYS.reduce((acc, day) => {
         const categoryConfig = { ...(acc?.[day.id]?.[categoryKey] || {}) };
         delete categoryConfig[normalizedTrackName];
@@ -5401,6 +6094,21 @@ export default function App() {
       }, { ...prev })
     );
 
+    setVehicleCardConfig(prev =>
+      REPORT_DAYS.reduce((acc, day) => {
+        const categoryConfig = { ...(acc?.[day.id]?.[categoryKey] || {}) };
+        if (Object.prototype.hasOwnProperty.call(categoryConfig, normalizedOldTrackName)) {
+          categoryConfig[nextTrackName] = categoryConfig[normalizedOldTrackName];
+          delete categoryConfig[normalizedOldTrackName];
+        }
+        acc[day.id] = {
+          ...(acc?.[day.id] || {}),
+          [categoryKey]: categoryConfig,
+        };
+        return acc;
+      }, { ...prev })
+    );
+
     setSettingsTrackRenameInputs(prev => {
       const nextInputs = { ...prev };
       delete nextInputs[renameInputKey];
@@ -5412,6 +6120,9 @@ export default function App() {
     }
     if (settingsTrackTimerTrack === normalizedOldTrackName) {
       setSettingsTrackTimerTrack(nextTrackName);
+    }
+    if (settingsVehicleCardTrack === normalizedOldTrackName) {
+      setSettingsVehicleCardTrack(nextTrackName);
     }
   };
 
@@ -5481,6 +6192,316 @@ export default function App() {
         },
       };
     });
+  };
+
+  const getDefaultVehicleCardKeysForSettings = useCallback(
+    () => settingsVehicleRecords.map(record => getVehicleCardKey(record)),
+    [settingsVehicleRecords]
+  );
+
+  const setVehicleCardsForSelectedTrack = useCallback(
+    nextKeys => {
+      if (!settingsConfigDayId || !settingsConfigCategoryKey || !settingsVehicleCardTrack) {
+        return;
+      }
+
+      const normalizedKeys = Array.isArray(nextKeys) ? normalizeVehicleCardKeys(nextKeys) || [] : null;
+
+      setVehicleCardConfig(prev => ({
+        ...prev,
+        [settingsConfigDayId]: {
+          ...(prev?.[settingsConfigDayId] || {}),
+          [settingsConfigCategoryKey]: {
+            ...(prev?.[settingsConfigDayId]?.[settingsConfigCategoryKey] || {}),
+            [settingsVehicleCardTrack]: normalizedKeys,
+          },
+        },
+      }));
+    },
+    [settingsConfigCategoryKey, settingsConfigDayId, settingsVehicleCardTrack]
+  );
+
+  const handleVehicleCardAdd = cardKey => {
+    const baseKeys = Array.isArray(configuredVehicleCardKeys)
+      ? configuredVehicleCardKeys
+      : getDefaultVehicleCardKeysForSettings();
+
+    if (baseKeys.includes(cardKey)) {
+      return;
+    }
+
+    setVehicleCardsForSelectedTrack([...baseKeys, cardKey]);
+  };
+
+  const handleVehicleCardRemove = cardKey => {
+    const baseKeys = Array.isArray(configuredVehicleCardKeys)
+      ? configuredVehicleCardKeys
+      : getDefaultVehicleCardKeysForSettings();
+
+    setVehicleCardsForSelectedTrack(baseKeys.filter(key => key !== cardKey));
+  };
+
+  const handleVehicleCardMove = (cardKey, direction) => {
+    const baseKeys = Array.isArray(configuredVehicleCardKeys)
+      ? [...configuredVehicleCardKeys]
+      : getDefaultVehicleCardKeysForSettings();
+    const currentIndex = baseKeys.indexOf(cardKey);
+    const nextIndex = currentIndex + direction;
+
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= baseKeys.length) {
+      return;
+    }
+
+    const [movedKey] = baseKeys.splice(currentIndex, 1);
+    baseKeys.splice(nextIndex, 0, movedKey);
+    setVehicleCardsForSelectedTrack(baseKeys);
+  };
+
+  const handleVehicleCardsAddAll = () => {
+    setVehicleCardsForSelectedTrack(getDefaultVehicleCardKeysForSettings());
+  };
+
+  const handleVehicleCardsClear = () => {
+    setVehicleCardsForSelectedTrack([]);
+  };
+
+  const handleVehicleCardsUseDefault = () => {
+    setVehicleCardsForSelectedTrack(null);
+  };
+
+  const handleVehicleCardFormChange = (field, value) => {
+    setSettingsVehicleCardForm(prev => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const handleVehicleCardNew = () => {
+    setSettingsVehicleCardForm(getEmptyVehicleCardForm());
+  };
+
+  const handleVehicleCardEdit = cardKey => {
+    const record = settingsVehicleRecordsByCardKey.get(cardKey);
+
+    if (!record) {
+      Alert.alert('Vehicle Card', 'Unable to find this vehicle card for editing.');
+      return;
+    }
+
+    setSettingsVehicleCardForm(buildVehicleCardFormFromRecord(record));
+  };
+
+  const replaceVehicleCardKeyInConfig = (oldKey, nextKey) => {
+    if (!oldKey || !nextKey || oldKey === nextKey) {
+      return;
+    }
+
+    setVehicleCardConfig(prev => {
+      const nextConfig = { ...(prev || {}) };
+
+      REPORT_DAYS.forEach(day => {
+        const dayConfig = nextConfig[day.id] || {};
+        nextConfig[day.id] = { ...dayConfig };
+
+        Object.keys(nextConfig[day.id]).forEach(categoryKey => {
+          const categoryConfig = nextConfig[day.id][categoryKey] || {};
+          nextConfig[day.id][categoryKey] = { ...categoryConfig };
+
+          Object.keys(nextConfig[day.id][categoryKey]).forEach(trackName => {
+            const keys = nextConfig[day.id][categoryKey][trackName];
+
+            if (Array.isArray(keys)) {
+              nextConfig[day.id][categoryKey][trackName] = keys.map(key => (key === oldKey ? nextKey : key));
+            }
+          });
+        });
+      });
+
+      return nextConfig;
+    });
+  };
+
+  const removeVehicleCardKeyFromConfig = cardKey => {
+    if (!cardKey) {
+      return;
+    }
+
+    setVehicleCardConfig(prev => {
+      const nextConfig = { ...(prev || {}) };
+
+      REPORT_DAYS.forEach(day => {
+        const dayConfig = nextConfig[day.id] || {};
+        nextConfig[day.id] = { ...dayConfig };
+
+        Object.keys(nextConfig[day.id]).forEach(categoryKey => {
+          const categoryConfig = nextConfig[day.id][categoryKey] || {};
+          nextConfig[day.id][categoryKey] = { ...categoryConfig };
+
+          Object.keys(nextConfig[day.id][categoryKey]).forEach(trackName => {
+            const keys = nextConfig[day.id][categoryKey][trackName];
+
+            if (Array.isArray(keys)) {
+              nextConfig[day.id][categoryKey][trackName] = keys.filter(key => key !== cardKey);
+            }
+          });
+        });
+      });
+
+      return nextConfig;
+    });
+  };
+
+  const handleVehicleCardSave = async () => {
+    const payload = buildTeamPayloadFromVehicleCardForm(settingsVehicleCardForm, settingsConfigCategoryKey);
+
+    if (!payload.car_number || !payload.driver_name || !payload.codriver_name) {
+      Alert.alert('Vehicle Card', 'Sticker number, driver name, and co-driver name are required.');
+      return;
+    }
+
+    const duplicateRecord = settingsVehicleRecords.find(record => {
+      const sameSticker =
+        normalizeLookupValue(getTeamStickerNumber(record)) === normalizeLookupValue(payload.car_number);
+      const sameRecord = settingsVehicleCardForm.id && String(record.id) === String(settingsVehicleCardForm.id);
+
+      return sameSticker && !sameRecord;
+    });
+
+    if (duplicateRecord) {
+      Alert.alert('Vehicle Card', `Sticker #${payload.car_number} already exists in this category.`);
+      return;
+    }
+
+    try {
+      setSettingsVehicleCardSaving(true);
+
+      if (settingsVehicleCardForm.id) {
+        const updated = await TeamsService.updateTeam(settingsVehicleCardForm.id, payload);
+
+        if (!updated) {
+          Alert.alert('Vehicle Card', 'Unable to update this vehicle card.');
+          return;
+        }
+
+        const nextCardKey = getVehicleCardKeyFromPayload(payload);
+        replaceVehicleCardKeyInConfig(settingsVehicleCardForm.originalCardKey, nextCardKey);
+        const nextDeletedVehicleCardKeys = normalizeDeletedVehicleCardKeys(
+          deletedVehicleCardKeys.filter(
+            key => key !== nextCardKey && key !== settingsVehicleCardForm.originalCardKey
+          )
+        );
+        setDeletedVehicleCardKeys(nextDeletedVehicleCardKeys);
+        await refreshTeamsFromStorage(nextDeletedVehicleCardKeys);
+        setSettingsVehicleCardForm(getEmptyVehicleCardForm());
+        Alert.alert('Vehicle Card Updated', 'Vehicle card details were saved.');
+        return;
+      }
+
+      const newTeamId = await TeamsService.addTeam(payload);
+
+      if (!newTeamId) {
+        Alert.alert('Vehicle Card', 'Unable to add this vehicle card.');
+        return;
+      }
+
+      const nextCardKey = getVehicleCardKeyFromPayload(payload);
+      const baseKeys = Array.isArray(configuredVehicleCardKeys)
+        ? configuredVehicleCardKeys
+        : getDefaultVehicleCardKeysForSettings();
+
+      if (!baseKeys.includes(nextCardKey)) {
+        setVehicleCardsForSelectedTrack([...baseKeys, nextCardKey]);
+      }
+
+      const nextDeletedVehicleCardKeys = normalizeDeletedVehicleCardKeys(
+        deletedVehicleCardKeys.filter(key => key !== nextCardKey)
+      );
+      setDeletedVehicleCardKeys(nextDeletedVehicleCardKeys);
+      await refreshTeamsFromStorage(nextDeletedVehicleCardKeys);
+      setSettingsVehicleCardForm(getEmptyVehicleCardForm());
+      Alert.alert('Vehicle Card Added', 'New vehicle card was added to the selected track list.');
+    } catch (error) {
+      console.warn('Unable to save vehicle card:', error);
+      Alert.alert('Vehicle Card', 'Unable to save this vehicle card.');
+    } finally {
+      setSettingsVehicleCardSaving(false);
+    }
+  };
+
+  const deleteVehicleCard = async cardKey => {
+    const record = settingsVehicleRecordsByCardKey.get(cardKey);
+
+    if (!record) {
+      Alert.alert('Vehicle Card', 'Unable to delete this vehicle card.');
+      return;
+    }
+
+    try {
+      setSettingsVehicleCardSaving(true);
+      let deletedFromSource = true;
+
+      if (record.id) {
+        deletedFromSource = await TeamsService.deleteTeam(record.id);
+      }
+
+      if (!deletedFromSource) {
+        console.warn('Vehicle card source delete failed; hiding it permanently in app settings instead.');
+      }
+
+      const nextDeletedVehicleCardKeys = normalizeDeletedVehicleCardKeys([
+        ...deletedVehicleCardKeys,
+        cardKey,
+      ]);
+
+      removeVehicleCardKeyFromConfig(cardKey);
+      setDeletedVehicleCardKeys(nextDeletedVehicleCardKeys);
+      setTeams(prevTeams => filterDeletedVehicleCardRecords(prevTeams, nextDeletedVehicleCardKeys));
+
+      if (settingsVehicleCardForm.originalCardKey === cardKey || String(settingsVehicleCardForm.id || '') === String(record.id)) {
+        setSettingsVehicleCardForm(getEmptyVehicleCardForm());
+      }
+
+      await refreshTeamsFromStorage(nextDeletedVehicleCardKeys);
+      Alert.alert('Vehicle Card Deleted', 'Vehicle card was permanently removed.');
+    } catch (error) {
+      console.warn('Unable to delete vehicle card:', error);
+      Alert.alert('Vehicle Card', 'Unable to delete this vehicle card.');
+    } finally {
+      setSettingsVehicleCardSaving(false);
+    }
+  };
+
+  const handleVehicleCardDelete = cardKey => {
+    const record = settingsVehicleRecordsByCardKey.get(cardKey);
+    const stickerNumber = getTeamStickerNumber(record) || '--';
+    const driverName = record?.driver_name || record?.driverName || 'this vehicle';
+    const confirmationMessage = `Permanently delete #${stickerNumber} | ${driverName}? This removes the card from all track sequences.`;
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      if (window.confirm(confirmationMessage)) {
+        deleteVehicleCard(cardKey).catch(error => {
+          console.warn('Unable to delete vehicle card:', error);
+        });
+      }
+      return;
+    }
+
+    Alert.alert(
+      'Delete Vehicle Card',
+      confirmationMessage,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            deleteVehicleCard(cardKey).catch(error => {
+              console.warn('Unable to delete vehicle card:', error);
+            });
+          },
+        },
+      ]
+    );
   };
 
   const handleRecordStart = record => {
@@ -5592,8 +6613,6 @@ export default function App() {
         return false;
       }
 
-      const nullValue = 'null';
-      const fileName = `${selectedCategory?.name || 'Category'} - ${safeRecord.selectedTrack || 'Track'} - DNS.csv`;
       const dayPayload = {
         selected_day_id: selectedDay?.id || '',
         selectedDayId: selectedDay?.id || '',
@@ -5605,6 +6624,8 @@ export default function App() {
       const dnsResultData = {
         track_name: safeRecord.selectedTrack || '',
         sticker_number: getTeamStickerNumber(safeRecord) || '',
+        team_name: getTeamName(safeRecord) || '',
+        teamName: getTeamName(safeRecord) || '',
         driver_name: safeRecord.driver_name || safeRecord.driverName || '',
         codriver_name: safeRecord.codriver_name || safeRecord.coDriverName || '',
         category: selectedCategory?.name || '',
@@ -5646,47 +6667,11 @@ export default function App() {
         }),
       };
 
-      const row = [[
-        safeRecord.selectedTrack || nullValue,
-        nullValue,
-        getTeamStickerNumber(safeRecord) || nullValue,
-        safeRecord.driver_name || safeRecord.driverName || nullValue,
-        safeRecord.codriver_name || safeRecord.coDriverName || nullValue,
-        nullValue,
-        nullValue,
-        nullValue,
-        nullValue,
-        nullValue,
-        nullValue,
-        nullValue,
-        nullValue,
-        nullValue,
-        nullValue,
-        nullValue,
-        nullValue,
-        nullValue,
-        nullValue,
-        nullValue,
-        nullValue,
-        nullValue,
-        nullValue,
-        nullValue,
-        nullValue,
-        nullValue,
-        nullValue,
-        nullValue,
-        nullValue,
-        nullValue,
-        nullValue,
-      ]];
-
       const isDuplicate = await ResultsService.isDuplicateResult(dnsResultData);
       if (isDuplicate) {
         Alert.alert('Duplicate Record', 'This DNS record already exists for the same category, track, and sticker number.');
         return false;
       }
-
-      await CSVExporter.downloadFile(fileName, RECORD_EXPORT_HEADERS, row);
 
       await ResultsService.addResult(dnsResultData);
       await refreshCompletedTracks(teams, selectedDay?.id || '');
@@ -5720,7 +6705,7 @@ export default function App() {
       );
     } catch (error) {
       console.error('Unable to submit DNS record:', error);
-      Alert.alert('Error', 'Failed to generate file: ' + (error?.message || 'Unknown error'));
+      Alert.alert('Error', 'Unable to submit DNS record: ' + (error?.message || 'Unknown error'));
       return false;
     }
   };
@@ -5736,6 +6721,8 @@ const buildRegistrationData = formData => ({
     trackTimerLimitDisplay: formData.trackTimerLimitDisplay || null,
     sticker_number: formData.stickerNumber,
     stickerNumber: formData.stickerNumber,
+    team_name: formData.teamName || '',
+    teamName: formData.teamName || '',
     driver_name: formData.driverName,
     driverName: formData.driverName,
     codriver_name: formData.coDriverName,
@@ -5896,20 +6883,6 @@ const buildRegistrationData = formData => ({
         }
       }
 
-      if (!isDisputeRecord) {
-        const didDownload = await downloadResultCsv(safeFormData)
-          .then(() => true)
-          .catch(error => {
-            Alert.alert('Error', 'Failed to generate file: ' + error.message);
-            console.error('File generation error:', error);
-            return false;
-          });
-
-        if (!didDownload) {
-          return false;
-        }
-      }
-
       const isDuplicate = await ResultsService.isDuplicateResult(registrationData);
       if (isDuplicate) {
         Alert.alert('Duplicate Record', 'This result already exists for the same category, track, and sticker number.');
@@ -5957,6 +6930,8 @@ const buildRegistrationData = formData => ({
         id: safeFormData.disputeId || undefined,
         track_name: safeFormData.trackName,
         sticker_number: safeFormData.stickerNumber,
+        team_name: safeFormData.teamName || '',
+        teamName: safeFormData.teamName || '',
         driver_name: safeFormData.driverName,
         codriver_name: safeFormData.coDriverName,
         category: safeFormData.category,
@@ -6084,7 +7059,9 @@ const buildRegistrationData = formData => ({
             ? 'Track Manager'
             : settingsView === 'config-track-timer'
               ? 'Track Timer'
-              : settingsView === 'security'
+              : settingsView === 'config-vehicle-cards'
+                ? 'Vehicle Cards'
+                : settingsView === 'security'
               ? 'Security'
               : settingsView === 'pin'
                 ? 'Pin Verification'
@@ -6105,7 +7082,9 @@ const buildRegistrationData = formData => ({
           ? 'Add, remove, and rename the base track list for each vehicle category.'
           : settingsView === 'config-track-timer'
             ? 'Assign a dedicated stopwatch limit to each day, category, and track.'
-            : settingsView === 'security'
+            : settingsView === 'config-vehicle-cards'
+              ? 'Build the ordered vehicle card list for each day, category, and track.'
+              : settingsView === 'security'
             ? 'Manage the protected tools used to verify race-day actions.'
             : settingsView === 'pin'
               ? 'Require a 4-digit PIN before Submit, DNS, and Confirm Dispute can continue.'
@@ -6652,6 +7631,8 @@ const buildRegistrationData = formData => ({
             category={selectedCategory}
             categoryTracks={selectedCategoryTracks}
             categoryTrackConfig={categoryTrackConfig}
+            vehicleCardConfig={vehicleCardConfig}
+            selectedDay={selectedDay}
             records={selectedCategoryRecords}
             selectedTrackFilter={selectedCategoryTrack}
             onTrackCardSelect={handleTrackCardSelect}
@@ -6960,6 +7941,18 @@ const buildRegistrationData = formData => ({
                   <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Track Timer</Text>
                   <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
                     Set a dedicated stopwatch limit for each day, category, and track.
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={handleOpenVehicleCardSettings}
+                  activeOpacity={0.88}
+                >
+                  <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Configuration</Text>
+                  <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Vehicle Cards</Text>
+                  <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
+                    Add, remove, and sequence vehicle cards for each selected day, category, and track.
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -7556,6 +8549,435 @@ const buildRegistrationData = formData => ({
                     >
                       <Text style={[styles.settingsActionButtonText, { color: theme.accentText }]}>Apply Timer</Text>
                     </TouchableOpacity>
+                  </View>
+                </View>
+              </>
+            ) : null}
+
+            {settingsView === 'config-vehicle-cards' ? (
+              <>
+                <View style={styles.settingsInfoCard}>
+                  <Text style={[styles.settingsInfoTitle, { color: theme.accent }]}>Vehicle Cards</Text>
+                  <Text style={[styles.settingsInfoText, { color: theme.textSecondary }]}>
+                    Select a day, category, and track, then build the vehicle card list that should appear there. The list order becomes the card sequence for that track.
+                  </Text>
+                </View>
+
+                <View style={styles.settingsSection}>
+                  <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Select Day</Text>
+                  <View style={styles.settingsChipWrap}>
+                    {REPORT_DAYS.map(day => {
+                      const selected = settingsConfigDayId === day.id;
+
+                      return (
+                        <TouchableOpacity
+                          key={`vehicle-cards-day-${day.id}`}
+                          style={[
+                            styles.settingsChip,
+                            { backgroundColor: theme.surface, borderColor: theme.border },
+                            selected && [styles.settingsChipSelected, { backgroundColor: theme.accent, borderColor: theme.accent }],
+                          ]}
+                          onPress={() => setSettingsConfigDayId(day.id)}
+                          activeOpacity={0.85}
+                        >
+                          <Text
+                            style={[
+                              styles.settingsChipText,
+                              { color: theme.textPrimary },
+                              selected && [styles.settingsChipTextSelected, { color: theme.accentText }],
+                            ]}
+                          >
+                            {day.dayLabel}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                <View style={styles.settingsSection}>
+                  <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Select Category</Text>
+                  <View style={styles.settingsChipWrap}>
+                    {settingsCategoryOptions.map(option => {
+                      const selected = settingsConfigCategoryKey === option.key;
+
+                      return (
+                        <TouchableOpacity
+                          key={`vehicle-cards-category-${option.key}`}
+                          style={[
+                            styles.settingsChip,
+                            { backgroundColor: theme.surface, borderColor: theme.border },
+                            selected && [styles.settingsChipSelected, { backgroundColor: theme.accent, borderColor: theme.accent }],
+                          ]}
+                          onPress={() => setSettingsConfigCategoryKey(option.key)}
+                          activeOpacity={0.85}
+                        >
+                          <Text
+                            style={[
+                              styles.settingsChipText,
+                              { color: theme.textPrimary },
+                              selected && [styles.settingsChipTextSelected, { color: theme.accentText }],
+                            ]}
+                          >
+                            {option.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                <View style={styles.settingsSection}>
+                  <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Select Track</Text>
+                  <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                    {REPORT_DAYS.find(day => day.id === settingsConfigDayId)?.dayLabel || 'Selected Day'} |{' '}
+                    {settingsCategoryOptions.find(option => option.key === settingsConfigCategoryKey)?.label || 'Category'}
+                  </Text>
+                  <View style={styles.settingsTrackList}>
+                    {configurationTracks.map(trackName => {
+                      const isSelected = settingsVehicleCardTrack === trackName;
+                      const customKeys = getConfiguredVehicleCardKeys(
+                        vehicleCardConfig,
+                        settingsConfigDayId,
+                        settingsConfigCategoryKey,
+                        trackName
+                      );
+
+                      return (
+                        <TouchableOpacity
+                          key={`vehicle-cards-track-${settingsConfigDayId}-${settingsConfigCategoryKey}-${trackName}`}
+                          style={[
+                            styles.settingsTrackRow,
+                            { backgroundColor: theme.surface, borderColor: theme.border },
+                            isSelected && styles.settingsTrackRowSelected,
+                          ]}
+                          onPress={() => setSettingsVehicleCardTrack(trackName)}
+                          activeOpacity={0.85}
+                        >
+                          <View style={styles.settingsTrackInfo}>
+                            <View style={styles.settingsTrackNameRow}>
+                              <View
+                                style={[
+                                  styles.settingsTrackMarker,
+                                  isSelected ? styles.settingsTrackMarkerActive : styles.settingsTrackMarkerInactive,
+                                ]}
+                              />
+                              <Text
+                                style={[
+                                  styles.settingsTrackName,
+                                  isSelected ? styles.settingsTrackNameActive : { color: theme.textPrimary },
+                                ]}
+                              >
+                                {trackName}
+                              </Text>
+                            </View>
+                            <Text style={[styles.settingsTrackStatus, { color: theme.textSecondary }]}>
+                              {Array.isArray(customKeys)
+                                ? `${customKeys.length} custom vehicle cards`
+                                : `${settingsVehicleRecords.length} default vehicle cards`}
+                            </Text>
+                          </View>
+                          <Text style={[styles.settingsSelectedBadge, isSelected && styles.settingsSelectedBadgeActive]}>
+                            {isSelected ? 'Selected' : 'Choose'}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                <View style={[styles.settingsFormCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                  <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>
+                    {settingsVehicleCardForm.id ? 'Edit Vehicle Card' : 'Add Vehicle Card'}
+                  </Text>
+                  <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                    New cards are saved in the selected category and added to the selected track list.
+                  </Text>
+                  <View style={styles.settingsVehicleCardFormGrid}>
+                    <TextInput
+                      {...STABLE_TEXT_INPUT_PROPS}
+                      value={settingsVehicleCardForm.stickerNumber}
+                      onChangeText={value => handleVehicleCardFormChange('stickerNumber', value)}
+                      style={[styles.settingsInput, styles.settingsVehicleCardFormInput, { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary }]}
+                      placeholder="Sticker number"
+                      placeholderTextColor={theme.textTertiary}
+                    />
+                    <TextInput
+                      {...STABLE_TEXT_INPUT_PROPS}
+                      value={settingsVehicleCardForm.teamName}
+                      onChangeText={value => handleVehicleCardFormChange('teamName', value)}
+                      style={[styles.settingsInput, styles.settingsVehicleCardFormInput, { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary }]}
+                      placeholder="Team name"
+                      placeholderTextColor={theme.textTertiary}
+                    />
+                    <TextInput
+                      {...STABLE_TEXT_INPUT_PROPS}
+                      value={settingsVehicleCardForm.driverName}
+                      onChangeText={value => handleVehicleCardFormChange('driverName', value)}
+                      style={[styles.settingsInput, styles.settingsVehicleCardFormInput, { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary }]}
+                      placeholder="Driver name"
+                      placeholderTextColor={theme.textTertiary}
+                    />
+                    <TextInput
+                      {...STABLE_TEXT_INPUT_PROPS}
+                      value={settingsVehicleCardForm.coDriverName}
+                      onChangeText={value => handleVehicleCardFormChange('coDriverName', value)}
+                      style={[styles.settingsInput, styles.settingsVehicleCardFormInput, { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary }]}
+                      placeholder="Co-driver name"
+                      placeholderTextColor={theme.textTertiary}
+                    />
+                    <TextInput
+                      {...STABLE_TEXT_INPUT_PROPS}
+                      value={settingsVehicleCardForm.vehicleName}
+                      onChangeText={value => handleVehicleCardFormChange('vehicleName', value)}
+                      style={[styles.settingsInput, styles.settingsVehicleCardFormInput, { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary }]}
+                      placeholder="Vehicle name"
+                      placeholderTextColor={theme.textTertiary}
+                    />
+                    <TextInput
+                      {...STABLE_TEXT_INPUT_PROPS}
+                      value={settingsVehicleCardForm.vehicleModel}
+                      onChangeText={value => handleVehicleCardFormChange('vehicleModel', value)}
+                      style={[styles.settingsInput, styles.settingsVehicleCardFormInput, { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary }]}
+                      placeholder="Vehicle model"
+                      placeholderTextColor={theme.textTertiary}
+                    />
+                    <TextInput
+                      {...STABLE_TEXT_INPUT_PROPS}
+                      value={settingsVehicleCardForm.driverBloodGroup}
+                      onChangeText={value => handleVehicleCardFormChange('driverBloodGroup', value)}
+                      style={[styles.settingsInput, styles.settingsVehicleCardFormInput, { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary }]}
+                      placeholder="Driver blood group"
+                      placeholderTextColor={theme.textTertiary}
+                    />
+                    <TextInput
+                      {...STABLE_TEXT_INPUT_PROPS}
+                      value={settingsVehicleCardForm.coDriverBloodGroup}
+                      onChangeText={value => handleVehicleCardFormChange('coDriverBloodGroup', value)}
+                      style={[styles.settingsInput, styles.settingsVehicleCardFormInput, { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary }]}
+                      placeholder="Co-driver blood group"
+                      placeholderTextColor={theme.textTertiary}
+                    />
+                  </View>
+                  <TextInput
+                    {...STABLE_TEXT_INPUT_PROPS}
+                    value={settingsVehicleCardForm.socials}
+                    onChangeText={value => handleVehicleCardFormChange('socials', value)}
+                    style={[styles.settingsInput, { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary }]}
+                    placeholder="Socials"
+                    placeholderTextColor={theme.textTertiary}
+                  />
+                  <View style={styles.settingsTrackTimerActionRow}>
+                    <TouchableOpacity
+                      style={[styles.settingsActionButton, styles.settingsSecondaryButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
+                      onPress={handleVehicleCardNew}
+                      activeOpacity={0.85}
+                      disabled={settingsVehicleCardSaving}
+                    >
+                      <Text style={[styles.settingsActionButtonText, styles.settingsSecondaryButtonText, { color: theme.textPrimary }]}>New</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.settingsActionButton,
+                        styles.settingsPrimaryButton,
+                        { backgroundColor: theme.accent },
+                        settingsVehicleCardSaving ? styles.settingsActionButtonDisabled : null,
+                      ]}
+                      onPress={handleVehicleCardSave}
+                      activeOpacity={0.85}
+                      disabled={settingsVehicleCardSaving}
+                    >
+                      <Text style={[styles.settingsActionButtonText, { color: theme.accentText }]}>
+                        {settingsVehicleCardSaving ? 'Saving...' : settingsVehicleCardForm.id ? 'Save Changes' : 'Add Card'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <View style={[styles.settingsFormCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                  <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Card Sequence</Text>
+                  <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                    {settingsVehicleCardTrack || 'No track selected'} |{' '}
+                    {Array.isArray(configuredVehicleCardKeys) ? 'Custom list' : 'Default category list'}
+                  </Text>
+                  <View style={styles.settingsTrackTimerActionRow}>
+                    <TouchableOpacity
+                      style={[styles.settingsActionButton, styles.settingsSecondaryButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
+                      onPress={handleVehicleCardsUseDefault}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={[styles.settingsActionButtonText, styles.settingsSecondaryButtonText, { color: theme.textPrimary }]}>Use Default</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.settingsActionButton, styles.settingsSecondaryButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
+                      onPress={handleVehicleCardsClear}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={[styles.settingsActionButtonText, styles.settingsSecondaryButtonText, { color: theme.textPrimary }]}>Clear List</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.settingsActionButton, styles.settingsPrimaryButton, { backgroundColor: theme.accent }]}
+                      onPress={handleVehicleCardsAddAll}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={[styles.settingsActionButtonText, { color: theme.accentText }]}>Add All</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.settingsVehicleCardList}>
+                    {orderedSettingsVehicleCards.map((card, index) => (
+                      <View
+                        key={`selected-vehicle-card-${card.key}`}
+                        style={[styles.settingsVehicleCardRow, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
+                      >
+                        <View style={styles.settingsVehicleCardSequence}>
+                          <Text style={[styles.settingsVehicleCardSequenceText, { color: theme.accent }]}>
+                            {String(index + 1).padStart(2, '0')}
+                          </Text>
+                        </View>
+                        <View style={styles.settingsVehicleCardInfo}>
+                          <Text style={[styles.settingsVehicleCardTitle, { color: theme.textPrimary }]}>
+                            #{card.stickerNumber} | {card.driverName}
+                          </Text>
+                          <Text style={[styles.settingsVehicleCardMeta, { color: theme.textSecondary }]}>
+                            Team: {card.teamName || '--'} | Co-driver: {card.coDriverName}
+                          </Text>
+                        </View>
+                        <View style={styles.settingsVehicleCardActions}>
+                          <TouchableOpacity
+                            style={[styles.settingsVehicleCardIconButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                            onPress={() => handleVehicleCardEdit(card.key)}
+                            activeOpacity={0.85}
+                          >
+                            <Text style={[styles.settingsVehicleCardIconText, { color: theme.accent }]}>Edit</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[
+                              styles.settingsVehicleCardIconButton,
+                              { backgroundColor: theme.surface, borderColor: theme.border },
+                              index === 0 ? styles.settingsActionButtonDisabled : null,
+                            ]}
+                            onPress={() => handleVehicleCardMove(card.key, -1)}
+                            disabled={index === 0}
+                            activeOpacity={0.85}
+                          >
+                            <Text style={[styles.settingsVehicleCardIconText, { color: theme.accent }]}>Up</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[
+                              styles.settingsVehicleCardIconButton,
+                              { backgroundColor: theme.surface, borderColor: theme.border },
+                              index === orderedSettingsVehicleCards.length - 1 ? styles.settingsActionButtonDisabled : null,
+                            ]}
+                            onPress={() => handleVehicleCardMove(card.key, 1)}
+                            disabled={index === orderedSettingsVehicleCards.length - 1}
+                            activeOpacity={0.85}
+                          >
+                            <Text style={[styles.settingsVehicleCardIconText, { color: theme.accent }]}>Down</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.settingsVehicleCardIconButton, styles.settingsDangerActionButton]}
+                            onPress={() => handleVehicleCardRemove(card.key)}
+                            activeOpacity={0.85}
+                          >
+                            <Text style={[styles.settingsVehicleCardIconText, styles.settingsDangerActionText]}>Remove</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.settingsVehicleCardIconButton, styles.settingsDangerActionButton]}
+                            onPress={() => handleVehicleCardDelete(card.key)}
+                            activeOpacity={0.85}
+                            disabled={settingsVehicleCardSaving}
+                          >
+                            <Text style={[styles.settingsVehicleCardIconText, styles.settingsDangerActionText]}>Delete</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))}
+                    {!orderedSettingsVehicleCards.length ? (
+                      <View style={[styles.settingsTrackRow, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}>
+                        <View style={styles.settingsTrackInfo}>
+                          <Text style={[styles.settingsTrackName, { color: theme.textPrimary }]}>No vehicle cards added</Text>
+                          <Text style={[styles.settingsTrackStatus, { color: theme.textSecondary }]}>
+                            Add vehicles below to create the list for this track.
+                          </Text>
+                        </View>
+                      </View>
+                    ) : null}
+                  </View>
+                </View>
+
+                <View style={styles.settingsSection}>
+                  <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Available Vehicles</Text>
+                  <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                    Add vehicles into the selected track list.
+                  </Text>
+                  <View style={styles.settingsTrackList}>
+                    {availableSettingsVehicleCards.map(card => (
+                      <View
+                        key={`available-vehicle-card-${card.key}`}
+                        style={[
+                          styles.settingsTrackRow,
+                          styles.settingsAvailableVehicleRow,
+                          { backgroundColor: theme.surface, borderColor: theme.border },
+                        ]}
+                      >
+                        <View style={styles.settingsTrackInfo}>
+                          <Text style={[styles.settingsTrackName, { color: theme.textPrimary }]}>
+                            #{card.stickerNumber} | {card.driverName}
+                          </Text>
+                          <Text style={[styles.settingsTrackStatus, { color: theme.textSecondary }]}>
+                            Team: {card.teamName || '--'} | Co-driver: {card.coDriverName}
+                          </Text>
+                        </View>
+                        <View style={styles.settingsAvailableVehicleActions}>
+                          <TouchableOpacity
+                            style={[
+                              styles.settingsAvailableVehicleButton,
+                              styles.settingsPrimaryButton,
+                              { backgroundColor: theme.accent },
+                            ]}
+                            onPress={() => handleVehicleCardAdd(card.key)}
+                            activeOpacity={0.85}
+                          >
+                            <Text style={[styles.settingsActionButtonText, { color: theme.accentText }]}>Add</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[
+                              styles.settingsAvailableVehicleButton,
+                              styles.settingsSecondaryButton,
+                              { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
+                            ]}
+                            onPress={() => handleVehicleCardEdit(card.key)}
+                            activeOpacity={0.85}
+                          >
+                            <Text style={[styles.settingsActionButtonText, styles.settingsSecondaryButtonText, { color: theme.textPrimary }]}>Edit</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[
+                              styles.settingsAvailableVehicleButton,
+                              styles.settingsSecondaryButton,
+                              styles.settingsDangerActionButton,
+                              settingsVehicleCardSaving ? styles.settingsActionButtonDisabled : null,
+                            ]}
+                            onPress={() => handleVehicleCardDelete(card.key)}
+                            activeOpacity={0.85}
+                            disabled={settingsVehicleCardSaving}
+                          >
+                            <Text style={[styles.settingsActionButtonText, styles.settingsDangerActionText]}>Delete</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))}
+                    {!availableSettingsVehicleCards.length ? (
+                      <View style={[styles.settingsTrackRow, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                        <View style={styles.settingsTrackInfo}>
+                          <Text style={[styles.settingsTrackName, { color: theme.textPrimary }]}>No vehicles available</Text>
+                          <Text style={[styles.settingsTrackStatus, { color: theme.textSecondary }]}>
+                            Every vehicle in this category is already in the selected card list.
+                          </Text>
+                        </View>
+                      </View>
+                    ) : null}
                   </View>
                 </View>
               </>

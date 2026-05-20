@@ -233,6 +233,7 @@ const getVehicleDisplayData = source => ({
     source?.car_number ||
     source?.carNumber ||
     '--',
+  teamName: source?.team_name || source?.teamName || source?.team || '--',
   driverName: source?.driver_name || source?.driverName || '--',
   coDriverName: source?.codriver_name || source?.coDriverName || '--',
 });
@@ -471,6 +472,7 @@ const buildLeaderboardRows = (categoryOption, teams = [], uniqueResults = []) =>
     .forEach(team => {
       ensureVehicleRow({
         category: team.category,
+        team_name: team.team_name || team.teamName || team.team,
         car_number: team.car_number || team.carNumber,
         driver_name: team.driver_name || team.driverName,
         codriver_name: team.codriver_name || team.coDriverName,
@@ -892,6 +894,20 @@ const buildResultDataFromDispute = dispute => {
     trackName: normalizedFormPayload.trackName,
     sticker_number: normalizedFormPayload.stickerNumber,
     stickerNumber: normalizedFormPayload.stickerNumber,
+    team_name:
+      normalizedFormPayload.teamName ||
+      parsedDispute.team_name ||
+      parsedDispute.teamName ||
+      sourcePayload.teamName ||
+      sourcePayload.team ||
+      '',
+    teamName:
+      normalizedFormPayload.teamName ||
+      parsedDispute.team_name ||
+      parsedDispute.teamName ||
+      sourcePayload.teamName ||
+      sourcePayload.team ||
+      '',
     driver_name: normalizedFormPayload.driverName,
     driverName: normalizedFormPayload.driverName,
     codriver_name: normalizedFormPayload.coDriverName,
@@ -1082,6 +1098,7 @@ const normalizeImportedCompetitionRecord = record => {
       parsedRecord.car_number,
       parsedRecord.carNumber
     ),
+    team_name: getFirstPresentValue(parsedRecord.team_name, parsedRecord.teamName, parsedRecord.team),
     driver_name: getFirstPresentValue(parsedRecord.driver_name, parsedRecord.driverName),
     codriver_name: getFirstPresentValue(
       parsedRecord.codriver_name,
@@ -1275,8 +1292,11 @@ const logAxiosError = (label, error) => {
 
 const getWebFallbackTeams = () => {
   console.warn('🟡 Using web fallback teams because API is blocked/unavailable');
-  return WEB_FALLBACK_TEAMS;
+  return filterBundledSeedTeams(WEB_FALLBACK_TEAMS);
 };
+
+const filterBundledSeedTeams = (teams = []) =>
+  (Array.isArray(teams) ? teams : []).filter(team => String(team?.status || '').toUpperCase() !== 'SEEDED');
 
 /**
  * Utility to check if API is reachable
@@ -1306,7 +1326,7 @@ export const TeamsService = {
         const localTeams = await getTeamsDB();
         if (localTeams.length > 0) {
           console.log('Using local database teams:', localTeams.length);
-          return localTeams;
+          return filterBundledSeedTeams(localTeams);
         }
       }
 
@@ -1318,18 +1338,18 @@ export const TeamsService = {
           const data = response.data;
           const teams = Array.isArray(data) ? data : data.teams || [];
           console.log('🌐 Teams fetched from API:', teams.length);
-          return teams;
+          return filterBundledSeedTeams(teams);
         } catch (apiError) {
           logAxiosError('⚠️ API fetch failed, using local database', apiError);
           if (isWeb) return getWebFallbackTeams();
-          return await getTeamsDB();
+          return filterBundledSeedTeams(await getTeamsDB());
         }
       } else {
         // API not available, use local database
         if (isWeb) return getWebFallbackTeams();
         const teams = await getTeamsDB();
         console.log('💾 Teams fetched from local database:', teams.length);
-        return teams;
+        return filterBundledSeedTeams(teams);
       }
     } catch (error) {
       console.error('❌ Error fetching teams:', error);

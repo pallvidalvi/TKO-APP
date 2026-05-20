@@ -391,6 +391,19 @@ const removeLegacySeedData = async database => {
   }
 };
 
+const removeBundledSeedData = async database => {
+  await database.runAsync(
+    `DELETE FROM players
+     WHERE TRIM(team) IN (
+       SELECT TRIM(team_name)
+       FROM teams
+       WHERE status = 'SEEDED'
+     )`
+  );
+
+  await database.runAsync("DELETE FROM teams WHERE status = 'SEEDED'");
+};
+
 export const initializeDatabase = async () => {
   try {
     if (isWeb) {
@@ -420,6 +433,7 @@ export const seedDatabase = async () => {
 
     await database.withTransactionAsync(async () => {
       await removeLegacySeedData(database);
+      await removeBundledSeedData(database);
 
       for (const team of SEEDED_TEAMS) {
         const existingTeam = await database.getFirstAsync(

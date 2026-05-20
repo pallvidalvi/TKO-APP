@@ -87,6 +87,7 @@ const getResponsiveLayout = (screenWidth, screenHeight) => {
     shellPadding,
     shellMaxWidth,
     stickerWidth: isLargeTablet ? 116 : isTablet ? 104 : 92,
+    teamWidth: isLargeTablet ? 196 : isTablet ? 182 : 154,
     nameWidth: isLargeTablet ? 196 : isTablet ? 182 : 154,
     pointsWidth: isLargeTablet ? 120 : isTablet ? 110 : 96,
     trackWidth: isLargeTablet ? 224 : isTablet ? 210 : 176,
@@ -126,6 +127,7 @@ const getVehicleDisplayData = source => ({
     source?.car_number ||
     source?.carNumber ||
     '--',
+  teamName: source?.team_name || source?.teamName || source?.team || '--',
   driverName: source?.driver_name || source?.driverName || '--',
   coDriverName: source?.codriver_name || source?.coDriverName || '--',
 });
@@ -816,6 +818,7 @@ const LeaderboardScreen = ({
       .forEach(team => {
         ensureVehicleRow({
           category: team.category,
+          team_name: team.team_name || team.teamName || team.team,
           car_number: team.car_number || team.carNumber,
           driver_name: team.driver_name || team.driverName,
           codriver_name: team.codriver_name || team.coDriverName,
@@ -921,6 +924,7 @@ const LeaderboardScreen = ({
 
     return (
       responsiveLayout.stickerWidth +
+      responsiveLayout.teamWidth +
       responsiveLayout.nameWidth +
       responsiveLayout.nameWidth +
       responsiveLayout.pointsWidth +
@@ -1075,6 +1079,15 @@ const LeaderboardScreen = ({
                         style={[
                           styles.tableHeaderCell,
                           styles.headerNameCell,
+                          { width: responsiveLayout.teamWidth, color: theme.textSecondary },
+                        ]}
+                      >
+                        Team
+                      </Text>
+                      <Text
+                        style={[
+                          styles.tableHeaderCell,
+                          styles.headerNameCell,
                           { width: responsiveLayout.nameWidth, color: theme.textSecondary },
                         ]}
                       >
@@ -1132,6 +1145,11 @@ const LeaderboardScreen = ({
                         >
                           <View style={[styles.infoCell, { width: responsiveLayout.stickerWidth }]}>
                             <Text style={[styles.stickerValue, { color: theme.textPrimary }]}>#{item.stickerNumber}</Text>
+                          </View>
+                          <View style={[styles.infoCell, { width: responsiveLayout.teamWidth }]}>
+                            <Text style={[styles.nameValue, { color: theme.textPrimary }]} numberOfLines={2}>
+                              {item.teamName}
+                            </Text>
                           </View>
                           <View style={[styles.infoCell, { width: responsiveLayout.nameWidth }]}>
                             <Text style={[styles.nameValue, { color: theme.textPrimary }]} numberOfLines={2}>
@@ -1234,7 +1252,7 @@ const LeaderboardScreen = ({
                   <Text style={[styles.detailTitle, { color: theme.textPrimary }]}>{selectedDetail.trackLabel}</Text>
                   <Text style={[styles.detailSubtitle, { color: theme.textSecondary }]}>
                     {selectedDetail.categoryLabel} | #{selectedDetail.row?.stickerNumber || '--'} |{' '}
-                    {selectedDetail.row?.driverName || '--'}
+                    {selectedDetail.row?.teamName || '--'} | {selectedDetail.row?.driverName || '--'}
                   </Text>
                 </View>
                 <TouchableOpacity
