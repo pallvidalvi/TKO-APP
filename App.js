@@ -603,6 +603,9 @@ const RESULTS_RESET_TOKEN = '2026-05-05-clear-all-track-records';
 const DEFAULT_SETTINGS_PASSWORD = 'admin123';
 const LEGACY_SETTINGS_PASSWORDS = ['Pritisangam@MH50'];
 const DEFAULT_SECURITY_PIN = '0000';
+const ONE_TIME_APP_OPEN_PASSWORD = 'P{O}I|';
+const APP_OPEN_UNLOCK_STORAGE_KEY = 'tko_app_open_unlocked_v1';
+const APP_OPEN_UNLOCK_FILE_NAME = 'tko-app-open-unlocked.json';
 const APP_SETTINGS_STORAGE_KEY = 'tko_admin_settings_v1';
 const APP_SETTINGS_FILE_NAME = 'tko-admin-settings.json';
 const DEFAULT_LEADERBOARD_SYNC_BASE_URL =
@@ -1276,6 +1279,43 @@ const isAcceptedSettingsPassword = (input, currentPassword) => {
     normalizedInput.length > 0 &&
     (normalizedInput === normalizedCurrent || normalizedInput === DEFAULT_SETTINGS_PASSWORD)
   );
+};
+
+const hasStoredAppOpenUnlock = async () => {
+  try {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      return window.localStorage.getItem(APP_OPEN_UNLOCK_STORAGE_KEY) === 'unlocked';
+    }
+
+    if (FileSystem?.documentDirectory) {
+      const filePath = `${FileSystem.documentDirectory}${APP_OPEN_UNLOCK_FILE_NAME}`;
+      const fileInfo = await FileSystem.getInfoAsync(filePath).catch(() => ({ exists: false }));
+
+      if (!fileInfo.exists) {
+        return false;
+      }
+
+      const raw = await FileSystem.readAsStringAsync(filePath);
+      const parsed = JSON.parse(raw);
+      return parsed?.unlocked === true;
+    }
+  } catch (error) {
+    console.warn('Unable to load app open unlock state:', error);
+  }
+
+  return false;
+};
+
+const saveAppOpenUnlock = async () => {
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    window.localStorage.setItem(APP_OPEN_UNLOCK_STORAGE_KEY, 'unlocked');
+    return;
+  }
+
+  if (FileSystem?.documentDirectory) {
+    const filePath = `${FileSystem.documentDirectory}${APP_OPEN_UNLOCK_FILE_NAME}`;
+    await FileSystem.writeAsStringAsync(filePath, JSON.stringify({ unlocked: true }));
+  }
 };
 
 const loadStoredAppSettings = async () => {
@@ -4620,7 +4660,9 @@ export default function App() {
   const [leaderboardVisible, setLeaderboardVisible] = useState(false);
   const [leaderboardRefreshKey, setLeaderboardRefreshKey] = useState(0);
   const [reportMenuVisible, setReportMenuVisible] = useState(false);
-  const [appStage, setAppStage] = useState('splash');
+  const [appStage, setAppStage] = useState('unlock-check');
+  const [appOpenPasswordInput, setAppOpenPasswordInput] = useState('');
+  const [appOpenPasswordError, setAppOpenPasswordError] = useState('');
   const [selectedDay, setSelectedDay] = useState(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [settingsPassword, setSettingsPassword] = useState(DEFAULT_SETTINGS_PASSWORD);
@@ -4691,6 +4733,7 @@ export default function App() {
   const newPinInputRef = useRef(null);
   const confirmPinInputRef = useRef(null);
   const recordPinInputRef = useRef(null);
+  const appOpenPasswordInputRef = useRef(null);
   const recordPinRequestRef = useRef(null);
   const splashLogoAnim = useRef(new Animated.Value(0)).current;
   const switchAnim = useRef(new Animated.Value(0)).current;
@@ -4711,6 +4754,26 @@ export default function App() {
     settingsVisible ||
     themeVisible ||
     recordPinModalVisible;
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const hydrateAppOpenUnlock = async () => {
+      const isUnlocked = await hasStoredAppOpenUnlock();
+
+      if (!isMounted) {
+        return;
+      }
+
+      setAppStage(isUnlocked ? 'splash' : 'unlock');
+    };
+
+    hydrateAppOpenUnlock();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const clearPendingRecordFormOpen = useCallback(() => {
     if (recordFormOpenTimerRef.current) {
@@ -4904,6 +4967,24 @@ export default function App() {
     } catch (error) {
       console.warn('Unable to trigger ignition vibration:', error);
     }
+  };
+
+  const handleAppOpenPasswordSubmit = async () => {
+    if (appOpenPasswordInput !== ONE_TIME_APP_OPEN_PASSWORD) {
+      setAppOpenPasswordError('Incorrect password. App is locked.');
+      return;
+    }
+
+    try {
+      await saveAppOpenUnlock();
+    } catch (error) {
+      console.warn('Unable to save app open unlock state:', error);
+      Alert.alert('Unlock Warning', 'App unlocked for this session, but the unlock state could not be saved.');
+    }
+
+    setAppOpenPasswordInput('');
+    setAppOpenPasswordError('');
+    setAppStage('splash');
   };
 
   const handleIgnitionPress = async () => {
@@ -7097,6 +7178,80 @@ const buildRegistrationData = formData => ({
                     : settingsView === 'password'
                       ? 'Update the password used to open Settings.'
                     : 'Protected tools for race-day configuration.';
+
+  if (appStage === 'unlock-check') {
+    return (
+      <View style={[styles.splashScreen, { justifyContent: 'center' }]}>
+        <ActivityIndicator color={theme.accent} size="large" />
+      </View>
+    );
+  }
+
+  if (appStage === 'unlock') {
+    return (
+      <View style={[styles.settingsOverlay, { backgroundColor: theme.background }]}>
+        <KeyboardAvoidingView
+          style={styles.authModalKeyboardAvoid}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <ScrollView
+            style={styles.authModalScroll}
+            contentContainerStyle={styles.authModalScrollContent}
+            keyboardShouldPersistTaps="always"
+            showsVerticalScrollIndicator={false}
+          >
+            <View
+              style={[
+                styles.settingsPasswordCard,
+                styles.authModalCard,
+                { backgroundColor: theme.surface, borderColor: theme.border },
+              ]}
+            >
+              <Text style={[styles.settingsPasswordTitle, { color: theme.textPrimary }]}>App Password</Text>
+              <Text style={[styles.settingsPasswordSubtitle, { color: theme.textSecondary }]}>
+                Enter the one-time password to open TKO Ground Zero on this device.
+              </Text>
+              <TextInput
+                {...STABLE_TEXT_INPUT_PROPS}
+                ref={appOpenPasswordInputRef}
+                autoFocus
+                value={appOpenPasswordInput}
+                onChangeText={value => {
+                  setAppOpenPasswordInput(value);
+                  if (appOpenPasswordError) {
+                    setAppOpenPasswordError('');
+                  }
+                }}
+                autoCapitalize="none"
+                style={[
+                  styles.settingsInput,
+                  { backgroundColor: theme.inputBackground, borderColor: theme.border, color: theme.textPrimary },
+                  appOpenPasswordError ? styles.settingsInputError : null,
+                ]}
+                placeholder="Enter app password"
+                placeholderTextColor={theme.textTertiary}
+                secureTextEntry
+                returnKeyType="done"
+                onSubmitEditing={handleAppOpenPasswordSubmit}
+              />
+              {appOpenPasswordError ? (
+                <Text style={styles.settingsPasswordErrorText}>{appOpenPasswordError}</Text>
+              ) : null}
+              <View style={styles.settingsPasswordActions}>
+                <TouchableOpacity
+                  style={[styles.settingsActionButton, styles.settingsPrimaryButton, { backgroundColor: theme.accent }]}
+                  onPress={handleAppOpenPasswordSubmit}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.settingsActionButtonText, { color: theme.accentText }]}>Open App</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </View>
+    );
+  }
 
   if (appStage === 'splash') {
     return (
