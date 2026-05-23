@@ -1373,6 +1373,15 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
 
+  recordCardActive: {
+    borderWidth: 1.5,
+    borderColor: '#ffffff',
+    shadowColor: '#ffffff',
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+
   recordCardDisabled: {
     opacity: 0.72,
   },

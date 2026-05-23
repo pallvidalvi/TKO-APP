@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import TouchableOpacity from '../FastTouchableOpacity';
 import styles from './stopwatchForm.styles';
@@ -23,6 +23,12 @@ const LateStartSelector = React.memo(function LateStartSelector({
     : LATE_START_OPTIONS;
   const selectedOption = LATE_START_OPTIONS.find(option => option.value === value);
 
+  useEffect(() => {
+    if (disabled) {
+      setIsOpen(false);
+    }
+  }, [disabled]);
+
   const handleToggle = () => {
     if (!disabled) {
       setIsOpen(prev => !prev);
@@ -30,6 +36,10 @@ const LateStartSelector = React.memo(function LateStartSelector({
   };
 
   const handleSelect = nextValue => {
+    if (disabled) {
+      return;
+    }
+
     onValueChange(nextValue);
     setIsOpen(false);
   };

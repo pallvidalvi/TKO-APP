@@ -15,6 +15,7 @@ import {
   ActivityIndicator,
   Vibration,
   useWindowDimensions,
+  AppState,
 } from 'react-native';
 import { Audio } from 'expo-av';
 import { initializeDatabase, seedDatabase } from './src/db/database';
@@ -3939,11 +3940,15 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
               const selectedTrack = selectedTrackFilter;
               const isLateStartChecked = Boolean(selectedLateStartEnabledByRecord[recordKey]);
               const selectedLateStart = selectedLateStartByRecord[recordKey] || '';
+              const isLateStartLocked = Boolean(selectedLateStart);
               const completedTracks = completedTracksByRecord[recordKey] || [];
               const isActiveRecord = firstAvailableRecordKey === recordKey;
               const hasLockedSelection = Boolean(firstAvailableRecordKey) && !isActiveRecord;
+              const isLateStartSelectionRequired = isLateStartChecked && !selectedLateStart;
+              const canUseActiveRecordActions = isActiveRecord && !isLateStartSelectionRequired;
+              const canSubmitDNS = canUseActiveRecordActions;
               const canStart =
-                isActiveRecord &&
+                canUseActiveRecordActions &&
                 Boolean(selectedTrack) &&
                 !completedTracks.includes(selectedTrack);
               const serialNo = serialByRecordKey.get(recordKey) || index + 1;
@@ -3954,6 +3959,7 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
                   onPress={() => (isActiveRecord ? onRecordActivate(item) : null)}
                   style={[
                     styles.recordCard,
+                    isActiveRecord && styles.recordCardActive,
                     !isActiveRecord && styles.recordCardDisabled,
                     hasLockedSelection && styles.recordCardLocked,
                   ]}
@@ -3994,9 +4000,9 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
 
                     <View style={styles.recordActionPanel}>
                       <TouchableOpacity
-                        style={[styles.dnsButton, !isActiveRecord && styles.dnsButtonDisabled]}
-                        onPress={() => (isActiveRecord ? onDNSPress({ ...item, srNo: serialNo, selectedTrack, recordKey }) : null)}
-                        disabled={!isActiveRecord}
+                        style={[styles.dnsButton, !canSubmitDNS && styles.dnsButtonDisabled]}
+                        onPress={() => (canSubmitDNS ? onDNSPress({ ...item, srNo: serialNo, selectedTrack, recordKey }) : null)}
+                        disabled={!canSubmitDNS}
                         activeOpacity={0.85}
                         hitSlop={TOUCH_HIT_SLOP}
                       >
@@ -4039,8 +4045,6 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
                     </View>
                   </View>
 
-                  <View style={styles.recordDivider} />
-
                   <View style={styles.recordSectionCard}>
                     <View style={styles.recordSectionHeader}>
                       <Text style={styles.recordTracksLabel}>Track</Text>
@@ -4075,13 +4079,13 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
                       <LateStartCheckbox
                         checked={isLateStartChecked}
                         onChange={checked => onLateStartToggle(item, checked)}
-                        disabled={false}
+                        disabled={isLateStartLocked}
                       />
                       <View style={styles.recordLateStartControl}>
                         <LateStartSelector
                           value={selectedLateStart}
-                          onValueChange={value => onLateStartSelect(item, value)}
-                          disabled={false}
+                          onValueChange={value => onLateStartSelect({ ...item, srNo: serialNo, selectedTrack, recordKey }, value)}
+                          disabled={!isLateStartChecked || isLateStartLocked}
                           approvalOnly={!isActiveRecord}
                           layout={responsiveLayout}
                         />
@@ -4787,6 +4791,8 @@ export default function App() {
   const lateStartActionCounterRef = useRef(0);
   const disputeAutoSubmitInFlightRef = useRef(false);
   const recordFormOpenTimerRef = useRef(null);
+  const appStateRef = useRef(AppState.currentState || 'active');
+  const returnToDayPageAfterSettingsBackgroundRef = useRef(false);
   const theme = useMemo(() => APP_THEMES[normalizeThemeMode(themeMode)], [themeMode]);
   const isFullScreenOverlayVisible =
     formVisible ||
@@ -4864,6 +4870,47 @@ export default function App() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      const previousAppState = appStateRef.current;
+
+      if (nextAppState === 'background' && settingsVisible) {
+        returnToDayPageAfterSettingsBackgroundRef.current = true;
+      }
+
+      if (
+        nextAppState === 'active' &&
+        previousAppState !== 'active' &&
+        returnToDayPageAfterSettingsBackgroundRef.current
+      ) {
+        returnToDayPageAfterSettingsBackgroundRef.current = false;
+        clearPendingRecordFormOpen();
+        setSearchText('');
+        setRecordsVisible(false);
+        setFormVisible(false);
+        setReportsVisible(false);
+        setLeaderboardVisible(false);
+        setReportMenuVisible(false);
+        setSettingsPasswordModalVisible(false);
+        setSettingsVisible(false);
+        setSettingsView('menu');
+        setThemeVisible(false);
+        setRecordPinModalVisible(false);
+        setSelectedCategory(null);
+        setSelectedRecord(null);
+        setSelectedCategoryTrack('');
+        setActiveRecordKey('');
+        setAppStage('day');
+      }
+
+      appStateRef.current = nextAppState;
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [clearPendingRecordFormOpen, settingsVisible]);
 
   useEffect(() => {
     let isMounted = true;
@@ -6704,6 +6751,10 @@ export default function App() {
   const handleLateStartToggle = (record, checked) => {
     const recordKey = getRecordKey(record);
 
+    if (selectedLateStartByRecord[recordKey]) {
+      return;
+    }
+
     setSelectedLateStartEnabledByRecord(prev => ({
       ...prev,
       [recordKey]: checked,
@@ -6722,11 +6773,25 @@ export default function App() {
     }
   };
 
-  const handleLateStartSelect = (record, lateStartMode) => {
+  const handleLateStartSelect = async (record, lateStartMode) => {
     const recordKey = getRecordKey(record);
+    const currentLateStartMode = selectedLateStartByRecord[recordKey] || '';
 
     if (!selectedLateStartEnabledByRecord[recordKey]) {
       return;
+    }
+
+    if (currentLateStartMode) {
+      return;
+    }
+
+    if (lateStartMode) {
+      const stickerNumber = getTeamStickerNumber(record) || '--';
+      const didVerifyPin = await handleVerifyPinForRecord(`select late start for vehicle #${stickerNumber}`);
+
+      if (!didVerifyPin) {
+        return;
+      }
     }
 
     setSelectedLateStartByRecord(prev => ({
