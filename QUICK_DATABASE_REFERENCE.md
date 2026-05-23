@@ -338,7 +338,7 @@ teams.forEach(team => {
 ### 2. Filter by Category
 ```javascript
 const extremeTeams = await TeamsService.getTeamsByCategory('EXTREME');
-console.log(`${extremeTeams.length} teams in Extreme category`);
+console.log(`${extremeTeams.length} teams in Open Category`);
 ```
 
 ### 3. Get Team Details
@@ -414,7 +414,7 @@ registrations.forEach(reg => {
 ```javascript
 {
   id: 1,
-  name: "Extreme",
+  name: "Open Category",
   description: "Ultimate performance",
   icon: "⚡",
   color: "#ff4757",

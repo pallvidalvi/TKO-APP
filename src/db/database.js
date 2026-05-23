@@ -175,7 +175,7 @@ const SEEDED_PLAYERS = SEEDED_TEAMS.flatMap(team => [
 ]);
 
 const SEEDED_CATEGORIES = [
-  { name: 'Extreme', description: 'Ultimate performance', icon: 'Extreme', color: '#ff4757' },
+  { name: 'Open Category', aliases: ['Extreme'], description: 'Ultimate performance', icon: 'Open', color: '#ff4757' },
   { name: 'Diesel Modified', description: 'Diesel vehicles modified', icon: 'Diesel', color: '#ff6348' },
   { name: 'Petrol Modified', description: 'Petrol vehicles modified', icon: 'Petrol', color: '#ffa502' },
   { name: 'Diesel Expert', description: 'Expert diesel drivers', icon: 'Expert', color: '#2ed573' },
@@ -252,6 +252,7 @@ const initializeSchema = async database => {
       seatbelt_count INTEGER DEFAULT 0,
       ground_touch_count INTEGER DEFAULT 0,
       late_start_count INTEGER DEFAULT 0,
+      late_start_penalty_points INTEGER DEFAULT 0,
       attempt_count INTEGER DEFAULT 0,
       task_skipped_count INTEGER DEFAULT 0,
       wrong_course_count INTEGER DEFAULT 0,
@@ -273,6 +274,7 @@ const initializeSchema = async database => {
       seatbelt_count INTEGER DEFAULT 0,
       ground_touch_count INTEGER DEFAULT 0,
       late_start_count INTEGER DEFAULT 0,
+      late_start_penalty_points INTEGER DEFAULT 0,
       attempt_count INTEGER DEFAULT 0,
       task_skipped_count INTEGER DEFAULT 0,
       wrong_course_count INTEGER DEFAULT 0,
@@ -319,6 +321,8 @@ const runDatabaseMigrations = async database => {
   await addColumnIfMissing(database, 'results', 'selected_day_label', 'selected_day_label TEXT');
   await addColumnIfMissing(database, 'results', 'selected_day_date', 'selected_day_date TEXT');
   await addColumnIfMissing(database, 'results', 'submission_json', 'submission_json TEXT');
+  await addColumnIfMissing(database, 'results', 'late_start_penalty_points', 'late_start_penalty_points INTEGER DEFAULT 0');
+  await addColumnIfMissing(database, 'registrations', 'late_start_penalty_points', 'late_start_penalty_points INTEGER DEFAULT 0');
   await addColumnIfMissing(database, 'disputes', 'selected_day_id', 'selected_day_id TEXT');
   await addColumnIfMissing(database, 'disputes', 'selected_day_label', 'selected_day_label TEXT');
   await addColumnIfMissing(database, 'disputes', 'selected_day_date', 'selected_day_date TEXT');
@@ -547,9 +551,11 @@ export const seedDatabase = async () => {
       }
 
       for (const category of SEEDED_CATEGORIES) {
+        const categoryLookupNames = [category.name, ...(category.aliases || [])];
+        const categoryLookupPlaceholders = categoryLookupNames.map(() => 'LOWER(?)').join(', ');
         const existingCategory = await database.getFirstAsync(
-          'SELECT id FROM categories WHERE LOWER(name) = LOWER(?)',
-          [category.name]
+          `SELECT id FROM categories WHERE LOWER(name) IN (${categoryLookupPlaceholders})`,
+          categoryLookupNames
         );
 
         if (existingCategory) {
@@ -789,10 +795,10 @@ export const addResult = async resultData => {
       `INSERT INTO results (
         track_name, sticker_number, driver_name, codriver_name, category,
         bunting_count, seatbelt_count, ground_touch_count, late_start_count,
-        attempt_count, task_skipped_count, wrong_course_count, fourth_attempt_count,
+        late_start_penalty_points, attempt_count, task_skipped_count, wrong_course_count, fourth_attempt_count,
         is_dns, total_penalties_time, performance_time, total_time,
         selected_day_id, selected_day_label, selected_day_date, submission_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         normalizedResultData.track_name,
         normalizedResultData.sticker_number,
@@ -803,6 +809,7 @@ export const addResult = async resultData => {
         normalizedResultData.seatbelt_count || 0,
         normalizedResultData.ground_touch_count || 0,
         normalizedResultData.late_start_count || 0,
+        normalizedResultData.late_start_penalty_points || normalizedResultData.lateStartPenaltyPoints || 0,
         normalizedResultData.attempt_count || 0,
         normalizedResultData.task_skipped_count || 0,
         normalizedResultData.wrong_course_count || 0,

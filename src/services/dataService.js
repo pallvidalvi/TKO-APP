@@ -208,13 +208,20 @@ const safeParseJsonObject = value => {
   }
 };
 
-const formatCategoryLabel = value =>
-  String(value || '')
-    .trim()
-    .replace(/_/g, ' ')
-    .replace(/\s+/g, ' ')
-    .toLowerCase()
-    .replace(/\b\w/g, letter => letter.toUpperCase()) || 'Category';
+const formatCategoryLabel = value => {
+  if (normalizeCategoryKey(value || '') === 'EXTREME') {
+    return 'Open Category';
+  }
+
+  return (
+    String(value || '')
+      .trim()
+      .replace(/_/g, ' ')
+      .replace(/\s+/g, ' ')
+      .toLowerCase()
+      .replace(/\b\w/g, letter => letter.toUpperCase()) || 'Category'
+  );
+};
 
 const getVehicleIdentityKey = source => {
   const categoryKey = normalizeCategoryKey(source?.category || '');
@@ -325,13 +332,16 @@ const uniqueByKey = (items, getKey) => {
   return nextItems;
 };
 
-const normalizeCategoryOption = option => ({
-  key: normalizeCategoryKey(option?.key || option?.category || option?.name || option?.label || ''),
-  label:
-    String(option?.label || option?.name || option?.title || option?.key || option?.category || '')
-      .trim() || formatCategoryLabel(option?.key || option?.category || option?.name || option?.label),
-  tracks: Array.isArray(option?.tracks) ? option.tracks.filter(Boolean) : [],
-});
+const normalizeCategoryOption = option => {
+  const key = normalizeCategoryKey(option?.key || option?.category || option?.name || option?.label || '');
+  const labelSource = String(option?.label || option?.name || option?.title || option?.key || option?.category || '').trim();
+
+  return {
+    key,
+    label: key === 'EXTREME' ? 'Open Category' : labelSource || formatCategoryLabel(option?.key || option?.category || option?.name || option?.label),
+    tracks: Array.isArray(option?.tracks) ? option.tracks.filter(Boolean) : [],
+  };
+};
 
 const inferCategoryOptions = ({ teams = [], results = [], disputes = [] } = {}) => {
   const optionsByKey = new Map();
@@ -961,6 +971,18 @@ const buildResultDataFromDispute = dispute => {
       parsedDispute.lateStartPenaltyTime ??
       sourcePayload.lateStartPenaltyTime ??
       0,
+    late_start_penalty_points:
+      parsedDispute.late_start_penalty_points ??
+      parsedDispute.lateStartPenaltyPoints ??
+      sourcePayload.late_start_penalty_points ??
+      sourcePayload.lateStartPenaltyPoints ??
+      0,
+    lateStartPenaltyPoints:
+      parsedDispute.late_start_penalty_points ??
+      parsedDispute.lateStartPenaltyPoints ??
+      sourcePayload.late_start_penalty_points ??
+      sourcePayload.lateStartPenaltyPoints ??
+      0,
     attempt_count:
       parsedDispute.attempt_count ?? parsedDispute.attemptCount ?? sourcePayload.attemptCount ?? 0,
     attemptCount:
@@ -1111,6 +1133,16 @@ const normalizeImportedCompetitionRecord = record => {
     seatbelt_count: getFirstPresentValue(parsedRecord.seatbelt_count, parsedRecord.seatbeltCount, 0),
     ground_touch_count: getFirstPresentValue(parsedRecord.ground_touch_count, parsedRecord.groundTouchCount, 0),
     late_start_count: getFirstPresentValue(parsedRecord.late_start_count, parsedRecord.lateStartCount, 0),
+    late_start_penalty_points: getFirstPresentValue(
+      parsedRecord.late_start_penalty_points,
+      parsedRecord.lateStartPenaltyPoints,
+      0
+    ),
+    lateStartPenaltyPoints: getFirstPresentValue(
+      parsedRecord.late_start_penalty_points,
+      parsedRecord.lateStartPenaltyPoints,
+      0
+    ),
     attempt_count: getFirstPresentValue(parsedRecord.attempt_count, parsedRecord.attemptCount, 0),
     task_skipped_count: getFirstPresentValue(parsedRecord.task_skipped_count, parsedRecord.taskSkippedCount, 0),
     wrong_course_count: getFirstPresentValue(parsedRecord.wrong_course_count, parsedRecord.wrongCourseCount, 0),

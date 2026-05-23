@@ -72,11 +72,18 @@ const normalizeValue = value =>
     .trim()
     .toLowerCase();
 
-const normalizeCategoryKey = value =>
-  String(value || '')
+const normalizeCategoryKey = value => {
+  const normalized = String(value || '')
     .trim()
     .toUpperCase()
     .replace(/\s+/g, '_');
+
+  if (normalized === 'OPEN' || normalized === 'OPEN_CATEGORY') {
+    return 'EXTREME';
+  }
+
+  return normalized;
+};
 
 const getDayIdentity = item =>
   normalizeValue(

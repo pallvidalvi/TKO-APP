@@ -58,12 +58,19 @@ export const INITIAL_LAYOUT = getResponsiveLayout(
   Dimensions.get('window').height
 );
 
-export const normalizeCategoryKey = (value = '') =>
-  String(value || '')
+export const normalizeCategoryKey = (value = '') => {
+  const normalized = String(value || '')
     .trim()
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
+
+  if (normalized === 'OPEN' || normalized === 'OPEN_CATEGORY') {
+    return 'EXTREME';
+  }
+
+  return normalized;
+};
 
 export const CATEGORY_CARD_PALETTES = {
   EXTREME: {

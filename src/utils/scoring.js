@@ -124,6 +124,10 @@ export const normalizeCategoryKey = value => {
     .toUpperCase()
     .replace(/\s+/g, '_');
 
+  if (normalized === 'OPEN' || normalized === 'OPEN_CATEGORY') {
+    return 'EXTREME';
+  }
+
   if (normalized === 'LADIES' || normalized === 'LADIES_CATEGORY') {
     return 'LADIES_CATEGORY';
   }
@@ -289,6 +293,27 @@ export const getDnfPointsValue = item => {
   return selectedPoints ?? 0;
 };
 
+export const getLateStartPenaltyPointsValue = item => {
+  const mode = normalizeValue(item?.late_start_mode || item?.lateStartMode);
+  const status = normalizeValue(item?.late_start_status || item?.lateStartStatus);
+  const hasLateStartPenalty = mode === 'late_start' || status === 'late start';
+
+  if (!hasLateStartPenalty) {
+    return 0;
+  }
+
+  const points = getNumericValue(item?.late_start_penalty_points ?? item?.lateStartPenaltyPoints);
+  return points === null ? 0 : Math.min(100, Math.max(0, points));
+};
+
+const applyLateStartPenaltyPoints = (points, item) => {
+  if (typeof points !== 'number' || !Number.isFinite(points)) {
+    return points;
+  }
+
+  return Math.max(0, points - getLateStartPenaltyPointsValue(item));
+};
+
 export const getResultSortPriority = item => {
   if (item?.isDisputed) {
     return 3;
@@ -352,7 +377,7 @@ export const rankTrackResults = results => {
       return {
         ...item,
         reportRankLabel: 'DNF',
-        reportPoints: getDnfPointsValue(item),
+        reportPoints: applyLateStartPenaltyPoints(getDnfPointsValue(item), item),
       };
     }
 
@@ -361,7 +386,7 @@ export const rankTrackResults = results => {
     return {
       ...item,
       reportRankLabel: `P${finisherPosition}`,
-      reportPoints: getTrackPointsForPosition(finisherPosition),
+      reportPoints: applyLateStartPenaltyPoints(getTrackPointsForPosition(finisherPosition), item),
     };
   });
 };

@@ -24,6 +24,7 @@ import {
   getDisputeResolutionLabel,
   getDnfBreakdownLabel,
   getDnfDisplayLabel,
+  getLateStartPenaltyPointsValue,
   getResultIdentityKey,
   getResultTimeValue,
   isDnfResult,
@@ -232,6 +233,17 @@ const getLateStartStatusLabel = record => {
   return count > 0 ? 'Yes' : 'No';
 };
 
+const getLateStartPenaltyDisplay = record => {
+  const penaltyPoints = getLateStartPenaltyPointsValue(record);
+
+  if (penaltyPoints > 0) {
+    return `${penaltyPoints} pts`;
+  }
+
+  const penaltyTime = getFirstDefinedValue(record?.late_start_penalty_time, record?.lateStartPenaltyTime);
+  return penaltyTime ? `${penaltyTime} sec` : '--';
+};
+
 const buildPenaltyBreakdownRows = record => [
   {
     penalty: 'Bunting Cut',
@@ -260,7 +272,7 @@ const buildPenaltyBreakdownRows = record => [
   {
     penalty: 'Late Start',
     count: getFirstDefinedValue(record?.late_start_count, record?.lateStartCount),
-    penaltyTime: getFirstDefinedValue(record?.late_start_penalty_time, record?.lateStartPenaltyTime),
+    penaltyTime: getLateStartPenaltyDisplay(record),
     status: getLateStartStatusLabel(record),
   },
   {
@@ -292,7 +304,7 @@ const buildDetailSections = record => [
       { label: 'Status', value: record?.late_start_status || record?.lateStartStatus },
       { label: 'Mode', value: record?.late_start_mode || record?.lateStartMode },
       { label: 'Count', value: record?.late_start_count || record?.lateStartCount },
-      { label: 'Penalty Time', value: record?.late_start_penalty_time || record?.lateStartPenaltyTime },
+      { label: 'Penalty Points', value: getLateStartPenaltyDisplay(record) },
     ],
   },
   {
@@ -1315,7 +1327,7 @@ const LeaderboardScreen = ({
                         >
                           <View style={styles.penaltyBreakdownTable}>
                             <View style={styles.penaltyBreakdownHeaderRow}>
-                              {['Penalty', 'Count', 'Penalty Time', 'Status'].map((label, index) => (
+                              {['Penalty', 'Count', 'Penalty Value', 'Status'].map((label, index) => (
                                 <Text
                                   key={label}
                                   style={[
@@ -1407,7 +1419,7 @@ const LeaderboardScreen = ({
                       { label: 'Total Penalties', value: selectedDetail.record?.total_penalties_time || selectedDetail.record?.totalPenaltiesTime },
                       { label: 'Total Time', value: selectedDetail.record?.total_time || selectedDetail.record?.totalTimeDisplay },
                       { label: 'Late Start Status', value: selectedDetail.record?.late_start_status || selectedDetail.record?.lateStartStatus },
-                      { label: 'Late Start Penalty', value: selectedDetail.record?.late_start_penalty_time || selectedDetail.record?.lateStartPenaltyTime },
+                      { label: 'Late Start Penalty', value: getLateStartPenaltyDisplay(selectedDetail.record || {}) },
                       { label: 'DNF Reason', value: getDnfBreakdownLabel(selectedDetail.record || {}) },
                       { label: 'DNF Points', value: selectedDetail.record?.dnf_points ?? selectedDetail.record?.dnfPoints },
                     ].map(item => (

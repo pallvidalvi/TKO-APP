@@ -116,6 +116,10 @@ const normalizeCategoryKey = value => {
     .toUpperCase()
     .replace(/\s+/g, '_');
 
+  if (normalized === 'OPEN' || normalized === 'OPEN_CATEGORY') {
+    return 'EXTREME';
+  }
+
   if (normalized === 'LADIES' || normalized === 'LADIES_CATEGORY') {
     return 'LADIES_CATEGORY';
   }

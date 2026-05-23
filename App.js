@@ -312,7 +312,7 @@ const REPORT_DAYS = [
 ];
 
 const CATEGORY_IMAGE_SOURCES = {
-  EXTREME: require('./assets/Extreme.png'),
+  EXTREME: require('./assets/OpenCategoryLogo.jpeg'),
   DIESEL_MODIFIED: require('./assets/DieselModifiedTransparent.png'),
   PETROL_MODIFIED: require('./assets/PetrolModifiedTransparent.png'),
   DIESEL_EXPERT: require('./assets/DieselExpert.png'),
@@ -614,6 +614,9 @@ const DEFAULT_LEADERBOARD_SYNC_BASE_URL =
     : 'http://192.168.29.96:3000';
 const DEFAULT_ANDROID_LOCALHOST_SYNC_BASE_URL = 'http://192.168.29.96:3000';
 const DEFAULT_THEME_MODE = 'dark';
+const DEFAULT_LATE_START_PENALTY_POINTS = 30;
+const MIN_LATE_START_PENALTY_POINTS = 1;
+const MAX_LATE_START_PENALTY_POINTS = 100;
 
 const APP_THEMES = {
   dark: {
@@ -691,12 +694,19 @@ const normalizeCategoryKey = (value = '') => {
     .toUpperCase()
     .replace(/\s+/g, '_');
 
+  if (normalizedValue === 'OPEN' || normalizedValue === 'OPEN_CATEGORY') {
+    return 'EXTREME';
+  }
+
   if (normalizedValue === 'LADIES') {
     return 'LADIES_CATEGORY';
   }
 
   return normalizedValue;
 };
+
+const getCategoryDisplayLabel = (value = '', fallback = 'Category') =>
+  normalizeCategoryKey(value || '') === 'EXTREME' ? 'Open Category' : String(value || '').trim() || fallback;
 
 const normalizeTrackDisplayName = value => String(value || '').trim().replace(/\s+/g, ' ').toUpperCase();
 
@@ -1036,6 +1046,19 @@ const buildDefaultCategoryActivationConfig = (categoryTrackConfig = CATEGORY_TRA
 
 const TRACK_TIMER_MAX_SECONDS = 15 * 60;
 
+const clampLateStartPenaltyPoints = value => {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return DEFAULT_LATE_START_PENALTY_POINTS;
+  }
+
+  return Math.min(
+    MAX_LATE_START_PENALTY_POINTS,
+    Math.max(MIN_LATE_START_PENALTY_POINTS, Math.round(numericValue))
+  );
+};
+
 const clampTrackTimerSeconds = value => {
   const numericValue = Number(value);
 
@@ -1331,6 +1354,7 @@ const loadStoredAppSettings = async () => {
     deletedVehicleCardKeys: [],
     themeMode: DEFAULT_THEME_MODE,
     leaderboardSyncBaseUrl: DEFAULT_LEADERBOARD_SYNC_BASE_URL,
+    lateStartPenaltyPoints: DEFAULT_LATE_START_PENALTY_POINTS,
   };
 
   try {
@@ -1354,6 +1378,7 @@ const loadStoredAppSettings = async () => {
         deletedVehicleCardKeys: normalizeDeletedVehicleCardKeys(parsed?.deletedVehicleCardKeys),
         themeMode: normalizeThemeMode(parsed?.themeMode),
         leaderboardSyncBaseUrl: normalizeLeaderboardSyncBaseUrl(parsed?.leaderboardSyncBaseUrl),
+        lateStartPenaltyPoints: clampLateStartPenaltyPoints(parsed?.lateStartPenaltyPoints),
       };
     }
 
@@ -1379,6 +1404,7 @@ const loadStoredAppSettings = async () => {
         deletedVehicleCardKeys: normalizeDeletedVehicleCardKeys(parsed?.deletedVehicleCardKeys),
         themeMode: normalizeThemeMode(parsed?.themeMode),
         leaderboardSyncBaseUrl: normalizeLeaderboardSyncBaseUrl(parsed?.leaderboardSyncBaseUrl),
+        lateStartPenaltyPoints: clampLateStartPenaltyPoints(parsed?.lateStartPenaltyPoints),
       };
     }
   } catch (error) {
@@ -1401,6 +1427,7 @@ const saveStoredAppSettings = async settings => {
     deletedVehicleCardKeys: normalizeDeletedVehicleCardKeys(settings.deletedVehicleCardKeys),
     themeMode: normalizeThemeMode(settings.themeMode),
     leaderboardSyncBaseUrl: normalizeLeaderboardSyncBaseUrl(settings.leaderboardSyncBaseUrl),
+    lateStartPenaltyPoints: clampLateStartPenaltyPoints(settings.lateStartPenaltyPoints),
   });
 
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -2107,6 +2134,7 @@ const buildExportRows = data => [[
   getFirstExportValue(data.groundTouchPenaltyTime, data.ground_touch_penalty_time, 0),
   getFirstExportValue(data.lateStartStatus, data.late_start_status, 'No'),
   getFirstExportValue(data.lateStartPenaltyTime, data.late_start_penalty_time, 0),
+  getFirstExportValue(data.lateStartPenaltyPoints, data.late_start_penalty_points, 0),
   getFirstExportValue(data.attemptCount, data.attempt_count, 0),
   getFirstExportValue(data.attemptPenaltyTime, data.attempt_penalty_time, 0),
   getFirstExportValue(data.taskSkippedCount, data.task_skipped_count, 0),
@@ -2165,7 +2193,8 @@ const RECORD_EXPORT_HEADERS = [
   'Ground Touch (Count)',
   'Ground Touch (Time)',
   'Late Start Status',
-  'Late Start Penalty (sec)',
+  'Late Start Penalty Time (sec)',
+  'Late Start Penalty Points',
   'Attempt (Count)',
   'Attempt (Time)',
   'Task Skipped (Count)',
@@ -2195,6 +2224,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
   selectedDay,
   categoryTrackConfig = null,
   trackTimerLimitSeconds = null,
+  lateStartPenaltyPoints = DEFAULT_LATE_START_PENALTY_POINTS,
   onBack = () => {},
   onSubmit,
   onHoldForDispute,
@@ -2265,7 +2295,8 @@ const RegistrationForm = React.memo(function RegistrationForm({
     vehicleBreakdownSelected;
   const isDNFPointsMissing = isDNF && !dnfPoints;
   const hasLateStartPenalty = lateStartMode === 'late_start';
-  const lateStartPenaltyTime = hasLateStartPenalty ? 30 : 0;
+  const appliedLateStartPenaltyPoints = hasLateStartPenalty ? clampLateStartPenaltyPoints(lateStartPenaltyPoints) : 0;
+  const lateStartPenaltyTime = 0;
   const lateStartStatus = lateStartMode === 'late_start_with_approval'
     ? 'Late Start with Approval'
     : lateStartMode === 'late_start'
@@ -2281,8 +2312,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
     taskSkippedPenaltyTime;
 
   const totalPenaltiesMilliseconds = totalPenaltiesTime * 1000;
-  const lateStartPenaltyMilliseconds = lateStartPenaltyTime * 1000;
-  const totalTimeMilliseconds = totalPenaltiesMilliseconds + lateStartPenaltyMilliseconds + stopwatchTime;
+  const totalTimeMilliseconds = totalPenaltiesMilliseconds + stopwatchTime;
   const normalizedTrackTimerLimitSeconds =
     trackTimerLimitSeconds === null || trackTimerLimitSeconds === undefined
       ? null
@@ -2300,7 +2330,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
   const resolvingDisputePartyLabel = resolvingDisputePartyKey
     ? DISPUTE_PARTY_LABEL_BY_KEY[resolvingDisputePartyKey] || resolvingDisputePartyKey
     : '';
-  const safeCategoryName = category?.name || initialRecord?.category || 'Category';
+  const safeCategoryName = getCategoryDisplayLabel(category?.name || initialRecord?.category, 'Category');
 
   useEffect(() => {
     if (!isStopwatchRunning) {
@@ -2574,6 +2604,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
       formData?.lateStartMode || '',
       formData?.lateStartStatus || '',
       formData?.lateStartPenaltyTime || 0,
+      formData?.lateStartPenaltyPoints || 0,
       Boolean(formData?.wrongCourseSelected),
       Boolean(formData?.fourthAttemptSelected),
       Boolean(formData?.timeOverSelected),
@@ -2595,6 +2626,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
       sourceRecord.lateStartMode || sourceRecord.late_start_mode || '',
       sourceRecord.lateStartStatus || sourceRecord.late_start_status || '',
       sourceRecord.lateStartPenaltyTime || sourceRecord.late_start_penalty_time || 0,
+      sourceRecord.lateStartPenaltyPoints || sourceRecord.late_start_penalty_points || 0,
       Boolean(sourceRecord.wrongCourseSelected || sourceRecord.wrong_course_selected),
       Boolean(sourceRecord.fourthAttemptSelected || sourceRecord.fourth_attempt_selected),
       Boolean(sourceRecord.timeOverSelected || sourceRecord.time_over_selected),
@@ -2625,6 +2657,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
       lateStartMode,
       lateStartStatus,
       lateStartPenaltyTime,
+      lateStartPenaltyPoints: appliedLateStartPenaltyPoints,
       wrongCourseSelected,
       fourthAttemptSelected,
       timeOverSelected,
@@ -2690,6 +2723,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
       lateStartMode,
       lateStartStatus,
       lateStartPenaltyTime,
+      lateStartPenaltyPoints: appliedLateStartPenaltyPoints,
       attemptCount,
       taskSkippedCount,
       isDNF,
@@ -3220,6 +3254,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
               responsiveLayout={responsiveLayout}
               totalPenaltiesTime={totalPenaltiesTime}
               lateStartPenaltyTime={lateStartPenaltyTime}
+              lateStartPenaltyPoints={appliedLateStartPenaltyPoints}
               performanceTimeDisplay={performanceTimeDisplay}
               isDNF={isDNF}
               dnfReasonLabel={dnfReasonLabel}
@@ -3240,6 +3275,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
             responsiveLayout={responsiveLayout}
             totalPenaltiesTime={totalPenaltiesTime}
             lateStartPenaltyTime={lateStartPenaltyTime}
+            lateStartPenaltyPoints={appliedLateStartPenaltyPoints}
             performanceTimeDisplay={performanceTimeDisplay}
             isDNF={isDNF}
             dnfReasonLabel={dnfReasonLabel}
@@ -3942,26 +3978,15 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
 
                         <View style={[styles.recordInfoCard, styles.recordInfoCardMedium]}>
                           <Text style={styles.recordMetaLabel}>Sticker No.</Text>
-                          <Text style={styles.recordStickerValue}>
+                          <Text style={styles.recordStickerValue} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.78}>
                             #{getTeamStickerNumber(item) || '--'}
                           </Text>
                         </View>
 
                         <View style={[styles.recordInfoCard, styles.recordInfoCardWide]}>
                           <Text style={styles.recordMetaLabel}>Team Name</Text>
-                          <Text style={styles.recordDriverName}>
+                          <Text style={styles.recordDriverName} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.78}>
                             {getTeamName(item) || '--'}
-                          </Text>
-                        </View>
-
-                        <View style={[styles.recordInfoCard, styles.recordInfoCardWide]}>
-                          <Text style={styles.recordMetaLabel}>Driver Name</Text>
-                          <Text style={styles.recordDriverName}>
-                            {item.driver_name || item.driverName || 'Unknown Driver'}
-                          </Text>
-                          <Text style={[styles.recordMetaLabel, styles.recordCoDriverLabel]}>Co-Driver Name</Text>
-                          <Text style={styles.recordDriverName}>
-                            {item.codriver_name || item.coDriverName || 'Unknown Co-Driver'}
                           </Text>
                         </View>
                       </View>
@@ -3994,6 +4019,23 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
                       >
                         <Text style={styles.startButtonText}>Start</Text>
                       </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  <View style={styles.recordDriverDetailsCard}>
+                    <View style={styles.recordDriverDetailsGrid}>
+                      <View style={styles.recordDriverDetailsItem}>
+                        <Text style={styles.recordMetaLabel}>Driver Name</Text>
+                        <Text style={styles.recordDriverName} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.78}>
+                          {item.driver_name || item.driverName || 'Unknown Driver'}
+                        </Text>
+                      </View>
+                      <View style={styles.recordDriverDetailsItem}>
+                        <Text style={styles.recordMetaLabel}>Co-Driver Name</Text>
+                        <Text style={styles.recordDriverName} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.78}>
+                          {item.codriver_name || item.coDriverName || 'Unknown Co-Driver'}
+                        </Text>
+                      </View>
                     </View>
                   </View>
 
@@ -4136,7 +4178,7 @@ const DisputeRecordsPanel = React.memo(function DisputeRecordsPanel({
     return Object.keys(countsByCategory)
       .map(categoryKey => ({
         key: categoryKey,
-        label: categoryLabelMap[categoryKey] || String(categoryKey || 'Category').replace(/_/g, ' '),
+        label: categoryLabelMap[categoryKey] || getCategoryDisplayLabel(categoryKey, 'Category').replace(/_/g, ' '),
         count: countsByCategory[categoryKey],
       }))
       .sort((a, b) => a.label.localeCompare(b.label));
@@ -4613,7 +4655,7 @@ const RegistrationResultsModal = React.memo(function RegistrationResultsModal({
 
                   <View style={styles.registrationFooter}>
                     <Text style={styles.registrationFooterText}>
-                      Category: {item.category || '--'}
+                      Category: {getCategoryDisplayLabel(item.category, '--')}
                     </Text>
                     <Text style={styles.registrationFooterText}>
                       DNF: {formatBoolValue(item.is_dnf ?? item.isDNF ?? item.isDnf)}
@@ -4669,6 +4711,7 @@ export default function App() {
   const [securityPin, setSecurityPin] = useState(DEFAULT_SECURITY_PIN);
   const [themeMode, setThemeMode] = useState(DEFAULT_THEME_MODE);
   const [leaderboardSyncBaseUrl, setLeaderboardSyncBaseUrl] = useState(DEFAULT_LEADERBOARD_SYNC_BASE_URL);
+  const [lateStartPenaltyPoints, setLateStartPenaltyPoints] = useState(DEFAULT_LATE_START_PENALTY_POINTS);
   const [categoryTrackConfig, setCategoryTrackConfig] = useState(() => normalizeCategoryTrackConfig());
   const [categoryActivationConfig, setCategoryActivationConfig] = useState(() => buildDefaultCategoryActivationConfig());
   const [trackActivationConfig, setTrackActivationConfig] = useState(() => buildDefaultTrackActivationConfig());
@@ -4843,6 +4886,7 @@ export default function App() {
       setThemeMode(storedSettings.themeMode);
       setLeaderboardSyncBaseUrl(storedSettings.leaderboardSyncBaseUrl || DEFAULT_LEADERBOARD_SYNC_BASE_URL);
       setLeaderboardSyncBaseUrlInput(storedSettings.leaderboardSyncBaseUrl || DEFAULT_LEADERBOARD_SYNC_BASE_URL);
+      setLateStartPenaltyPoints(storedSettings.lateStartPenaltyPoints);
       setSettingsLoaded(true);
     };
 
@@ -4869,10 +4913,11 @@ export default function App() {
       deletedVehicleCardKeys,
       themeMode,
       leaderboardSyncBaseUrl,
+      lateStartPenaltyPoints,
     }).catch(error => {
       console.warn('Unable to save admin settings:', error);
     });
-  }, [categoryActivationConfig, categoryTrackConfig, deletedVehicleCardKeys, leaderboardSyncBaseUrl, securityPin, settingsLoaded, settingsPassword, themeMode, trackActivationConfig, trackTimerConfig, vehicleCardConfig]);
+  }, [categoryActivationConfig, categoryTrackConfig, deletedVehicleCardKeys, lateStartPenaltyPoints, leaderboardSyncBaseUrl, securityPin, settingsLoaded, settingsPassword, themeMode, trackActivationConfig, trackTimerConfig, vehicleCardConfig]);
 
   useEffect(() => {
     if (!deletedVehicleCardKeys.length) {
@@ -5145,7 +5190,7 @@ export default function App() {
   const categories = [
     {
       id: '1',
-      name: 'Extreme',
+      name: 'Open Category',
       description: 'Ultimate performance',
       icon: '⚡',
       color: '#ff4757',
@@ -5508,7 +5553,7 @@ export default function App() {
     setSettingsPasswordInput('');
     setSettingsPasswordError('');
     setSettingsConfigDayId(selectedDay?.id || REPORT_DAYS[0]?.id || '');
-    setSettingsConfigCategoryKey(normalizeCategoryKey(selectedCategory?.name || 'Extreme'));
+    setSettingsConfigCategoryKey(normalizeCategoryKey(selectedCategory?.name || 'Open Category'));
     setSettingsPasswordModalVisible(true);
   };
 
@@ -5526,6 +5571,10 @@ export default function App() {
 
   const handleOpenVehicleCardSettings = () => {
     setSettingsView('config-vehicle-cards');
+  };
+
+  const handleOpenLateStartPenaltySettings = () => {
+    setSettingsView('config-late-start-penalty');
   };
 
   const handleOpenTrackManagerSettings = () => {
@@ -5557,7 +5606,8 @@ export default function App() {
       currentView === 'config-visibility' ||
       currentView === 'config-track-manager' ||
       currentView === 'config-track-timer' ||
-      currentView === 'config-vehicle-cards'
+      currentView === 'config-vehicle-cards' ||
+      currentView === 'config-late-start-penalty'
     ) {
       return 'config';
     }
@@ -6219,6 +6269,15 @@ export default function App() {
     setSettingsTrackTimerSeconds(clampedSeconds % 60);
   };
 
+  const adjustLateStartPenaltyPoints = delta => {
+    setLateStartPenaltyPoints(prev => clampLateStartPenaltyPoints((Number(prev) || DEFAULT_LATE_START_PENALTY_POINTS) + delta));
+  };
+
+  const handleLateStartPenaltyPointsInput = value => {
+    const digitsOnly = String(value || '').replace(/\D/g, '');
+    setLateStartPenaltyPoints(clampLateStartPenaltyPoints(digitsOnly || DEFAULT_LATE_START_PENALTY_POINTS));
+  };
+
   const handleApplyTrackTimer = () => {
     if (!settingsConfigDayId || !settingsConfigCategoryKey || !settingsTrackTimerTrack) {
       Alert.alert('Track Timer', 'Select day, category, and track before applying a timer.');
@@ -6831,6 +6890,8 @@ const buildRegistrationData = formData => ({
     lateStartStatus: formData.lateStartStatus || 'No',
     late_start_penalty_time: formData.lateStartPenaltyTime || 0,
     lateStartPenaltyTime: formData.lateStartPenaltyTime || 0,
+    late_start_penalty_points: formData.lateStartPenaltyPoints || 0,
+    lateStartPenaltyPoints: formData.lateStartPenaltyPoints || 0,
     attempt_count: formData.attemptCount || 0,
     attemptCount: formData.attemptCount || 0,
     attempt_penalty_time: formData.attemptPenaltyTime || 0,
@@ -7057,7 +7118,7 @@ const buildRegistrationData = formData => ({
           item => normalizeCategoryKey(item.name) === normalizeCategoryKey(safeDisputeRecord.category || '')
         ) || {
           id: `dispute-${normalizeCategoryKey(safeDisputeRecord.category || 'category')}`,
-      name: safeDisputeRecord.category || 'Category',
+          name: getCategoryDisplayLabel(safeDisputeRecord.category, 'Category'),
         };
 
       setReportsVisible(false);
@@ -7139,9 +7200,11 @@ const buildRegistrationData = formData => ({
           : settingsView === 'config-track-manager'
             ? 'Track Manager'
             : settingsView === 'config-track-timer'
-              ? 'Track Timer'
-              : settingsView === 'config-vehicle-cards'
-                ? 'Vehicle Cards'
+            ? 'Track Timer'
+            : settingsView === 'config-vehicle-cards'
+              ? 'Vehicle Cards'
+              : settingsView === 'config-late-start-penalty'
+                ? 'Late Start Penalty Points'
                 : settingsView === 'security'
               ? 'Security'
               : settingsView === 'pin'
@@ -7165,6 +7228,8 @@ const buildRegistrationData = formData => ({
             ? 'Assign a dedicated stopwatch limit to each day, category, and track.'
             : settingsView === 'config-vehicle-cards'
               ? 'Build the ordered vehicle card list for each day, category, and track.'
+              : settingsView === 'config-late-start-penalty'
+                ? 'Choose how many points a late start with penalty subtracts from the race score.'
               : settingsView === 'security'
             ? 'Manage the protected tools used to verify race-day actions.'
             : settingsView === 'pin'
@@ -8110,7 +8175,93 @@ const buildRegistrationData = formData => ({
                     Add, remove, and sequence vehicle cards for each selected day, category, and track.
                   </Text>
                 </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={handleOpenLateStartPenaltySettings}
+                  activeOpacity={0.88}
+                >
+                  <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Configuration</Text>
+                  <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Late Start Penalty Points</Text>
+                  <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
+                    Set the points deducted when Late Start with Penalty is selected.
+                  </Text>
+                </TouchableOpacity>
               </View>
+            ) : null}
+
+            {settingsView === 'config-late-start-penalty' ? (
+              <>
+                <View style={styles.settingsInfoCard}>
+                  <Text style={[styles.settingsInfoTitle, { color: theme.accent }]}>Late Start Penalty Points</Text>
+                  <Text style={[styles.settingsInfoText, { color: theme.textSecondary }]}>
+                    Late Start with Penalty no longer adds seconds to the race time. The selected points are subtracted from the points earned for that race.
+                  </Text>
+                </View>
+
+                <View style={[styles.settingsFormCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+                  <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Penalty Points</Text>
+                  <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                    Select any value from {MIN_LATE_START_PENALTY_POINTS} to {MAX_LATE_START_PENALTY_POINTS} points.
+                  </Text>
+                  <Text style={[styles.settingsTrackTimerPreview, { color: theme.accent }]}>
+                    {lateStartPenaltyPoints} pts
+                  </Text>
+
+                  <View style={styles.settingsTimerCounterGrid}>
+                    <View style={[styles.settingsTimerCounterCard, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}>
+                      <Text style={[styles.settingsTimerCounterLabel, { color: theme.textSecondary }]}>Points</Text>
+                      <View style={styles.settingsTimerCounterControls}>
+                        <TouchableOpacity
+                          style={[styles.settingsTimerAdjustButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                          onPress={() => adjustLateStartPenaltyPoints(-1)}
+                          activeOpacity={0.85}
+                        >
+                          <Text style={[styles.settingsTimerAdjustButtonText, { color: theme.accent }]}>-</Text>
+                        </TouchableOpacity>
+                        <TextInput
+                          {...STABLE_TEXT_INPUT_PROPS}
+                          value={String(lateStartPenaltyPoints)}
+                          onChangeText={handleLateStartPenaltyPointsInput}
+                          keyboardType="number-pad"
+                          maxLength={3}
+                          style={[
+                            styles.settingsInput,
+                            {
+                              width: 96,
+                              textAlign: 'center',
+                              backgroundColor: theme.inputBackground,
+                              borderColor: theme.border,
+                              color: theme.textPrimary,
+                            },
+                          ]}
+                          placeholder="30"
+                          placeholderTextColor={theme.textTertiary}
+                        />
+                        <TouchableOpacity
+                          style={[styles.settingsTimerAdjustButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                          onPress={() => adjustLateStartPenaltyPoints(1)}
+                          activeOpacity={0.85}
+                        >
+                          <Text style={[styles.settingsTimerAdjustButtonText, { color: theme.accent }]}>+</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+
+                  <View style={styles.settingsTrackTimerActionRow}>
+                    <TouchableOpacity
+                      style={[styles.settingsActionButton, styles.settingsSecondaryButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
+                      onPress={() => setLateStartPenaltyPoints(DEFAULT_LATE_START_PENALTY_POINTS)}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={[styles.settingsActionButtonText, styles.settingsSecondaryButtonText, { color: theme.textPrimary }]}>
+                        Reset
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </>
             ) : null}
 
             {settingsView === 'config-track-manager' ? (
@@ -8991,10 +9142,18 @@ const buildRegistrationData = formData => ({
                           </Text>
                         </View>
                         <View style={styles.settingsVehicleCardInfo}>
-                          <Text style={[styles.settingsVehicleCardTitle, { color: theme.textPrimary }]}>
+                          <Text
+                            style={[styles.settingsVehicleCardTitle, { color: theme.textPrimary }]}
+                            numberOfLines={2}
+                            adjustsFontSizeToFit
+                            minimumFontScale={0.78}
+                          >
                             #{card.stickerNumber} | {card.driverName}
                           </Text>
-                          <Text style={[styles.settingsVehicleCardMeta, { color: theme.textSecondary }]}>
+                          <Text
+                            style={[styles.settingsVehicleCardMeta, { color: theme.textSecondary }]}
+                            numberOfLines={3}
+                          >
                             Team: {card.teamName || '--'} | Co-driver: {card.coDriverName}
                           </Text>
                         </View>
@@ -9077,10 +9236,18 @@ const buildRegistrationData = formData => ({
                         ]}
                       >
                         <View style={styles.settingsTrackInfo}>
-                          <Text style={[styles.settingsTrackName, { color: theme.textPrimary }]}>
+                          <Text
+                            style={[styles.settingsTrackName, { color: theme.textPrimary }]}
+                            numberOfLines={2}
+                            adjustsFontSizeToFit
+                            minimumFontScale={0.78}
+                          >
                             #{card.stickerNumber} | {card.driverName}
                           </Text>
-                          <Text style={[styles.settingsTrackStatus, { color: theme.textSecondary }]}>
+                          <Text
+                            style={[styles.settingsTrackStatus, { color: theme.textSecondary }]}
+                            numberOfLines={3}
+                          >
                             Team: {card.teamName || '--'} | Co-driver: {card.coDriverName}
                           </Text>
                         </View>
@@ -9785,6 +9952,7 @@ const buildRegistrationData = formData => ({
             selectedDay={selectedDay}
             categoryTrackConfig={categoryTrackConfig}
             trackTimerLimitSeconds={selectedTrackTimerLimitSeconds}
+            lateStartPenaltyPoints={lateStartPenaltyPoints}
             onBack={() => {
               const shouldReturnToDisputes = selectedRecord?.source === 'dispute';
               if (shouldReturnToDisputes) {

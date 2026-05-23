@@ -110,7 +110,7 @@ const CATEGORY_TRACKS = {
 };
 
 const CATEGORY_IMAGE_SOURCES = {
-  EXTREME: require('./assets/Extreme.png'),
+  EXTREME: require('./assets/OpenCategoryLogo.jpeg'),
   DIESEL_MODIFIED: require('./assets/DieselModified.png'),
   PETROL_MODIFIED: require('./assets/PetrolModified.png'),
   DIESEL_EXPERT: require('./assets/DieselExpert.png'),
@@ -1164,7 +1164,7 @@ export default function App() {
   const categories = [
     {
       id: '1',
-      name: 'Extreme',
+      name: 'Open Category',
       description: 'Ultimate performance',
       icon: '⚡',
       color: '#ff4757',

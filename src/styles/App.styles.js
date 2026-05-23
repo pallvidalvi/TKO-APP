@@ -1384,6 +1384,7 @@ const styles = StyleSheet.create({
 
   recordTopRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'stretch',
     justifyContent: 'space-between',
     paddingHorizontal: IS_TABLET ? 22 : 18,
@@ -1393,6 +1394,7 @@ const styles = StyleSheet.create({
 
   recordHeaderMain: {
     flex: 1,
+    minWidth: 0,
   },
 
   recordInfoGrid: {
@@ -1410,6 +1412,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     justifyContent: 'center',
     minHeight: 76,
+    minWidth: 0,
   },
 
   recordInfoCardCompact: {
@@ -1421,7 +1424,9 @@ const styles = StyleSheet.create({
   },
 
   recordInfoCardWide: {
-    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: IS_TABLET ? 260 : '100%',
     minWidth: IS_TABLET ? 240 : 180,
   },
 
@@ -1429,6 +1434,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'stretch',
     width: IS_TABLET ? 150 : 124,
+    flexShrink: 0,
   },
 
   recordMetaLabel: {
@@ -1438,10 +1444,36 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     marginBottom: 8,
     letterSpacing: 0.5,
+    flexShrink: 1,
   },
 
   recordCoDriverLabel: {
     marginTop: 12,
+  },
+
+  recordDriverDetailsCard: {
+    marginHorizontal: 18,
+    marginTop: 0,
+    marginBottom: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: '#0f1520',
+    borderWidth: 1,
+    borderColor: '#2a3441',
+    borderRadius: 16,
+  },
+
+  recordDriverDetailsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+
+  recordDriverDetailsItem: {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: IS_TABLET ? 260 : '100%',
+    minWidth: 0,
   },
 
   recordMetaValue: {
@@ -1454,6 +1486,8 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     color: '#cdbf9a',
+    lineHeight: 24,
+    flexShrink: 1,
   },
 
   recordDriverName: {
@@ -1461,6 +1495,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#fff6ea',
     lineHeight: 24,
+    flexShrink: 1,
   },
 
   startButton: {
@@ -2790,6 +2825,7 @@ const styles = StyleSheet.create({
   settingsVehicleCardRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     borderWidth: 1,
     borderRadius: 14,
     padding: 12,
@@ -2812,28 +2848,37 @@ const styles = StyleSheet.create({
   },
 
   settingsVehicleCardInfo: {
-    flex: 1,
-    minWidth: 150,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 220,
+    minWidth: 0,
   },
 
   settingsVehicleCardTitle: {
     fontSize: 15,
     fontWeight: '900',
     fontFamily: HEADING_FONT,
+    lineHeight: 21,
+    flexShrink: 1,
   },
 
   settingsVehicleCardMeta: {
     marginTop: 4,
     fontSize: 12,
     fontFamily: BODY_FONT,
+    lineHeight: 18,
+    flexShrink: 1,
   },
 
   settingsVehicleCardActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'flex-end',
+    justifyContent: 'flex-start',
     gap: 8,
-    maxWidth: 250,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 250,
+    minWidth: 0,
   },
 
   settingsVehicleCardIconButton: {
@@ -2860,11 +2905,13 @@ const styles = StyleSheet.create({
   settingsAvailableVehicleActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'flex-end',
+    justifyContent: 'flex-start',
     alignItems: 'center',
     gap: 8,
-    minWidth: 238,
-    flexShrink: 0,
+    minWidth: 0,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 238,
   },
 
   settingsAvailableVehicleButton: {

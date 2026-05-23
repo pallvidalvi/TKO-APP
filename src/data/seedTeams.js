@@ -1,7 +1,7 @@
 const CATEGORY_TEAM_CONFIGS = [
   {
     category: 'EXTREME',
-    label: 'Extreme',
+    label: 'Open Category',
     baseCarNumber: 101,
     vehicle_name: 'Mahindra',
     vehicle_model: 'Proto Extreme',
