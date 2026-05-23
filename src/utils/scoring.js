@@ -356,7 +356,7 @@ export const rankTrackResults = results => {
   const sortedResults = [...(results || [])].sort(compareResultsByRank);
   let finisherPosition = 0;
 
-  return sortedResults.map(item => {
+  const rankedResults = sortedResults.map(item => {
     if (item?.isDisputed) {
       return {
         ...item,
@@ -385,8 +385,27 @@ export const rankTrackResults = results => {
 
     return {
       ...item,
-      reportRankLabel: `P${finisherPosition}`,
+      reportRankLabel: '',
       reportPoints: applyLateStartPenaltyPoints(getTrackPointsForPosition(finisherPosition), item),
     };
   });
+
+  const rankLabelByResultKey = new Map();
+  rankedResults
+    .filter(item => getResultSortPriority(item) === 0 && typeof item.reportPoints === 'number' && Number.isFinite(item.reportPoints))
+    .sort((a, b) => {
+      if (a.reportPoints !== b.reportPoints) {
+        return b.reportPoints - a.reportPoints;
+      }
+
+      return compareResultsByRank(a, b);
+    })
+    .forEach((item, index) => {
+      rankLabelByResultKey.set(getResultIdentityKey(item), `P${index + 1}`);
+    });
+
+  return rankedResults.map(item => ({
+    ...item,
+    reportRankLabel: rankLabelByResultKey.get(getResultIdentityKey(item)) || item.reportRankLabel,
+  }));
 };
