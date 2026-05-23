@@ -354,58 +354,68 @@ export const compareResultsByRank = (a, b) => {
 
 export const rankTrackResults = results => {
   const sortedResults = [...(results || [])].sort(compareResultsByRank);
-  let finisherPosition = 0;
 
-  const rankedResults = sortedResults.map(item => {
-    if (item?.isDisputed) {
-      return {
-        ...item,
-        reportRankLabel: 'Hold',
-        reportPoints: null,
-      };
-    }
-
-    if (isDnsResult(item)) {
-      return {
-        ...item,
-        reportRankLabel: 'DNS',
-        reportPoints: 0,
-      };
-    }
-
-    if (isDnfResult(item)) {
-      return {
-        ...item,
-        reportRankLabel: 'DNF',
-        reportPoints: applyLateStartPenaltyPoints(getDnfPointsValue(item), item),
-      };
-    }
-
-    finisherPosition += 1;
-
-    return {
+  const scoreFinishersByCurrentOrder = finishers =>
+    finishers.map((item, index) => ({
       ...item,
       reportRankLabel: '',
-      reportPoints: applyLateStartPenaltyPoints(getTrackPointsForPosition(finisherPosition), item),
-    };
-  });
+      reportPoints: applyLateStartPenaltyPoints(getTrackPointsForPosition(index + 1), item),
+    }));
 
-  const rankLabelByResultKey = new Map();
-  rankedResults
-    .filter(item => getResultSortPriority(item) === 0 && typeof item.reportPoints === 'number' && Number.isFinite(item.reportPoints))
-    .sort((a, b) => {
+  const sortFinishersByFinalPoints = finishers =>
+    [...finishers].sort((a, b) => {
       if (a.reportPoints !== b.reportPoints) {
         return b.reportPoints - a.reportPoints;
       }
 
       return compareResultsByRank(a, b);
-    })
-    .forEach((item, index) => {
-      rankLabelByResultKey.set(getResultIdentityKey(item), `P${index + 1}`);
     });
 
-  return rankedResults.map(item => ({
+  const getOrderSignature = items => items.map(item => getResultIdentityKey(item)).join('||');
+  let orderedFinishers = sortedResults.filter(item => getResultSortPriority(item) === 0);
+  let scoredFinishers = scoreFinishersByCurrentOrder(orderedFinishers);
+
+  for (let iteration = 0; iteration < orderedFinishers.length + 5; iteration += 1) {
+    scoredFinishers = scoreFinishersByCurrentOrder(orderedFinishers);
+    const nextOrderedFinishers = sortFinishersByFinalPoints(scoredFinishers);
+
+    if (getOrderSignature(nextOrderedFinishers) === getOrderSignature(orderedFinishers)) {
+      break;
+    }
+
+    orderedFinishers = nextOrderedFinishers;
+  }
+
+  scoredFinishers = scoreFinishersByCurrentOrder(orderedFinishers).map((item, index) => ({
     ...item,
-    reportRankLabel: rankLabelByResultKey.get(getResultIdentityKey(item)) || item.reportRankLabel,
+    reportRankLabel: `P${index + 1}`,
   }));
+
+  const nonFinisherResults = sortedResults
+    .filter(item => getResultSortPriority(item) !== 0)
+    .map(item => {
+      if (item?.isDisputed) {
+        return {
+          ...item,
+          reportRankLabel: 'Hold',
+          reportPoints: null,
+        };
+      }
+
+      if (isDnsResult(item)) {
+        return {
+          ...item,
+          reportRankLabel: 'DNS',
+          reportPoints: 0,
+        };
+      }
+
+      return {
+        ...item,
+        reportRankLabel: 'DNF',
+        reportPoints: applyLateStartPenaltyPoints(getDnfPointsValue(item), item),
+      };
+    });
+
+  return [...scoredFinishers, ...nonFinisherResults];
 };
