@@ -5741,6 +5741,7 @@ export default function App() {
 
     const totalSummary = {
       snapshots: snapshots.length,
+      snapshotsFailed: 0,
       resultsImported: 0,
       resultsSkipped: 0,
       resultsFailed: 0,
@@ -5749,13 +5750,18 @@ export default function App() {
     };
 
     for (const snapshot of snapshots) {
-      const importResult = await LeaderboardService.importLeaderboardSnapshot(snapshot);
-      const summary = importResult.summary || {};
-      totalSummary.resultsImported += summary.resultsImported || 0;
-      totalSummary.resultsSkipped += summary.resultsSkipped || 0;
-      totalSummary.resultsFailed += summary.resultsFailed || 0;
-      totalSummary.disputesImported += summary.disputesImported || 0;
-      totalSummary.disputesFailed += summary.disputesFailed || 0;
+      try {
+        const importResult = await LeaderboardService.importLeaderboardSnapshot(snapshot);
+        const summary = importResult.summary || {};
+        totalSummary.resultsImported += summary.resultsImported || 0;
+        totalSummary.resultsSkipped += summary.resultsSkipped || 0;
+        totalSummary.resultsFailed += summary.resultsFailed || 0;
+        totalSummary.disputesImported += summary.disputesImported || 0;
+        totalSummary.disputesFailed += summary.disputesFailed || 0;
+      } catch (error) {
+        totalSummary.snapshotsFailed += 1;
+        console.warn('Unable to import one local Wi-Fi leaderboard push:', error);
+      }
     }
 
     await refreshCompletedTracks(teams, selectedDay?.id || '');
@@ -5766,7 +5772,9 @@ export default function App() {
     setLocalWifiReceiverMessage(
       `Received ${totalSummary.snapshots} push. Imported ${totalSummary.resultsImported} results and ${
         totalSummary.disputesImported
-      } disputes. Skipped ${totalSummary.resultsSkipped} duplicates.`
+      } disputes. Skipped ${totalSummary.resultsSkipped} duplicates.${
+        totalSummary.snapshotsFailed ? ` Rejected ${totalSummary.snapshotsFailed} invalid push.` : ''
+      }`
     );
 
     return totalSummary;

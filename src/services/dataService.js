@@ -338,6 +338,28 @@ const uniqueByKey = (items, getKey) => {
   return nextItems;
 };
 
+const getSafeObjectArray = value =>
+  Array.isArray(value)
+    ? value.filter(item => item && typeof item === 'object' && !Array.isArray(item))
+    : [];
+
+const normalizeTrackLabels = value => {
+  const seen = new Set();
+
+  return (Array.isArray(value) ? value : []).reduce((tracks, track) => {
+    const label = String(track || '').trim();
+    const key = normalizeValue(label);
+
+    if (!key || seen.has(key)) {
+      return tracks;
+    }
+
+    seen.add(key);
+    tracks.push(label);
+    return tracks;
+  }, []);
+};
+
 const normalizeCategoryOption = option => {
   const key = normalizeCategoryKey(option?.key || option?.category || option?.name || option?.label || '');
   const labelSource = String(option?.label || option?.name || option?.title || option?.key || option?.category || '').trim();
@@ -345,7 +367,7 @@ const normalizeCategoryOption = option => {
   return {
     key,
     label: key === 'EXTREME' ? 'Open Category' : labelSource || formatCategoryLabel(option?.key || option?.category || option?.name || option?.label),
-    tracks: Array.isArray(option?.tracks) ? option.tracks.filter(Boolean) : [],
+    tracks: normalizeTrackLabels(option?.tracks),
   };
 };
 
@@ -375,8 +397,10 @@ const inferCategoryOptions = ({ teams = [], results = [], disputes = [] } = {}) 
     optionsByKey.set(key, existing);
   };
 
-  teams.forEach(team => addOption(team?.category));
-  [...results, ...disputes].forEach(item => addOption(item?.category, item?.track_name || item?.trackName || ''));
+  getSafeObjectArray(teams).forEach(team => addOption(team?.category));
+  [...getSafeObjectArray(results), ...getSafeObjectArray(disputes)].forEach(item =>
+    addOption(item?.category, item?.track_name || item?.trackName || '')
+  );
 
   return Array.from(optionsByKey.values())
     .map(option => ({
@@ -389,7 +413,7 @@ const inferCategoryOptions = ({ teams = [], results = [], disputes = [] } = {}) 
 const mergeCategoryOptions = (primaryOptions = [], fallbackOptions = []) => {
   const mergedMap = new Map();
 
-  [...fallbackOptions, ...primaryOptions].forEach(option => {
+  [...getSafeObjectArray(fallbackOptions), ...getSafeObjectArray(primaryOptions)].forEach(option => {
     if (!option?.key) {
       return;
     }
@@ -404,7 +428,7 @@ const mergeCategoryOptions = (primaryOptions = [], fallbackOptions = []) => {
       existing.label = option.label;
     }
 
-    const nextTracks = Array.isArray(option.tracks) ? option.tracks.filter(Boolean) : [];
+    const nextTracks = normalizeTrackLabels(option.tracks);
     nextTracks.forEach(track => {
       if (!existing.tracks.includes(track)) {
         existing.tracks.push(track);
@@ -415,6 +439,53 @@ const mergeCategoryOptions = (primaryOptions = [], fallbackOptions = []) => {
   });
 
   return Array.from(mergedMap.values()).sort((a, b) => a.label.localeCompare(b.label));
+};
+
+const normalizeLeaderboardTransferSnapshot = snapshot => {
+  const source = snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot) ? snapshot : {};
+  const rawLeaderboard =
+    source.leaderboard && typeof source.leaderboard === 'object' && !Array.isArray(source.leaderboard)
+      ? source.leaderboard
+      : {};
+  const leaderboardCategories = getSafeObjectArray(rawLeaderboard.categories)
+    .map(category => {
+      const categoryOption = normalizeCategoryOption(category);
+
+      if (!categoryOption.key) {
+        return null;
+      }
+
+      return {
+        ...category,
+        ...categoryOption,
+        rows: getSafeObjectArray(category.rows).map(row => ({
+          ...row,
+          trackSummaries: getSafeObjectArray(row.trackSummaries).map(summary => ({
+            ...summary,
+            entries: getSafeObjectArray(summary.entries),
+          })),
+        })),
+      };
+    })
+    .filter(Boolean);
+  const categoryOptions = mergeCategoryOptions(
+    getSafeObjectArray(source.categoryOptions).map(normalizeCategoryOption).filter(option => option.key),
+    leaderboardCategories.map(({ rows, ...category }) => category)
+  );
+
+  return {
+    ...source,
+    source: String(source.source || 'tko-app'),
+    schemaVersion: Number.isFinite(Number(source.schemaVersion)) ? Number(source.schemaVersion) : 1,
+    teams: getSafeObjectArray(source.teams),
+    results: getSafeObjectArray(source.results),
+    disputes: getSafeObjectArray(source.disputes),
+    categoryOptions,
+    leaderboard: {
+      ...rawLeaderboard,
+      categories: leaderboardCategories,
+    },
+  };
 };
 
 const filterLeaderboardSnapshotByCategory = (snapshot, focusCategory = '') => {
@@ -458,7 +529,7 @@ const filterLeaderboardSnapshotByCategory = (snapshot, focusCategory = '') => {
 
 const buildLeaderboardRows = (categoryOption, teams = [], uniqueResults = []) => {
   const rowsByVehicle = new Map();
-  const tracks = categoryOption?.tracks || [];
+  const tracks = normalizeTrackLabels(categoryOption?.tracks);
 
   const ensureVehicleRow = source => {
     const vehicleKey = getVehicleIdentityKey(source);
@@ -487,7 +558,7 @@ const buildLeaderboardRows = (categoryOption, teams = [], uniqueResults = []) =>
     return rowsByVehicle.get(vehicleKey);
   };
 
-  teams
+  getSafeObjectArray(teams)
     .filter(team => normalizeCategoryKey(team?.category || '') === categoryOption.key)
     .forEach(team => {
       ensureVehicleRow({
@@ -499,7 +570,7 @@ const buildLeaderboardRows = (categoryOption, teams = [], uniqueResults = []) =>
       });
     });
 
-  const categoryResults = uniqueResults.filter(
+  const categoryResults = getSafeObjectArray(uniqueResults).filter(
     item => normalizeCategoryKey(item?.category || '') === categoryOption.key
   );
 
@@ -612,8 +683,9 @@ const buildLeaderboardExportSnapshot = async ({ categoryOptionsOverride = [] } =
     CategoriesService.getAllCategories(),
   ]);
 
-  const normalizedResults = results.map(item => normalizeStoredDayPayload(item));
-  const normalizedDisputes = disputes.map(item => normalizeStoredDayPayload(item));
+  const normalizedResults = getSafeObjectArray(results).map(item => normalizeStoredDayPayload(item));
+  const normalizedDisputes = getSafeObjectArray(disputes).map(item => normalizeStoredDayPayload(item));
+  const safeTeams = getSafeObjectArray(teams);
   const parsedResults = normalizedResults.map(item => ({
     ...parseRegistrationPayload(item),
     isDisputed: false,
@@ -625,7 +697,7 @@ const buildLeaderboardExportSnapshot = async ({ categoryOptionsOverride = [] } =
   const uniqueResults = uniqueByKey([...parsedResults, ...parsedDisputes], item => getResultIdentityKey(item));
 
   const fallbackCategoryOptions = inferCategoryOptions({
-    teams,
+    teams: safeTeams,
     results: normalizedResults,
     disputes: normalizedDisputes,
   });
@@ -649,7 +721,7 @@ const buildLeaderboardExportSnapshot = async ({ categoryOptionsOverride = [] } =
   const leaderboard = {
     categories: categoryOptions.map(categoryOption => ({
       ...categoryOption,
-      rows: buildLeaderboardRows(categoryOption, teams, uniqueResults),
+      rows: buildLeaderboardRows(categoryOption, safeTeams, uniqueResults),
     })),
   };
 
@@ -657,7 +729,7 @@ const buildLeaderboardExportSnapshot = async ({ categoryOptionsOverride = [] } =
     generatedAt: new Date().toISOString(),
     source: 'tko-app',
     schemaVersion: 1,
-    teams,
+    teams: safeTeams,
     results: normalizedResults,
     disputes: normalizedDisputes,
     categoryOptions,
@@ -673,10 +745,11 @@ const syncLeaderboardSnapshotWithBaseUrl = async (snapshot, syncBaseUrl = '') =>
   let lastError = null;
   let sawMissingEndpoint = false;
   const syncUrls = resolveLeaderboardSyncUrls(syncBaseUrl);
+  const safeSnapshot = normalizeLeaderboardTransferSnapshot(snapshot);
 
   for (const url of syncUrls) {
     try {
-      const response = await axios.post(url, snapshot, {
+      const response = await axios.post(url, safeSnapshot, {
         timeout: 60000,
         headers: {
           'Content-Type': 'application/json',
@@ -730,13 +803,19 @@ const fetchLeaderboardSnapshotWithBaseUrl = async (syncBaseUrl = '') => {
         },
       });
       const responsePayload = response.data;
-      const snapshot = responsePayload?.snapshot || responsePayload;
+      const snapshot =
+        responsePayload &&
+        typeof responsePayload === 'object' &&
+        !Array.isArray(responsePayload) &&
+        Object.prototype.hasOwnProperty.call(responsePayload, 'snapshot')
+          ? responsePayload.snapshot
+          : responsePayload;
 
       if (snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot)) {
         return {
           fetched: true,
           endpoint: url,
-          snapshot,
+          snapshot: normalizeLeaderboardTransferSnapshot(snapshot),
         };
       }
 
@@ -1221,9 +1300,13 @@ const normalizeImportedCompetitionRecord = record => {
   });
 };
 
+const hasImportableCompetitionIdentity = record =>
+  Boolean(record?.category && record?.track_name && record?.sticker_number);
+
 const importLeaderboardSnapshotRecords = async snapshot => {
-  const resultRows = Array.isArray(snapshot?.results) ? snapshot.results : [];
-  const disputeRows = Array.isArray(snapshot?.disputes) ? snapshot.disputes : [];
+  const safeSnapshot = normalizeLeaderboardTransferSnapshot(snapshot);
+  const resultRows = safeSnapshot.results;
+  const disputeRows = safeSnapshot.disputes;
   const summary = {
     resultsImported: 0,
     resultsSkipped: 0,
@@ -1234,7 +1317,15 @@ const importLeaderboardSnapshotRecords = async snapshot => {
 
   for (const record of resultRows) {
     try {
-      await ResultsService.addResult(normalizeImportedCompetitionRecord(record));
+      const normalizedRecord = normalizeImportedCompetitionRecord(record);
+
+      if (!hasImportableCompetitionIdentity(normalizedRecord)) {
+        summary.resultsFailed += 1;
+        console.warn('Ignoring leaderboard result without category, track, or sticker identity.');
+        continue;
+      }
+
+      await ResultsService.addResult(normalizedRecord);
       summary.resultsImported += 1;
     } catch (error) {
       if (error?.code === 'DUPLICATE_RESULT') {
@@ -1248,7 +1339,15 @@ const importLeaderboardSnapshotRecords = async snapshot => {
 
   for (const record of disputeRows) {
     try {
-      await DisputesService.saveDispute(normalizeImportedCompetitionRecord(record));
+      const normalizedRecord = normalizeImportedCompetitionRecord(record);
+
+      if (!hasImportableCompetitionIdentity(normalizedRecord)) {
+        summary.disputesFailed += 1;
+        console.warn('Ignoring leaderboard dispute without category, track, or sticker identity.');
+        continue;
+      }
+
+      await DisputesService.saveDispute(normalizedRecord);
       summary.disputesImported += 1;
     } catch (error) {
       summary.disputesFailed += 1;
@@ -1273,10 +1372,11 @@ const saveWebLeaderboardSnapshot = snapshot => {
 
 export const LeaderboardService = {
   exportLeaderboardData: async ({ focusCategory = '', syncBaseUrl = '', categoryOptionsOverride = [] } = {}) => {
-    const snapshot = await buildLeaderboardExportSnapshot({ categoryOptionsOverride });
-    if (focusCategory) {
-      snapshot.focusCategory = focusCategory;
-    }
+    const generatedSnapshot = await buildLeaderboardExportSnapshot({ categoryOptionsOverride });
+    const scopedSnapshot = focusCategory
+      ? filterLeaderboardSnapshotByCategory(generatedSnapshot, focusCategory)
+      : generatedSnapshot;
+    const snapshot = normalizeLeaderboardTransferSnapshot(scopedSnapshot);
     saveWebLeaderboardSnapshot(snapshot);
     const syncResult = await syncLeaderboardSnapshotWithBaseUrl(snapshot, syncBaseUrl);
     return {
@@ -1288,7 +1388,8 @@ export const LeaderboardService = {
   buildLeaderboardExportSnapshot: async options => buildLeaderboardExportSnapshot(options),
 
   importLeaderboardSnapshot: async snapshot => {
-    const summary = await importLeaderboardSnapshotRecords(snapshot);
+    const safeSnapshot = normalizeLeaderboardTransferSnapshot(snapshot);
+    const summary = await importLeaderboardSnapshotRecords(safeSnapshot);
 
     return {
       imported: true,
@@ -1323,7 +1424,7 @@ export const LeaderboardService = {
   },
 
   syncLeaderboardData: async () => {
-    const snapshot = await buildLeaderboardExportSnapshot();
+    const snapshot = normalizeLeaderboardTransferSnapshot(await buildLeaderboardExportSnapshot());
     saveWebLeaderboardSnapshot(snapshot);
     return {
       synced: true,

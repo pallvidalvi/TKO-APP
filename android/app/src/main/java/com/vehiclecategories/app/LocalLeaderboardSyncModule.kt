@@ -17,6 +17,7 @@ import java.net.Socket
 import java.util.Locale
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
+import org.json.JSONObject
 
 class LocalLeaderboardSyncModule(
   private val reactContext: ReactApplicationContext
@@ -166,7 +167,13 @@ class LocalLeaderboardSyncModule(
             return
           }
 
-          receivedSnapshots.add(String(bodyBytes, Charsets.UTF_8))
+          val payload = String(bodyBytes, Charsets.UTF_8)
+          if (!isLeaderboardSnapshotPayload(payload)) {
+            writeJsonResponse(output, 400, """{"ok":false,"error":"Invalid leaderboard snapshot"}""")
+            return
+          }
+
+          receivedSnapshots.add(payload)
           writeJsonResponse(
             output,
             200,
@@ -180,6 +187,18 @@ class LocalLeaderboardSyncModule(
 
   private fun isLeaderboardPostPath(path: String): Boolean =
     path == "/leaderboard" || path == "/api/leaderboard" || path == "/api/leaderboard-sync"
+
+  private fun isLeaderboardSnapshotPayload(payload: String): Boolean =
+    try {
+      val snapshot = JSONObject(payload)
+      snapshot.optJSONArray("teams") != null ||
+        snapshot.optJSONArray("results") != null ||
+        snapshot.optJSONArray("disputes") != null ||
+        snapshot.optJSONArray("categoryOptions") != null ||
+        snapshot.optJSONObject("leaderboard") != null
+    } catch (_: Exception) {
+      false
+    }
 
   private fun readAsciiLine(input: BufferedInputStream): String? {
     val bytes = ArrayList<Byte>()

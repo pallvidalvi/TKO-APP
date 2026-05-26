@@ -73,6 +73,28 @@ const DEFAULT_THEME = {
 
 const MAX_POINTS_PER_TRACK = 100;
 
+const getSafeObjectArray = value =>
+  Array.isArray(value)
+    ? value.filter(item => item && typeof item === 'object' && !Array.isArray(item))
+    : [];
+
+const normalizeTrackLabels = value => {
+  const seen = new Set();
+
+  return (Array.isArray(value) ? value : []).reduce((tracks, track) => {
+    const label = String(track || '').trim();
+    const key = normalizeValue(label);
+
+    if (!key || seen.has(key)) {
+      return tracks;
+    }
+
+    seen.add(key);
+    tracks.push(label);
+    return tracks;
+  }, []);
+};
+
 const getResponsiveLayout = (screenWidth, screenHeight) => {
   const shortestSide = Math.min(screenWidth, screenHeight);
   const isTablet = shortestSide >= 600;
@@ -642,8 +664,8 @@ const buildDetailIndex = (resultRows = [], disputeRows = []) => {
     });
   };
 
-  resultRows.forEach(record => addRecord(record, 'result'));
-  disputeRows.forEach(record => addRecord(record, 'dispute'));
+  getSafeObjectArray(resultRows).forEach(record => addRecord(record, 'result'));
+  getSafeObjectArray(disputeRows).forEach(record => addRecord(record, 'dispute'));
 
   return index;
 };
@@ -664,6 +686,19 @@ const LeaderboardScreen = ({
   const [selectedCategory, setSelectedCategory] = useState('');
   const [nowTimestamp, setNowTimestamp] = useState(Date.now());
   const [selectedDetail, setSelectedDetail] = useState(null);
+  const safeCategoryOptions = useMemo(
+    () =>
+      getSafeObjectArray(categoryOptions)
+        .map(option => ({
+          ...option,
+          key: normalizeCategoryKey(option.key || option.category || option.name || option.label || ''),
+          label: String(option.label || option.name || option.key || 'Category'),
+          tracks: normalizeTrackLabels(option.tracks),
+        }))
+        .filter(option => option.key),
+    [categoryOptions]
+  );
+  const safeTeams = useMemo(() => getSafeObjectArray(teams), [teams]);
 
   const loadResults = useCallback(async (showLoading = true, shouldProcessExpiredDisputes = true) => {
     try {
@@ -679,8 +714,8 @@ const LeaderboardScreen = ({
         ResultsService.getAllResults(),
         DisputesService.getAllDisputes(),
       ]);
-      setResults(rows);
-      setDisputes(disputeRows);
+      setResults(getSafeObjectArray(rows));
+      setDisputes(getSafeObjectArray(disputeRows));
 
     } catch (error) {
       console.error('Error loading leaderboard data:', error);
@@ -690,7 +725,7 @@ const LeaderboardScreen = ({
         setLoading(false);
       }
     }
-  }, [categoryOptions, teams]);
+  }, []);
 
   useEffect(() => {
     if (visible) {
@@ -729,11 +764,11 @@ const LeaderboardScreen = ({
     };
   }, [loadResults, visible]);
 
-  const normalizedResults = useMemo(() => results.map(parseRegistrationPayload), [results]);
+  const normalizedResults = useMemo(() => getSafeObjectArray(results).map(parseRegistrationPayload), [results]);
 
   const normalizedDisputes = useMemo(
     () =>
-      disputes.map(dispute => ({
+      getSafeObjectArray(disputes).map(dispute => ({
         ...parseRegistrationPayload(dispute),
         isDisputed: true,
       })),
@@ -758,11 +793,11 @@ const LeaderboardScreen = ({
   }, [normalizedDisputes, normalizedResults]);
 
   const categoryCards = useMemo(() => {
-    return categoryOptions
+    return safeCategoryOptions
       .map(option => {
         const vehicleKeys = new Set();
 
-        teams
+        safeTeams
           .filter(team => normalizeCategoryKey(team.category || '') === option.key)
           .forEach(team => vehicleKeys.add(getVehicleIdentityKey(team)));
 
@@ -773,11 +808,11 @@ const LeaderboardScreen = ({
         return {
           ...option,
           vehicleCount: vehicleKeys.size,
-          trackCount: (option.tracks || []).length,
+          trackCount: option.tracks.length,
         };
       })
       .sort((a, b) => a.label.localeCompare(b.label));
-  }, [categoryOptions, teams, uniqueResults]);
+  }, [safeCategoryOptions, safeTeams, uniqueResults]);
 
   const selectedCategoryConfig =
     categoryCards.find(item => item.key === selectedCategory) || null;
@@ -811,7 +846,7 @@ const LeaderboardScreen = ({
     }
 
     const rowsByVehicle = new Map();
-    const tracks = selectedCategoryConfig.tracks || [];
+    const tracks = normalizeTrackLabels(selectedCategoryConfig.tracks);
 
     const ensureVehicleRow = source => {
       const vehicleKey = getVehicleIdentityKey(source);
@@ -840,7 +875,7 @@ const LeaderboardScreen = ({
       return rowsByVehicle.get(vehicleKey);
     };
 
-    teams
+    safeTeams
       .filter(team => normalizeCategoryKey(team.category || '') === selectedCategoryConfig.key)
       .forEach(team => {
         ensureVehicleRow({
@@ -886,7 +921,6 @@ const LeaderboardScreen = ({
       rankTrackResults(session.items).forEach(item => {
         const row = ensureVehicleRow(item);
         const trackKey = session.trackKey;
-        const trackSummary = row.trackMap[trackKey];
         const timingMs = getResultTimeValue(item);
         const pointsValue =
           typeof item.reportPoints === 'number' && Number.isFinite(item.reportPoints)
@@ -959,7 +993,7 @@ const LeaderboardScreen = ({
         }),
       }))
       .sort(compareRows);
-  }, [nowTimestamp, selectedCategoryConfig, teams, uniqueResults]);
+  }, [nowTimestamp, safeTeams, selectedCategoryConfig, uniqueResults]);
 
   const tableWidth = useMemo(() => {
     const trackCount = selectedCategoryConfig?.tracks?.length || 0;

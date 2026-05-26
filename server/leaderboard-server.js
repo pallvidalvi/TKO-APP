@@ -22,7 +22,9 @@ const readSnapshot = async () => {
   try {
     const raw = await fsp.readFile(STORE_FILE, 'utf8');
     const snapshot = JSON.parse(raw);
-    return snapshot && typeof snapshot === 'object' ? snapshot : null;
+    return snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot)
+      ? normalizeSnapshotPayload(snapshot)
+      : null;
   } catch (error) {
     return null;
   }
@@ -30,7 +32,30 @@ const readSnapshot = async () => {
 
 const writeSnapshot = async snapshot => {
   await ensureStoreDir();
-  await fsp.writeFile(STORE_FILE, JSON.stringify(snapshot, null, 2), 'utf8');
+  const temporaryFile = `${STORE_FILE}.tmp-${process.pid}-${Date.now()}`;
+
+  try {
+    await fsp.writeFile(temporaryFile, JSON.stringify(snapshot, null, 2), 'utf8');
+    await fsp.rename(temporaryFile, STORE_FILE);
+  } catch (error) {
+    await fsp.unlink(temporaryFile).catch(() => {});
+    throw error;
+  }
+};
+
+let snapshotUpdateQueue = Promise.resolve();
+
+const mergeAndWriteSnapshot = incomingSnapshot => {
+  const updatePromise = snapshotUpdateQueue.then(async () => {
+    const existingSnapshot = await readSnapshot();
+    const snapshot = mergeSnapshots(existingSnapshot, incomingSnapshot);
+
+    await writeSnapshot(snapshot);
+    return snapshot;
+  });
+
+  snapshotUpdateQueue = updatePromise.catch(() => undefined);
+  return updatePromise;
 };
 
 const sendJson = (res, statusCode, payload) => {
@@ -82,8 +107,22 @@ const normalizeCategoryKey = value => {
     return 'EXTREME';
   }
 
+  if (normalized === 'LADIES') {
+    return 'LADIES_CATEGORY';
+  }
+
   return normalized;
 };
+
+const getSafeObjectArray = value =>
+  Array.isArray(value)
+    ? value.filter(item => item && typeof item === 'object' && !Array.isArray(item))
+    : [];
+
+const getSafeTrackArray = value =>
+  Array.isArray(value)
+    ? value.filter(track => typeof track === 'string' || typeof track === 'number')
+    : [];
 
 const getDayIdentity = item =>
   normalizeValue(
@@ -140,14 +179,14 @@ const mergeTracks = (existingTracks = [], incomingTracks = []) => {
   const seen = new Set();
   const tracks = [];
 
-  [...(existingTracks || []), ...(incomingTracks || [])].forEach(track => {
+  [...getSafeTrackArray(existingTracks), ...getSafeTrackArray(incomingTracks)].forEach(track => {
     const key = normalizeValue(track);
     if (!key || seen.has(key)) {
       return;
     }
 
     seen.add(key);
-    tracks.push(track);
+    tracks.push(String(track).trim());
   });
 
   return tracks;
@@ -156,7 +195,7 @@ const mergeTracks = (existingTracks = [], incomingTracks = []) => {
 const mergeCategoryOptions = (existingOptions = [], incomingOptions = []) => {
   const merged = new Map();
 
-  [...(existingOptions || []), ...(incomingOptions || [])].forEach(option => {
+  [...getSafeObjectArray(existingOptions), ...getSafeObjectArray(incomingOptions)].forEach(option => {
     const key = getCategoryIdentityKey(option);
     if (!key) {
       return;
@@ -222,7 +261,7 @@ const mergeTrackEntries = (existingEntries = [], incomingEntries = []) =>
 const mergeTrackSummaries = (existingSummaries = [], incomingSummaries = []) => {
   const merged = new Map();
 
-  [...(existingSummaries || []), ...(incomingSummaries || [])].forEach(summary => {
+  [...getSafeObjectArray(existingSummaries), ...getSafeObjectArray(incomingSummaries)].forEach(summary => {
     const key = normalizeValue(summary?.trackLabel || summary?.track || '');
     if (!key) {
       return;
@@ -264,7 +303,7 @@ const getLeaderboardRowKey = row =>
 const mergeLeaderboardRows = (existingRows = [], incomingRows = []) => {
   const merged = new Map();
 
-  [...(existingRows || []), ...(incomingRows || [])].forEach(row => {
+  [...getSafeObjectArray(existingRows), ...getSafeObjectArray(incomingRows)].forEach(row => {
     const key = getLeaderboardRowKey(row);
     if (!key.replace(/\|/g, '')) {
       return;
@@ -310,7 +349,7 @@ const mergeLeaderboardRows = (existingRows = [], incomingRows = []) => {
 const mergeLeaderboardCategories = (existingCategories = [], incomingCategories = []) => {
   const merged = new Map();
 
-  [...(existingCategories || []), ...(incomingCategories || [])].forEach(category => {
+  [...getSafeObjectArray(existingCategories), ...getSafeObjectArray(incomingCategories)].forEach(category => {
     const key = getCategoryIdentityKey(category);
     if (!key) {
       return;
@@ -332,35 +371,71 @@ const mergeLeaderboardCategories = (existingCategories = [], incomingCategories 
   );
 };
 
+const normalizeSnapshotPayload = snapshot => {
+  const source = snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot) ? snapshot : {};
+  const leaderboard =
+    source.leaderboard && typeof source.leaderboard === 'object' && !Array.isArray(source.leaderboard)
+      ? source.leaderboard
+      : {};
+
+  return {
+    ...source,
+    teams: getSafeObjectArray(source.teams),
+    results: getSafeObjectArray(source.results),
+    disputes: getSafeObjectArray(source.disputes),
+    categoryOptions: getSafeObjectArray(source.categoryOptions).map(category => ({
+      ...category,
+      tracks: mergeTracks([], category.tracks),
+    })),
+    leaderboard: {
+      ...leaderboard,
+      categories: getSafeObjectArray(leaderboard.categories).map(category => ({
+        ...category,
+        tracks: mergeTracks([], category.tracks),
+        rows: getSafeObjectArray(category.rows).map(row => ({
+          ...row,
+          trackSummaries: getSafeObjectArray(row.trackSummaries).map(summary => ({
+            ...summary,
+            entries: getSafeObjectArray(summary.entries),
+          })),
+        })),
+      })),
+    },
+  };
+};
+
 const mergeSnapshots = (existingSnapshot, incomingSnapshot) => {
-  if (!existingSnapshot || typeof existingSnapshot !== 'object') {
-    return incomingSnapshot;
+  const incoming = normalizeSnapshotPayload(incomingSnapshot);
+
+  if (!existingSnapshot || typeof existingSnapshot !== 'object' || Array.isArray(existingSnapshot)) {
+    return incoming;
   }
 
-  const teams = mergeArraysByKey(existingSnapshot.teams, incomingSnapshot.teams, getTeamIdentityKey);
-  const results = mergeArraysByKey(existingSnapshot.results, incomingSnapshot.results, getResultIdentityKey);
-  const disputes = mergeArraysByKey(existingSnapshot.disputes, incomingSnapshot.disputes, getResultIdentityKey);
-  const categoryOptions = mergeCategoryOptions(existingSnapshot.categoryOptions, incomingSnapshot.categoryOptions);
+  const existing = normalizeSnapshotPayload(existingSnapshot);
+  const teams = mergeArraysByKey(existing.teams, incoming.teams, getTeamIdentityKey);
+  const results = mergeArraysByKey(existing.results, incoming.results, getResultIdentityKey);
+  const disputes = mergeArraysByKey(existing.disputes, incoming.disputes, getResultIdentityKey);
+  const categoryOptions = mergeCategoryOptions(existing.categoryOptions, incoming.categoryOptions);
   const leaderboardCategories = mergeLeaderboardCategories(
-    existingSnapshot?.leaderboard?.categories,
-    incomingSnapshot?.leaderboard?.categories
+    existing.leaderboard.categories,
+    incoming.leaderboard.categories
   );
 
   return {
-    ...existingSnapshot,
-    ...incomingSnapshot,
-    source: incomingSnapshot.source || existingSnapshot.source || 'tko-app',
-    schemaVersion: incomingSnapshot.schemaVersion || existingSnapshot.schemaVersion || 1,
+    ...existing,
+    ...incoming,
+    source: incoming.source || existing.source || 'tko-app',
+    schemaVersion: incoming.schemaVersion || existing.schemaVersion || 1,
     teams,
     results,
     disputes,
     categoryOptions,
     leaderboard: {
-      ...(existingSnapshot.leaderboard || {}),
-      ...(incomingSnapshot.leaderboard || {}),
+      ...existing.leaderboard,
+      ...incoming.leaderboard,
       categories: leaderboardCategories.length ? leaderboardCategories : categoryOptions,
     },
-    generatedAt: incomingSnapshot.generatedAt || existingSnapshot.generatedAt || new Date().toISOString(),
+    generatedAt: incoming.generatedAt || existing.generatedAt || new Date().toISOString(),
     mergedAt: new Date().toISOString(),
     importSummary: {
       teams: teams.length,
@@ -404,7 +479,7 @@ const renderLeaderboardHtml = snapshot => {
                   <tbody>
                     ${rows
                       .map(row => {
-                        const trackCells = (row.trackSummaries || [])
+                        const trackCells = (Array.isArray(row.trackSummaries) ? row.trackSummaries : [])
                           .map(summary => {
                             const entries = Array.isArray(summary?.entries) ? summary.entries : [];
                             const lines = entries.length
@@ -654,19 +729,28 @@ const handler = async (req, res) => {
   ) {
     try {
       const body = await readJsonBody(req);
-      if (!body || typeof body !== 'object') {
+      if (!body || typeof body !== 'object' || Array.isArray(body)) {
         sendJson(res, 400, { ok: false, error: 'Request body must be a JSON object.' });
         return;
       }
 
-      const incomingSnapshot = {
+      const hasSnapshotData =
+        Array.isArray(body.results) ||
+        Array.isArray(body.disputes) ||
+        Array.isArray(body.teams) ||
+        Array.isArray(body.categoryOptions) ||
+        (body.leaderboard && typeof body.leaderboard === 'object' && !Array.isArray(body.leaderboard));
+
+      if (!hasSnapshotData) {
+        sendJson(res, 400, { ok: false, error: 'Request body does not contain leaderboard snapshot data.' });
+        return;
+      }
+
+      const incomingSnapshot = normalizeSnapshotPayload({
         ...body,
         receivedAt: new Date().toISOString(),
-      };
-      const existingSnapshot = await readSnapshot();
-      const snapshot = mergeSnapshots(existingSnapshot, incomingSnapshot);
-
-      await writeSnapshot(snapshot);
+      });
+      const snapshot = await mergeAndWriteSnapshot(incomingSnapshot);
 
       sendJson(res, 200, {
         ok: true,

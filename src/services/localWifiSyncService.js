@@ -21,6 +21,17 @@ const normalizeStatus = status => ({
   available: isAvailable(),
 });
 
+const isLeaderboardSnapshot = value =>
+  value &&
+  typeof value === 'object' &&
+  !Array.isArray(value) &&
+  (
+    Array.isArray(value.results) ||
+    Array.isArray(value.disputes) ||
+    Array.isArray(value.teams) ||
+    (value.leaderboard && typeof value.leaderboard === 'object' && !Array.isArray(value.leaderboard))
+  );
+
 export const LocalWifiSyncService = {
   DEFAULT_PORT: DEFAULT_LOCAL_WIFI_PORT,
 
@@ -63,7 +74,14 @@ export const LocalWifiSyncService = {
     return (Array.isArray(rawSnapshots) ? rawSnapshots : [])
       .map(rawSnapshot => {
         try {
-          return JSON.parse(rawSnapshot);
+          const snapshot = typeof rawSnapshot === 'string' ? JSON.parse(rawSnapshot) : rawSnapshot;
+
+          if (!isLeaderboardSnapshot(snapshot)) {
+            console.warn('Ignoring local Wi-Fi payload that is not a leaderboard snapshot.');
+            return null;
+          }
+
+          return snapshot;
         } catch (error) {
           console.warn('Unable to parse local Wi-Fi leaderboard payload:', error);
           return null;
