@@ -450,152 +450,6 @@ const CATEGORY_CARD_PALETTES = {
   },
 };
 
-const CATEGORY_MOCK_TEAMS = {
-  EXTREME: {
-    team_name: 'Wild Torque',
-    driver_name: 'Rudra Patil',
-    driver_blood_group: 'B+ve',
-    codriver_name: 'Sakshi Patil',
-    codriver_blood_group: 'O+ve',
-    car_number: '301',
-    category: 'EXTREME',
-    vehicle_name: 'Mahindra',
-    vehicle_model: 'Proto Extreme',
-    socials: '@wildtorque',
-    status: 'MOCK',
-  },
-  DIESEL_MODIFIED: {
-    team_name: 'Diesel Drift Co.',
-    driver_name: 'Akash More',
-    driver_blood_group: 'A+ve',
-    codriver_name: 'Nilesh More',
-    codriver_blood_group: 'B+ve',
-    car_number: '302',
-    category: 'DIESEL_MODIFIED',
-    vehicle_name: 'Toyota',
-    vehicle_model: 'Fortuner Modified',
-    socials: '@dieseldriftco',
-    status: 'MOCK',
-  },
-  PETROL_MODIFIED: {
-    team_name: 'Octane Rebels',
-    driver_name: 'Karan Shinde',
-    driver_blood_group: 'O+ve',
-    codriver_name: 'Vedant Shinde',
-    codriver_blood_group: 'A+ve',
-    car_number: '303',
-    category: 'PETROL_MODIFIED',
-    vehicle_name: 'Maruti',
-    vehicle_model: 'Gypsy Modified',
-    socials: '@octanerebels',
-    status: 'MOCK',
-  },
-  DIESEL_EXPERT: {
-    team_name: 'Torque Masters',
-    driver_name: 'Mahesh Jagtap',
-    driver_blood_group: 'AB+ve',
-    codriver_name: 'Pooja Jagtap',
-    codriver_blood_group: 'B+ve',
-    car_number: '304',
-    category: 'DIESEL_EXPERT',
-    vehicle_name: 'Mahindra',
-    vehicle_model: 'Bolero Expert',
-    socials: '@torquemasters',
-    status: 'MOCK',
-  },
-  PETROL_EXPERT: {
-    team_name: 'Rev Limit Crew',
-    driver_name: 'Swapnil Bhosale',
-    driver_blood_group: 'A+ve',
-    codriver_name: 'Tejaswini Bhosale',
-    codriver_blood_group: 'O+ve',
-    car_number: '305',
-    category: 'PETROL_EXPERT',
-    vehicle_name: 'Suzuki',
-    vehicle_model: 'Jimny Rally',
-    socials: '@revlimitcrew',
-    status: 'MOCK',
-  },
-  THAR_SUV: {
-    team_name: 'Thar Trail Squad',
-    driver_name: 'Sagar Kale',
-    driver_blood_group: 'O+ve',
-    codriver_name: 'Rutuja Kale',
-    codriver_blood_group: 'B+ve',
-    car_number: '306',
-    category: 'THAR_SUV',
-    vehicle_name: 'Mahindra',
-    vehicle_model: 'Thar 4x4',
-    socials: '@thartrailsquad',
-    status: 'MOCK',
-  },
-  JIMNY_SUV: {
-    team_name: 'Jimny Junction',
-    driver_name: 'Adwait Kulkarni',
-    driver_blood_group: 'B+ve',
-    codriver_name: 'Nupur Kulkarni',
-    codriver_blood_group: 'AB+ve',
-    car_number: '307',
-    category: 'JIMNY_SUV',
-    vehicle_name: 'Maruti',
-    vehicle_model: 'Jimny Alpha',
-    socials: '@jimnyjunction',
-    status: 'MOCK',
-  },
-  SUV_MODIFIED: {
-    team_name: 'Summit Customs',
-    driver_name: 'Vishal Chavan',
-    driver_blood_group: 'O-ve',
-    codriver_name: 'Komal Chavan',
-    codriver_blood_group: 'A+ve',
-    car_number: '308',
-    category: 'SUV_MODIFIED',
-    vehicle_name: 'Ford',
-    vehicle_model: 'Endeavour Modified',
-    socials: '@summitcustoms',
-    status: 'MOCK',
-  },
-  STOCK_NDMS: {
-    team_name: 'Factory Trail',
-    driver_name: 'Prasad Mane',
-    driver_blood_group: 'A+ve',
-    codriver_name: 'Neha Mane',
-    codriver_blood_group: 'B+ve',
-    car_number: '309',
-    category: 'STOCK_NDMS',
-    vehicle_name: 'Mahindra',
-    vehicle_model: 'Scorpio N',
-    socials: '@factorytrail',
-    status: 'MOCK',
-  },
-  LADIES: {
-    team_name: 'Trail Queens',
-    driver_name: 'Snehal Pawar',
-    driver_blood_group: 'B+ve',
-    codriver_name: 'Mugdha Pawar',
-    codriver_blood_group: 'O+ve',
-    car_number: '310',
-    category: 'LADIES',
-    vehicle_name: 'Mahindra',
-    vehicle_model: 'Thar Roxx',
-    socials: '@trailqueens',
-    status: 'MOCK',
-  },
-  LADIES_CATEGORY: {
-    team_name: 'Trail Queens',
-    driver_name: 'Snehal Pawar',
-    driver_blood_group: 'B+ve',
-    codriver_name: 'Mugdha Pawar',
-    codriver_blood_group: 'O+ve',
-    car_number: '310',
-    category: 'LADIES_CATEGORY',
-    vehicle_name: 'Mahindra',
-    vehicle_model: 'Thar Roxx',
-    socials: '@trailqueens',
-    status: 'MOCK',
-  },
-};
-
 const IGNITION_SOUND_DURATION_MS = 3000;
 const IGNITION_VIBRATION_PATTERN = Platform.OS === 'android'
   ? [0, 70, 60, 110, 70, 160, 90, 220]
@@ -609,6 +463,7 @@ const APP_OPEN_UNLOCK_STORAGE_KEY = 'tko_app_open_unlocked_v1';
 const APP_OPEN_UNLOCK_FILE_NAME = 'tko-app-open-unlocked.json';
 const APP_SETTINGS_STORAGE_KEY = 'tko_admin_settings_v1';
 const APP_SETTINGS_FILE_NAME = 'tko-admin-settings.json';
+const VEHICLE_CARD_DATA_REVISION = 'participants-2026-05-26';
 const DEFAULT_LEADERBOARD_SYNC_BASE_URL =
   Platform.OS === 'web'
     ? 'http://localhost:3000'
@@ -782,6 +637,30 @@ const getRecordKey = (record = {}) =>
 const getTeamStickerNumber = (team = {}) =>
   team.stickerNumber || team.sticker_number || team.car_number || '';
 
+const VEHICLE_CARD_STICKER_PREFIXES = {
+  DIESEL_MODIFIED: 'DM',
+  PETROL_MODIFIED: 'PM',
+  DIESEL_EXPERT: 'DE',
+  PETROL_EXPERT: 'PE',
+  EXTREME: 'OC',
+  THAR_SUV: 'TS',
+  JIMNY_SUV: 'JS',
+  LADIES_CATEGORY: 'LC',
+  STOCK_NDMS: 'SN',
+  SUV_MODIFIED: 'SM',
+};
+
+const formatVehicleCardStickerNumber = (stickerNumber, category) => {
+  const rawNumber = String(stickerNumber || '').trim();
+
+  if (!rawNumber) {
+    return '--';
+  }
+
+  const prefix = VEHICLE_CARD_STICKER_PREFIXES[normalizeCategoryKey(category || '')] || '';
+  return `${prefix}${rawNumber}`;
+};
+
 const getTeamName = (team = {}) => team.teamName || team.team_name || team.team || '';
 
 const normalizeLookupValue = value => String(value || '').trim().toUpperCase();
@@ -798,6 +677,7 @@ const getVehicleCardDisplayData = (record = {}) => ({
   key: getVehicleCardKey(record),
   id: record.id,
   stickerNumber: getTeamStickerNumber(record) || '--',
+  stickerDisplay: formatVehicleCardStickerNumber(getTeamStickerNumber(record), record.category),
   driverName: record.driver_name || record.driverName || 'Unknown Driver',
   coDriverName: record.codriver_name || record.coDriverName || 'Unknown Co-Driver',
   teamName: getTeamName(record),
@@ -1353,6 +1233,7 @@ const loadStoredAppSettings = async () => {
     trackTimerConfig: buildDefaultTrackTimerConfig(fallbackCategoryTrackConfig),
     vehicleCardConfig: buildDefaultVehicleCardConfig(fallbackCategoryTrackConfig),
     deletedVehicleCardKeys: [],
+    vehicleCardDataRevision: VEHICLE_CARD_DATA_REVISION,
     themeMode: DEFAULT_THEME_MODE,
     leaderboardSyncBaseUrl: DEFAULT_LEADERBOARD_SYNC_BASE_URL,
     lateStartPenaltyPoints: DEFAULT_LATE_START_PENALTY_POINTS,
@@ -1368,6 +1249,7 @@ const loadStoredAppSettings = async () => {
 
       const parsed = JSON.parse(raw);
       const categoryTrackConfig = normalizeCategoryTrackConfig(parsed?.categoryTrackConfig);
+      const shouldResetVehicleCards = parsed?.vehicleCardDataRevision !== VEHICLE_CARD_DATA_REVISION;
       return {
         password: normalizeStoredSettingsPassword(parsed?.password),
         pin: normalizeSecurityPin(parsed?.pin),
@@ -1375,8 +1257,13 @@ const loadStoredAppSettings = async () => {
         categoryActivationConfig: normalizeCategoryActivationConfig(parsed?.categoryActivationConfig, categoryTrackConfig),
         trackActivationConfig: normalizeTrackActivationConfig(parsed?.trackActivationConfig, categoryTrackConfig),
         trackTimerConfig: normalizeTrackTimerConfig(parsed?.trackTimerConfig, categoryTrackConfig),
-        vehicleCardConfig: normalizeVehicleCardConfig(parsed?.vehicleCardConfig, categoryTrackConfig),
-        deletedVehicleCardKeys: normalizeDeletedVehicleCardKeys(parsed?.deletedVehicleCardKeys),
+        vehicleCardConfig: shouldResetVehicleCards
+          ? buildDefaultVehicleCardConfig(categoryTrackConfig)
+          : normalizeVehicleCardConfig(parsed?.vehicleCardConfig, categoryTrackConfig),
+        deletedVehicleCardKeys: shouldResetVehicleCards
+          ? []
+          : normalizeDeletedVehicleCardKeys(parsed?.deletedVehicleCardKeys),
+        vehicleCardDataRevision: VEHICLE_CARD_DATA_REVISION,
         themeMode: normalizeThemeMode(parsed?.themeMode),
         leaderboardSyncBaseUrl: normalizeLeaderboardSyncBaseUrl(parsed?.leaderboardSyncBaseUrl),
         lateStartPenaltyPoints: clampLateStartPenaltyPoints(parsed?.lateStartPenaltyPoints),
@@ -1394,6 +1281,7 @@ const loadStoredAppSettings = async () => {
       const raw = await FileSystem.readAsStringAsync(filePath);
       const parsed = JSON.parse(raw);
       const categoryTrackConfig = normalizeCategoryTrackConfig(parsed?.categoryTrackConfig);
+      const shouldResetVehicleCards = parsed?.vehicleCardDataRevision !== VEHICLE_CARD_DATA_REVISION;
       return {
         password: normalizeStoredSettingsPassword(parsed?.password),
         pin: normalizeSecurityPin(parsed?.pin),
@@ -1401,8 +1289,13 @@ const loadStoredAppSettings = async () => {
         categoryActivationConfig: normalizeCategoryActivationConfig(parsed?.categoryActivationConfig, categoryTrackConfig),
         trackActivationConfig: normalizeTrackActivationConfig(parsed?.trackActivationConfig, categoryTrackConfig),
         trackTimerConfig: normalizeTrackTimerConfig(parsed?.trackTimerConfig, categoryTrackConfig),
-        vehicleCardConfig: normalizeVehicleCardConfig(parsed?.vehicleCardConfig, categoryTrackConfig),
-        deletedVehicleCardKeys: normalizeDeletedVehicleCardKeys(parsed?.deletedVehicleCardKeys),
+        vehicleCardConfig: shouldResetVehicleCards
+          ? buildDefaultVehicleCardConfig(categoryTrackConfig)
+          : normalizeVehicleCardConfig(parsed?.vehicleCardConfig, categoryTrackConfig),
+        deletedVehicleCardKeys: shouldResetVehicleCards
+          ? []
+          : normalizeDeletedVehicleCardKeys(parsed?.deletedVehicleCardKeys),
+        vehicleCardDataRevision: VEHICLE_CARD_DATA_REVISION,
         themeMode: normalizeThemeMode(parsed?.themeMode),
         leaderboardSyncBaseUrl: normalizeLeaderboardSyncBaseUrl(parsed?.leaderboardSyncBaseUrl),
         lateStartPenaltyPoints: clampLateStartPenaltyPoints(parsed?.lateStartPenaltyPoints),
@@ -1426,6 +1319,7 @@ const saveStoredAppSettings = async settings => {
     trackTimerConfig: normalizeTrackTimerConfig(settings.trackTimerConfig, categoryTrackConfig),
     vehicleCardConfig: normalizeVehicleCardConfig(settings.vehicleCardConfig, categoryTrackConfig),
     deletedVehicleCardKeys: normalizeDeletedVehicleCardKeys(settings.deletedVehicleCardKeys),
+    vehicleCardDataRevision: VEHICLE_CARD_DATA_REVISION,
     themeMode: normalizeThemeMode(settings.themeMode),
     leaderboardSyncBaseUrl: normalizeLeaderboardSyncBaseUrl(settings.leaderboardSyncBaseUrl),
     lateStartPenaltyPoints: clampLateStartPenaltyPoints(settings.lateStartPenaltyPoints),
@@ -3001,7 +2895,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
                 {' | '}
                 Team Name: <Text style={[styles.vehicleSummaryInlineValue, { color: theme.textPrimary }]}>{teamName || '--'}</Text>
                 {' | '}
-                Sticker No.: <Text style={[styles.vehicleSummaryInlineValue, { color: theme.textPrimary }]}>#{stickerNumber || '--'}</Text>
+                Sticker No.: <Text style={[styles.vehicleSummaryInlineValue, { color: theme.textPrimary }]}>{formatVehicleCardStickerNumber(stickerNumber, category?.name || initialRecord?.category)}</Text>
                 {' | '}
                 Driver Name: <Text style={[styles.vehicleSummaryInlineValue, { color: theme.textPrimary }]}>{driverName || '--'}</Text>
                 {' | '}
@@ -3985,7 +3879,7 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
                         <View style={[styles.recordInfoCard, styles.recordInfoCardMedium]}>
                           <Text style={styles.recordMetaLabel}>Sticker No.</Text>
                           <Text style={styles.recordStickerValue} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.78}>
-                            #{getTeamStickerNumber(item) || '--'}
+                            {formatVehicleCardStickerNumber(getTeamStickerNumber(item), item.category || category?.name)}
                           </Text>
                         </View>
 
@@ -4393,7 +4287,9 @@ const DisputeRecordsPanel = React.memo(function DisputeRecordsPanel({
                     <View style={styles.registrationCardHeader}>
                       <View style={styles.registrationSrPill}>
                         <Text style={styles.registrationSrLabel}>Sticker</Text>
-                        <Text style={styles.registrationSrValue}>#{stickerNumber}</Text>
+                        <Text style={styles.registrationSrValue}>
+                          {formatVehicleCardStickerNumber(stickerNumber, item.category)}
+                        </Text>
                       </View>
                       <View style={styles.registrationTrackPill}>
                         <Text style={styles.registrationTrackLabel}>Track</Text>
@@ -4630,7 +4526,9 @@ const RegistrationResultsModal = React.memo(function RegistrationResultsModal({
                     </View>
                     <View style={styles.registrationInfoCell}>
                       <Text style={styles.registrationInfoLabel}>Sticker Number</Text>
-                      <Text style={styles.registrationInfoValue}>#{stickerNumber}</Text>
+                      <Text style={styles.registrationInfoValue}>
+                        {formatVehicleCardStickerNumber(stickerNumber, item.category)}
+                      </Text>
                     </View>
                   </View>
 
@@ -6555,7 +6453,10 @@ export default function App() {
     });
 
     if (duplicateRecord) {
-      Alert.alert('Vehicle Card', `Sticker #${payload.car_number} already exists in this category.`);
+      Alert.alert(
+        'Vehicle Card',
+        `Sticker ${formatVehicleCardStickerNumber(payload.car_number, payload.category)} already exists in this category.`
+      );
       return;
     }
 
@@ -6662,7 +6563,7 @@ export default function App() {
     const record = settingsVehicleRecordsByCardKey.get(cardKey);
     const stickerNumber = getTeamStickerNumber(record) || '--';
     const driverName = record?.driver_name || record?.driverName || 'this vehicle';
-    const confirmationMessage = `Permanently delete #${stickerNumber} | ${driverName}? This removes the card from all track sequences.`;
+    const confirmationMessage = `Permanently delete ${formatVehicleCardStickerNumber(stickerNumber, record?.category)} | ${driverName}? This removes the card from all track sequences.`;
 
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       if (window.confirm(confirmationMessage)) {
@@ -6787,7 +6688,9 @@ export default function App() {
 
     if (lateStartMode) {
       const stickerNumber = getTeamStickerNumber(record) || '--';
-      const didVerifyPin = await handleVerifyPinForRecord(`select late start for vehicle #${stickerNumber}`);
+      const didVerifyPin = await handleVerifyPinForRecord(
+        `select late start for vehicle ${formatVehicleCardStickerNumber(stickerNumber, record?.category || selectedCategory?.name)}`
+      );
 
       if (!didVerifyPin) {
         return;
@@ -9213,7 +9116,7 @@ const buildRegistrationData = formData => ({
                             adjustsFontSizeToFit
                             minimumFontScale={0.78}
                           >
-                            #{card.stickerNumber} | {card.driverName}
+                            {card.stickerDisplay} | {card.driverName}
                           </Text>
                           <Text
                             style={[styles.settingsVehicleCardMeta, { color: theme.textSecondary }]}
@@ -9307,7 +9210,7 @@ const buildRegistrationData = formData => ({
                             adjustsFontSizeToFit
                             minimumFontScale={0.78}
                           >
-                            #{card.stickerNumber} | {card.driverName}
+                            {card.stickerDisplay} | {card.driverName}
                           </Text>
                           <Text
                             style={[styles.settingsTrackStatus, { color: theme.textSecondary }]}

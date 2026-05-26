@@ -31,9 +31,11 @@ import {
 } from '../db/database';
 import {
   DISPUTE_AUTO_SUBMIT_WINDOW_MS,
+  formatReportPointsWithLateStartPenalty,
   getDisputeAutoSubmitStatus,
   getDayIdentity,
   getResultIdentityKey,
+  getResultSortPriority,
   getResultTimeValue,
   isDnfResult,
   isDnsResult,
@@ -305,6 +307,10 @@ const compareRows = (a, b) => {
     return b.totalPoints - a.totalPoints;
   }
 
+  if (a.resultSortPriority !== b.resultSortPriority) {
+    return a.resultSortPriority - b.resultSortPriority;
+  }
+
   if (a.totalTimingMs !== b.totalTimingMs) {
     return a.totalTimingMs - b.totalTimingMs;
   }
@@ -462,11 +468,15 @@ const buildLeaderboardRows = (categoryOption, teams = [], uniqueResults = []) =>
         vehicleKey,
         ...getVehicleDisplayData(source),
         totalPoints: 0,
+        lateStartDeductionPoints: 0,
+        resultSortPriority: 0,
+        hasResultEntries: false,
         totalTimingMs: Number.POSITIVE_INFINITY,
         trackMap: tracks.reduce((acc, trackLabel) => {
           acc[normalizeValue(trackLabel)] = {
             trackLabel,
             totalPoints: 0,
+            lateStartDeductionPoints: 0,
             entries: [],
           };
           return acc;
@@ -528,6 +538,7 @@ const buildLeaderboardRows = (categoryOption, teams = [], uniqueResults = []) =>
         row.trackMap[trackKey] = {
           trackLabel: item.track_name || item.trackName || 'Track',
           totalPoints: 0,
+          lateStartDeductionPoints: 0,
           entries: [],
         };
       }
@@ -539,11 +550,20 @@ const buildLeaderboardRows = (categoryOption, teams = [], uniqueResults = []) =>
       const timingMs = getResultTimeValue(item);
       const pointsValue =
         typeof item.reportPoints === 'number' && Number.isFinite(item.reportPoints) ? item.reportPoints : 0;
+      const lateStartDeductionPoints =
+        typeof item.reportLateStartPenaltyPoints === 'number' && Number.isFinite(item.reportLateStartPenaltyPoints)
+          ? item.reportLateStartPenaltyPoints
+          : 0;
 
       if (item.reportPoints !== null && item.reportPoints !== undefined) {
         row.totalPoints += pointsValue;
+        row.lateStartDeductionPoints += lateStartDeductionPoints;
         row.trackMap[trackKey].totalPoints += pointsValue;
+        row.trackMap[trackKey].lateStartDeductionPoints += lateStartDeductionPoints;
       }
+
+      row.resultSortPriority += getResultSortPriority(item);
+      row.hasResultEntries = true;
 
       if (Number.isFinite(timingMs)) {
         row.totalTimingMs += timingMs;
@@ -554,8 +574,9 @@ const buildLeaderboardRows = (categoryOption, teams = [], uniqueResults = []) =>
         dayLabel: getDayShortLabel(item),
         dayOrder: getDayOrder(item),
         timingLabel: getTimingLabel(item),
-        pointsLabel:
-          item.reportPoints === null || item.reportPoints === undefined ? '--' : `${item.reportPoints} pts`,
+        pointsLabel: formatReportPointsWithLateStartPenalty(item),
+        lateStartDeductionPoints,
+        resultSortPriority: getResultSortPriority(item),
         rankLabel: item.reportRankLabel || '--',
       });
     });
@@ -564,11 +585,13 @@ const buildLeaderboardRows = (categoryOption, teams = [], uniqueResults = []) =>
   return Array.from(rowsByVehicle.values())
     .map(row => ({
       ...row,
+      resultSortPriority: row.hasResultEntries ? row.resultSortPriority : Number.POSITIVE_INFINITY,
       totalTimingMs: Number.isFinite(row.totalTimingMs) ? row.totalTimingMs : Number.POSITIVE_INFINITY,
       trackSummaries: tracks.map(trackLabel => {
         const summary = row.trackMap[normalizeValue(trackLabel)] || {
           trackLabel,
           totalPoints: 0,
+          lateStartDeductionPoints: 0,
           entries: [],
         };
 

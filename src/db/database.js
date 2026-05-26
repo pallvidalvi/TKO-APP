@@ -9,6 +9,7 @@ if (!isWeb) {
 }
 
 const DB_NAME = 'tko_app.db';
+const VEHICLE_CARD_SEED_VERSION = 'participants-2026-05-26';
 const REPORT_DAYS = [
   {
     id: 'day-1',
@@ -241,6 +242,11 @@ const initializeSchema = async database => {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS app_metadata (
+      key TEXT PRIMARY KEY NOT NULL,
+      value TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS registrations (
       id INTEGER PRIMARY KEY NOT NULL,
       track_name TEXT NOT NULL,
@@ -408,6 +414,24 @@ const removeBundledSeedData = async database => {
   await database.runAsync("DELETE FROM teams WHERE status = 'SEEDED'");
 };
 
+const resetVehicleCardsForParticipantRoster = async database => {
+  const existingVersion = await database.getFirstAsync(
+    'SELECT value FROM app_metadata WHERE key = ?',
+    ['vehicle_card_seed_version']
+  );
+
+  if (existingVersion?.value === VEHICLE_CARD_SEED_VERSION) {
+    return;
+  }
+
+  await database.runAsync('DELETE FROM players');
+  await database.runAsync('DELETE FROM teams');
+  await database.runAsync(
+    'INSERT OR REPLACE INTO app_metadata (key, value) VALUES (?, ?)',
+    ['vehicle_card_seed_version', VEHICLE_CARD_SEED_VERSION]
+  );
+};
+
 export const initializeDatabase = async () => {
   try {
     if (isWeb) {
@@ -436,6 +460,7 @@ export const seedDatabase = async () => {
     await runDatabaseMigrations(database);
 
     await database.withTransactionAsync(async () => {
+      await resetVehicleCardsForParticipantRoster(database);
       await removeLegacySeedData(database);
       await removeBundledSeedData(database);
 

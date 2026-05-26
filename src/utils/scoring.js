@@ -314,6 +314,35 @@ const applyLateStartPenaltyPoints = (points, item) => {
   return Math.max(0, points - getLateStartPenaltyPointsValue(item));
 };
 
+const getReportedScoreValues = (points, item) => {
+  const reportPoints = applyLateStartPenaltyPoints(points, item);
+  const reportLateStartPenaltyPoints =
+    typeof points === 'number' && Number.isFinite(points) && typeof reportPoints === 'number'
+      ? points - reportPoints
+      : 0;
+
+  return {
+    reportPoints,
+    reportPointsBeforeLateStartPenalty: points,
+    reportLateStartPenaltyPoints,
+  };
+};
+
+export const formatReportPointsWithLateStartPenalty = item => {
+  if (item?.reportPoints === null || item?.reportPoints === undefined) {
+    return '--';
+  }
+
+  const pointsBeforePenalty = getNumericValue(item?.reportPointsBeforeLateStartPenalty);
+  const penaltyPoints = getNumericValue(item?.reportLateStartPenaltyPoints) ?? 0;
+
+  if (pointsBeforePenalty !== null && penaltyPoints > 0) {
+    return `${item.reportPoints} pts (${pointsBeforePenalty} - ${penaltyPoints} Late Start penalty)`;
+  }
+
+  return `${item.reportPoints} pts`;
+};
+
 export const getResultSortPriority = item => {
   if (item?.isDisputed) {
     return 3;
@@ -355,11 +384,11 @@ export const compareResultsByRank = (a, b) => {
 export const rankTrackResults = results => {
   const sortedResults = [...(results || [])].sort(compareResultsByRank);
 
-  const scoreFinishersByCurrentOrder = finishers =>
+  const scoreFinishersByTimingOrder = finishers =>
     finishers.map((item, index) => ({
       ...item,
       reportRankLabel: '',
-      reportPoints: applyLateStartPenaltyPoints(getTrackPointsForPosition(index + 1), item),
+      ...getReportedScoreValues(getTrackPointsForPosition(index + 1), item),
     }));
 
   const sortFinishersByFinalPoints = finishers =>
@@ -371,22 +400,10 @@ export const rankTrackResults = results => {
       return compareResultsByRank(a, b);
     });
 
-  const getOrderSignature = items => items.map(item => getResultIdentityKey(item)).join('||');
-  let orderedFinishers = sortedResults.filter(item => getResultSortPriority(item) === 0);
-  let scoredFinishers = scoreFinishersByCurrentOrder(orderedFinishers);
-
-  for (let iteration = 0; iteration < orderedFinishers.length + 5; iteration += 1) {
-    scoredFinishers = scoreFinishersByCurrentOrder(orderedFinishers);
-    const nextOrderedFinishers = sortFinishersByFinalPoints(scoredFinishers);
-
-    if (getOrderSignature(nextOrderedFinishers) === getOrderSignature(orderedFinishers)) {
-      break;
-    }
-
-    orderedFinishers = nextOrderedFinishers;
-  }
-
-  scoredFinishers = scoreFinishersByCurrentOrder(orderedFinishers).map((item, index) => ({
+  // Base points belong to timing order; late-start deductions may only change the displayed placing.
+  const scoredFinishers = sortFinishersByFinalPoints(
+    scoreFinishersByTimingOrder(sortedResults.filter(item => getResultSortPriority(item) === 0))
+  ).map((item, index) => ({
     ...item,
     reportRankLabel: `P${index + 1}`,
   }));
@@ -406,14 +423,14 @@ export const rankTrackResults = results => {
         return {
           ...item,
           reportRankLabel: 'DNS',
-          reportPoints: 0,
+          ...getReportedScoreValues(0, item),
         };
       }
 
       return {
         ...item,
         reportRankLabel: 'DNF',
-        reportPoints: applyLateStartPenaltyPoints(getDnfPointsValue(item), item),
+        ...getReportedScoreValues(getDnfPointsValue(item), item),
       };
     });
 

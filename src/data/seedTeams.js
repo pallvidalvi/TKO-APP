@@ -1,114 +1,98 @@
-const CATEGORY_TEAM_CONFIGS = [
-  {
-    category: 'EXTREME',
-    label: 'Open Category',
-    baseCarNumber: 101,
-    vehicle_name: 'Mahindra',
-    vehicle_model: 'Proto Extreme',
-  },
-  {
-    category: 'DIESEL_MODIFIED',
-    label: 'Diesel Modified',
-    baseCarNumber: 201,
-    vehicle_name: 'Toyota',
-    vehicle_model: 'Fortuner Diesel Modified',
-  },
-  {
-    category: 'PETROL_MODIFIED',
-    label: 'Petrol Modified',
-    baseCarNumber: 301,
-    vehicle_name: 'Maruti Suzuki',
-    vehicle_model: 'Gypsy Petrol Modified',
-  },
-  {
-    category: 'DIESEL_EXPERT',
-    label: 'Diesel Expert',
-    baseCarNumber: 401,
-    vehicle_name: 'Mahindra',
-    vehicle_model: 'Bolero Diesel Expert',
-  },
-  {
-    category: 'PETROL_EXPERT',
-    label: 'Petrol Expert',
-    baseCarNumber: 501,
-    vehicle_name: 'Suzuki',
-    vehicle_model: 'Jimny Petrol Expert',
-  },
-  {
-    category: 'THAR_SUV',
-    label: 'Thar SUV',
-    baseCarNumber: 601,
-    vehicle_name: 'Mahindra',
-    vehicle_model: 'Thar 4x4',
-  },
-  {
-    category: 'JIMNY_SUV',
-    label: 'Jimny SUV',
-    baseCarNumber: 701,
-    vehicle_name: 'Maruti Suzuki',
-    vehicle_model: 'Jimny Alpha',
-  },
-  {
-    category: 'SUV_MODIFIED',
-    label: 'SUV Modified',
-    baseCarNumber: 801,
-    vehicle_name: 'Ford',
-    vehicle_model: 'Endeavour Modified',
-  },
-  {
-    category: 'STOCK_NDMS',
-    label: 'Stock NDMS',
-    baseCarNumber: 901,
-    vehicle_name: 'Mahindra',
-    vehicle_model: 'Scorpio N Stock',
-  },
-  {
-    category: 'LADIES_CATEGORY',
-    label: 'Ladies Category',
-    baseCarNumber: 1001,
-    vehicle_name: 'Mahindra',
-    vehicle_model: 'Thar Roxx',
-  },
+// Confirmed participants imported from https://www.teamkaradoffroaders.online/api/teams on 2026-05-26.
+const participant = (category, carNumber, teamName, driverName, driverBloodGroup, coDriverName, coDriverBloodGroup) => ({
+  team_name: teamName,
+  driver_name: driverName,
+  driver_blood_group: driverBloodGroup,
+  codriver_name: coDriverName,
+  codriver_blood_group: coDriverBloodGroup,
+  car_number: carNumber,
+  category,
+  vehicle_name: '',
+  vehicle_model: '',
+  socials: '',
+  status: 'CONFIRMED',
+});
+
+export const SEEDED_TEAMS = [
+  participant('DIESEL_EXPERT', '1', 'Dyno', 'Manoj', 'B +ve', 'Ganesh', 'AB +ve'),
+  participant('DIESEL_EXPERT', '5', 'Ka28 Offroader ', 'Dr Girish patil ', 'B +ve', 'Mohan ', 'B +ve'),
+  participant('DIESEL_EXPERT', '7', 'Uzma', 'Asif faras', 'B +ve', 'Saeed shaikh', 'O +ve'),
+  participant('DIESEL_EXPERT', '11', 'Sahyadri ', 'Dnyaneshwar anerao', 'B +ve', 'Omkar patil', 'O +ve'),
+  participant('DIESEL_EXPERT', '18', 'Ka34_Ballari_offroaders ', 'Enoch Keneeth Varma ', 'O +ve', 'Manish Aaron ', 'B +ve'),
+  participant('DIESEL_EXPERT', '23', 'Pune pathfinders ', 'Viraj ', 'O +ve', 'Rafik ', 'O +ve'),
+  participant('DIESEL_EXPERT', '44', 'Team Satara Offroders', 'Vinayak Barge', 'B +ve', 'Aryan Barge', 'A +ve'),
+  participant('DIESEL_EXPERT', '45', 'DAKKHAN OFFROADERS', 'SIDDHARTH GHORPADE', 'B +ve', 'SURJEET PATIL', 'A +ve'),
+  participant('DIESEL_EXPERT', '70', 'Dirt Dominator Goa', 'Siddesh Naik', 'AB +ve', 'Cletus Pires', 'O +ve'),
+  participant('DIESEL_EXPERT', '77', 'TRAIL HUNTERS', 'KEDAR KUMBHAR', 'AB +ve', 'YUVRAJ GHARAL', 'B +ve'),
+  participant('DIESEL_EXPERT', '89', 'YST TYRES', 'Yuvaraj Singh', 'B +ve', 'Mayank Singh', 'B -ve'),
+  participant('DIESEL_EXPERT', '99', 'Western ghats off-road club Goa ', 'Santosh Mali', 'B +ve', 'Bhujang kudchikar ', 'B +ve'),
+  participant('DIESEL_EXPERT', '101', 'CLUB 4X4 KOLHAPUR', 'TUSSHAR', 'O +ve', 'TUSSHAR', 'O +ve'),
+
+  participant('DIESEL_MODIFIED', '1', 'SAHYADRI OFFROADERS', 'RAVI BHALLA', 'B +ve', 'NILESH ZENDE', 'B +ve'),
+  participant('DIESEL_MODIFIED', '9', 'Team Goa', 'Abhishek pawar ', 'A +ve', 'Nijen Cardozo ', 'A +ve'),
+  participant('DIESEL_MODIFIED', '21', 'Accelerator Boyz goa', 'Steven Fernandes', 'A +ve', 'Balwant Jagram', 'O +ve'),
+  participant('DIESEL_MODIFIED', '23', 'DAKKHAN OFFROADERS', 'SHREYES', 'O +ve', 'DR.RAHOUL', 'B +ve'),
+  participant('DIESEL_MODIFIED', '25', 'Team Danav', 'Subhash Utekar', 'B +ve', 'Cyril Dmello', 'A +ve'),
+  participant('DIESEL_MODIFIED', '27', 'BAAZ', 'Malkit Singh Saini', '', 'Gurdeep Singh Saini', 'B +ve'),
+  participant('DIESEL_MODIFIED', '28', 'TEAM KOLHAPUR', 'Digvijay Lolage', 'A +ve', 'Varad Nakate', 'O +ve'),
+  participant('DIESEL_MODIFIED', '32', 'Sahyadri Offroaders', 'Prakash Salunkhe', 'O +ve', 'Nilkil Bhadale', 'O +ve'),
+  participant('DIESEL_MODIFIED', '44', 'SAHYADRI OFFROADERS', 'SARJERAO KAWADE', 'A -ve', 'RUSHI', 'B +ve'),
+  participant('DIESEL_MODIFIED', '55', 'TEAM GOA', 'MOHAMMED MANTAKI', 'O +ve', 'RUTHIK DABOLKAR', 'B +ve'),
+  participant('DIESEL_MODIFIED', '72', 'DAKKHAN OFFROADERS', 'SANKET PATIL', 'O +ve', 'YASHRAJ PATIL', 'A +ve'),
+  participant('DIESEL_MODIFIED', '79', 'KA28offroaders', 'Manoj', 'B +ve', 'Aditya N', 'A -ve'),
+  participant('DIESEL_MODIFIED', '90', 'WESTERN GHATS OFFROAD CLUB GOA', 'Sairaj Sinai Budkuley', 'A +ve', 'Mohak pai Kuchelkar ', 'O +ve'),
+  participant('DIESEL_MODIFIED', '99', 'TEAM BULLET YADAV', 'BULLET YADAV', 'O +ve', 'MANOJ DESAI', 'A +ve'),
+
+  participant('JIMNY_SUV', '19', 'Shark 919', 'Harkeerat ', 'B -ve', 'Whabi', 'B +ve'),
+  participant('JIMNY_SUV', '47', 'DAKKHAN OFFROADERS', 'RUDRA PATIL', 'O -ve', 'ROHIT POWAR', 'O +ve'),
+
+  participant('LADIES', '1', 'SAHYADRI OFFROADERS', 'Prerana Bhalla', 'O +ve', 'Ravi Bhalla', 'B +ve'),
+  participant('LADIES', '6', 'Honda ', 'Yashi bhanushali', 'O +ve', 'Kanu', 'O +ve'),
+  participant('LADIES', '7', 'Team Nandi ', 'Rufina Gupte ', 'O +ve', 'Xyz', 'O +ve'),
+  participant('LADIES', '8', 'Minal ', 'Minal shete', 'A +ve', 'Amit shete', 'A +ve'),
+  participant('LADIES', '9', 'Cross Over', 'Jiyaa Gaba ', 'O +ve', 'Ramessh Ahuja', 'B +ve'),
+  participant('LADIES', '12', 'Team motoRnation ', 'Anvita aniket shete', 'AB -ve', 'Aniket shete', 'A +ve'),
+  participant('LADIES', '13', 'Team 4x4Basics', 'Ritika Kashyap', 'O +ve', 'Arjun Stephen', 'O +ve'),
+  participant('LADIES', '21', 'KA28 off-roaders ', 'Kavita Desai ', 'O +ve', 'Kumar Desai ', 'O +ve'),
+
+  participant('PETROL_EXPERT', '1', 'Team offroaders Pune ', 'Ritesh Bire ', 'O +ve', 'Shaurya Bire ', 'O +ve'),
+  participant('PETROL_EXPERT', '4', 'Team satara offroad ', 'Raj Santosh deshmukh ', 'B +ve', 'Ajay misal', 'B +ve'),
+  participant('PETROL_EXPERT', '6', 'Team off-roaders pune ', 'Sagar Alkunte ', 'B -ve', 'Pradeep Bire ', 'B +ve'),
+  participant('PETROL_EXPERT', '7', 'TEAM SATARA OFF ROADERS', 'PRATAP D. SHINGATE', 'A +ve', 'SURAJ GULUMKAR', 'AB +ve'),
+  participant('PETROL_EXPERT', '9', 'Dakkhan Offroaders', 'Surjeet Morepatil ', 'A +ve', 'Sanket Tulsankar', 'B +ve'),
+  participant('PETROL_EXPERT', '10', 'KA28', 'Manthan ', 'O -ve', 'Xyz', 'AB +ve'),
+  participant('PETROL_EXPERT', '11', 'Sahyadri offrodres ', 'Kaustubh memene', 'O -ve', 'Nikhil bhadale', 'AB +ve'),
+  participant('PETROL_EXPERT', '23', 'DAKKHAN OFFROADERS', 'ABHISHEK SALOKHE', 'A +ve', 'ABHISHEK TAPKIRE', 'O +ve'),
+  participant('PETROL_EXPERT', '40', 'Team Satara offroaders', 'Pratikraj aaba mohite', 'B +ve', 'Dr Viraj dighe', 'B +ve'),
+  participant('PETROL_EXPERT', '53', 'Satara offrodres ', 'Vijay jadhav', 'AB +ve', 'Nihal', 'AB +ve'),
+  participant('PETROL_EXPERT', '61', 'PMW', 'Pratap karhadkar', 'B +ve', 'Kalidas dongre ', 'A +ve'),
+  participant('PETROL_EXPERT', '70', 'DAKKHAN OFFROADERS', 'KUNAL RANGOLE', 'B +ve', 'Yashraj Patil', 'A +ve'),
+
+  participant('PETROL_MODIFIED', '5', 'TEAM KOLHAPUR', 'MAHESH SANKPAL', 'A +ve', 'OMKAR TALEKAR', 'O +ve'),
+  participant('PETROL_MODIFIED', '7', 'MUD FEST', 'Tejan Fallary', 'B +ve', 'Arjun Fallary ', 'O +ve'),
+  participant('PETROL_MODIFIED', '9', 'TEAM KOLHAPUR', 'Saish Mahesh Sankpal', 'B +ve', 'Athrva Ajit Date', 'A -ve'),
+  participant('PETROL_MODIFIED', '10', 'Twam GOA', 'Sam Rodriguez', 'B +ve', 'Swapnil Phadte', 'O +ve'),
+  participant('PETROL_MODIFIED', '42', 'SAHYADRI OFFROADERS', 'KARAN Y. KOTHAVALE', 'O +ve', 'Abhilash Y. Kothavale', 'O +ve'),
+  participant('PETROL_MODIFIED', '63', 'KA 28 OFFROADERS', 'SACHIN GADSHETI', 'O +ve', 'MUZZU', 'O +ve'),
+  participant('PETROL_MODIFIED', '92', 'DAKKHAN OFFROADERS', 'KARAN GAIKWAD', 'O +ve', 'RAVIRAJ VYAS', 'A +ve'),
+
+  participant('STOCK_NDMS', '1', 'PMW', 'Giresh Naidu', 'B +ve', 'Mahesh Biramane', 'A +ve'),
+
+  participant('SUV_MODIFIED', '1', 'Mud Monster', 'Aditya Jayantrao Nikam', 'A +ve', 'Pahilwan Shreyasbhau Kikale', 'O +ve'),
+  participant('SUV_MODIFIED', '4', 'Team motoRnation ', 'Aniket shete', 'A +ve', 'Anvita shete', 'AB +ve'),
+  participant('SUV_MODIFIED', '7', 'HK/ Ka28_offroaders ', 'Harsh', 'A +ve', 'Manthan', 'A +ve'),
+  participant('SUV_MODIFIED', '8', 'MMC', 'Tejas Patil', 'O +ve', 'Karan Patil', 'B +ve'),
+  participant('SUV_MODIFIED', '9', 'KA 28 OFFROADERS', 'ULHAS PATIL', 'B +ve', 'PRAKASH', 'B +ve'),
+  participant('SUV_MODIFIED', '23', 'Nexon Custom ', 'Amit Shete', 'A +ve', 'Rakesh Kulye', 'A +ve'),
+  participant('SUV_MODIFIED', '100', 'Team Pune Offroaders ', 'Ritesh Bire', 'O +ve', 'Shaurya Bire', 'O +ve'),
+
+  participant('THAR_SUV', '1', 'Crossover team', 'Thomas Cherian', 'B +ve', 'Alex Thomas ', 'A +ve'),
+  participant('THAR_SUV', '4', 'Ka28offroadres', 'Sameer', 'B +ve', 'Anand', 'A +ve'),
+  participant('THAR_SUV', '9', 'Shroff', 'Nimish shroff', 'O +ve', 'Dipali shroff', 'O +ve'),
+  participant('THAR_SUV', '12', 'Crossover ', 'Syed Wasif Husain', 'O +ve', 'Viraj Shelatkar ', 'O +ve'),
+  participant('THAR_SUV', '18', 'Team 4x4Basics', 'Arjun Stephen', 'O +ve', 'Siddharth Bhadauria', 'A +ve'),
+  participant('THAR_SUV', '23', ' Crossover', ' Kaustubh Nadgonde', 'B +ve', ' Tushar Sangamnerkar', 'B +ve'),
+  participant('THAR_SUV', '25', 'Crossover', 'Sunny Benjamin', 'O +ve', 'Shalom Benjamin', 'B +ve'),
+  participant('THAR_SUV', '28', 'Patil', 'Narendra Patil', 'O +ve', 'Sagar ', 'O +ve'),
+  participant('THAR_SUV', '45', 'Crossover ', 'Vikrant Jamdar', 'O +ve', 'Karthik Kini', 'B +ve'),
 ];
-
-const TEAM_TEMPLATES = [
-  ['Trail Blazers', 'Aarav Patil', 'Vivaan More', 'A+ve', 'O+ve'],
-  ['Ridge Runners', 'Ishaan Jadhav', 'Reyansh Pawar', 'B+ve', 'A+ve'],
-  ['Mud Masters', 'Arjun Shinde', 'Kabir Deshmukh', 'O+ve', 'B+ve'],
-  ['Rock Crawlers', 'Aditya Kadam', 'Rohan Kulkarni', 'AB+ve', 'O+ve'],
-  ['Valley Torque', 'Sahil Mane', 'Nikhil Chavan', 'A-ve', 'A+ve'],
-  ['Hill Command', 'Omkar Bhosale', 'Pranav Ghorpade', 'B-ve', 'AB+ve'],
-  ['Forest Line', 'Yash Salunkhe', 'Sanket Sawant', 'O-ve', 'B+ve'],
-  ['Cliff Riders', 'Atharva Khot', 'Harshad Gaikwad', 'A+ve', 'O-ve'],
-  ['Summit Drive', 'Rudra Nalawade', 'Tejas Patankar', 'B+ve', 'A-ve'],
-  ['River Cross', 'Kunal Suryavanshi', 'Sameer Nikam', 'O+ve', 'B-ve'],
-  ['Ghat Warriors', 'Prathamesh Kale', 'Abhay Dhere', 'AB-ve', 'A+ve'],
-  ['Dune Patrol', 'Siddharth Pujari', 'Ninad Lokhande', 'A+ve', 'AB-ve'],
-  ['Torque Tribe', 'Mihir Joshi', 'Tanishq Mahadik', 'B+ve', 'O+ve'],
-  ['Axle Squad', 'Vedant Karmarkar', 'Saurabh Bendre', 'O+ve', 'A+ve'],
-  ['Canyon Crew', 'Parth Sathe', 'Shreyas Inamdar', 'AB+ve', 'B+ve'],
-];
-
-const toSocialHandle = value => `@${value.toLowerCase().replace(/[^a-z0-9]+/g, '')}`;
-
-export const SEEDED_TEAMS = CATEGORY_TEAM_CONFIGS.flatMap(categoryConfig =>
-  TEAM_TEMPLATES.map(([teamName, driverName, coDriverName, driverBloodGroup, coDriverBloodGroup], index) => {
-    const sequence = String(index + 1).padStart(2, '0');
-    const categoryLabel = categoryConfig.label;
-    const fullTeamName = `${categoryLabel} ${teamName} ${sequence}`;
-
-    return {
-      team_name: fullTeamName,
-      driver_name: driverName,
-      driver_blood_group: driverBloodGroup,
-      codriver_name: coDriverName,
-      codriver_blood_group: coDriverBloodGroup,
-      car_number: String(categoryConfig.baseCarNumber + index),
-      category: categoryConfig.category,
-      vehicle_name: categoryConfig.vehicle_name,
-      vehicle_model: categoryConfig.vehicle_model,
-      socials: toSocialHandle(fullTeamName),
-      status: 'ACTIVE',
-    };
-  })
-);

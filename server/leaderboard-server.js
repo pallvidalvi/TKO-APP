@@ -182,6 +182,29 @@ const getPointsFromLabel = value => {
   return match ? Number(match[0]) : 0;
 };
 
+const getLateStartDeductionPoints = value => {
+  const points = Number(value || 0);
+  return Number.isFinite(points) && points > 0 ? points : 0;
+};
+
+const getTrackEntryResultSortPriority = item => {
+  const rankLabel = String(item?.rankLabel || item?.rank || '').trim().toUpperCase();
+
+  if (rankLabel === 'DNF') {
+    return 1;
+  }
+
+  if (rankLabel === 'DNS') {
+    return 2;
+  }
+
+  if (rankLabel === 'HOLD') {
+    return 3;
+  }
+
+  return rankLabel ? 0 : Number.POSITIVE_INFINITY;
+};
+
 const getTrackEntryKey = item =>
   item?.key ||
   [
@@ -208,13 +231,23 @@ const mergeTrackSummaries = (existingSummaries = [], incomingSummaries = []) => 
     const previous = merged.get(key) || {};
     const entries = mergeTrackEntries(previous.entries, summary.entries);
     const calculatedPoints = entries.reduce((sum, entry) => sum + getPointsFromLabel(entry?.pointsLabel), 0);
+    const lateStartDeductionPoints = entries.reduce(
+      (sum, entry) => sum + getLateStartDeductionPoints(entry?.lateStartDeductionPoints),
+      0
+    );
+    const resultSortPriority = entries.length
+      ? entries.reduce((priority, entry) => priority + getTrackEntryResultSortPriority(entry), 0)
+      : Number.POSITIVE_INFINITY;
 
     merged.set(key, {
       ...previous,
       ...summary,
       trackLabel: summary.trackLabel || previous.trackLabel || summary.track || 'Track',
       entries,
-      totalPoints: calculatedPoints || summary.totalPoints || previous.totalPoints || 0,
+      totalPoints: entries.length ? calculatedPoints : summary.totalPoints || previous.totalPoints || 0,
+      lateStartDeductionPoints:
+        lateStartDeductionPoints || summary.lateStartDeductionPoints || previous.lateStartDeductionPoints || 0,
+      resultSortPriority,
     });
   });
 
@@ -240,16 +273,38 @@ const mergeLeaderboardRows = (existingRows = [], incomingRows = []) => {
     const previous = merged.get(key) || {};
     const trackSummaries = mergeTrackSummaries(previous.trackSummaries, row.trackSummaries);
     const calculatedTotal = trackSummaries.reduce((sum, summary) => sum + Number(summary.totalPoints || 0), 0);
+    const lateStartDeductionPoints = trackSummaries.reduce(
+      (sum, summary) => sum + getLateStartDeductionPoints(summary?.lateStartDeductionPoints),
+      0
+    );
+    const scoredTrackPriorities = trackSummaries
+      .map(summary => Number(summary?.resultSortPriority ?? Number.POSITIVE_INFINITY))
+      .filter(priority => Number.isFinite(priority));
+    const resultSortPriority = scoredTrackPriorities.length
+      ? scoredTrackPriorities.reduce((sum, priority) => sum + priority, 0)
+      : Number.POSITIVE_INFINITY;
 
     merged.set(key, {
       ...previous,
       ...row,
       trackSummaries,
-      totalPoints: calculatedTotal || row.totalPoints || previous.totalPoints || 0,
+      totalPoints: trackSummaries.length ? calculatedTotal : row.totalPoints || previous.totalPoints || 0,
+      lateStartDeductionPoints:
+        lateStartDeductionPoints || row.lateStartDeductionPoints || previous.lateStartDeductionPoints || 0,
+      resultSortPriority,
     });
   });
 
-  return Array.from(merged.values()).sort((a, b) => Number(b.totalPoints || 0) - Number(a.totalPoints || 0));
+  return Array.from(merged.values()).sort((a, b) => {
+    const pointsDifference = Number(b.totalPoints || 0) - Number(a.totalPoints || 0);
+
+    if (pointsDifference !== 0) {
+      return pointsDifference;
+    }
+
+    return Number(a.resultSortPriority ?? Number.POSITIVE_INFINITY) -
+      Number(b.resultSortPriority ?? Number.POSITIVE_INFINITY);
+  });
 };
 
 const mergeLeaderboardCategories = (existingCategories = [], incomingCategories = []) => {
@@ -362,8 +417,11 @@ const renderLeaderboardHtml = snapshot => {
                                   )
                                   .join('')
                               : '<div class="track-entry muted">NA</div>';
+                            const penaltyNote = Number(summary?.lateStartDeductionPoints || 0) > 0
+                              ? `<div class="muted">Late Start: -${formatCell(summary.lateStartDeductionPoints)} pts</div>`
+                              : '';
 
-                            return `<td><div class="track-cell">${lines}</div></td>`;
+                            return `<td><div class="track-cell">${penaltyNote}${lines}</div></td>`;
                           })
                           .join('');
 
@@ -372,7 +430,11 @@ const renderLeaderboardHtml = snapshot => {
                             <td>${formatCell(`#${row.stickerNumber}`)}</td>
                             <td>${formatCell(row.driverName)}</td>
                             <td>${formatCell(row.coDriverName)}</td>
-                            <td><strong>${formatCell(row.totalPoints)} pts</strong></td>
+                            <td><strong>${formatCell(row.totalPoints)} pts</strong>${
+                              Number(row.lateStartDeductionPoints || 0) > 0
+                                ? `<div class="muted">Late Start: -${formatCell(row.lateStartDeductionPoints)} pts</div>`
+                                : ''
+                            }</td>
                             ${trackCells}
                           </tr>
                         `;

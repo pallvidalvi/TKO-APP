@@ -15,6 +15,7 @@ import TouchableOpacity from '../components/FastTouchableOpacity';
 import { CloseActionButton, NavigationActionButton } from '../components/NavigationActionButton';
 import {
   DISPUTE_AUTO_SUBMIT_POLL_MS,
+  formatReportPointsWithLateStartPenalty,
   getDisputeAutoSubmitStatus,
   getDnfBreakdownLabel,
   getDnfDisplayLabel,
@@ -719,17 +720,20 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], dat
                         : isDnfResult(item)
                         ? getDnfDisplayLabel(item)
                         : item.total_time || item.totalTimeDisplay || '--';
-                      const pointsLabel =
-                        item.reportPoints === null || item.reportPoints === undefined ? '--' : `${item.reportPoints}`;
+                      const pointsLabel = formatReportPointsWithLateStartPenalty(item);
+                      const lateStartDeductionLabel =
+                        item.reportLateStartPenaltyPoints > 0
+                          ? `Late Start deducted: -${item.reportLateStartPenaltyPoints} pts`
+                          : '';
                       const resultMetaLabel = isHoldStatus
                         ? `Auto-submit in ${disputeStatus?.remainingLabel || '00:00'}`
                         : isResolvedDisputeStatus
                         ? item.reportRankLabel && item.reportRankLabel !== 'Hold'
-                          ? `${item.reportRankLabel} | ${pointsLabel} pts`
+                          ? `${item.reportRankLabel} | ${pointsLabel}`
                           : 'Resolved'
                         : item.reportRankLabel
-                        ? `${item.reportRankLabel} | ${pointsLabel} pts`
-                        : `${pointsLabel} pts`;
+                        ? `${item.reportRankLabel} | ${pointsLabel}`
+                        : pointsLabel;
                       const disputeResolutionLabel = isResolvedDisputeStatus ? 'Resolved' : '';
 
                       if (item.isDisputed && disputeDetailSummary) {
@@ -768,6 +772,11 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], dat
                                 {dnfBreakdownLabel ? (
                                   <Text style={[styles.pointsMetaText, { color: theme.accent }]}>
                                     DNF: {dnfBreakdownLabel}
+                                  </Text>
+                                ) : null}
+                                {lateStartDeductionLabel ? (
+                                  <Text style={[styles.pointsMetaText, { color: theme.accent }]}>
+                                    {lateStartDeductionLabel}
                                   </Text>
                                 ) : null}
                               </View>
@@ -813,6 +822,11 @@ const ReportScreen = ({ visible, onClose, selectedDay, categoryOptions = [], dat
                             {dnfBreakdownLabel ? (
                               <Text style={[styles.pointsMetaText, { color: theme.accent }]}>
                                 DNF: {dnfBreakdownLabel}
+                              </Text>
+                            ) : null}
+                            {lateStartDeductionLabel ? (
+                              <Text style={[styles.pointsMetaText, { color: theme.accent }]}>
+                                {lateStartDeductionLabel}
                               </Text>
                             ) : null}
                           </View>

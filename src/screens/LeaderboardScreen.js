@@ -19,6 +19,7 @@ import {
 import TouchableOpacity from '../components/FastTouchableOpacity';
 import {
   DISPUTE_AUTO_SUBMIT_POLL_MS,
+  formatReportPointsWithLateStartPenalty,
   getDayIdentity,
   getDisputeAutoSubmitStatus,
   getDisputeResolutionLabel,
@@ -193,6 +194,10 @@ const compareRows = (a, b) => {
     return b.totalPoints - a.totalPoints;
   }
 
+  if (a.resultSortPriority !== b.resultSortPriority) {
+    return a.resultSortPriority - b.resultSortPriority;
+  }
+
   if (a.totalTimingMs !== b.totalTimingMs) {
     return a.totalTimingMs - b.totalTimingMs;
   }
@@ -289,7 +294,7 @@ const buildPenaltyBreakdownRows = record => [
   },
 ];
 
-const buildDetailSections = record => [
+const buildDetailSections = (record, scoredEntry = {}) => [
   {
     title: 'Timing Summary',
     items: [
@@ -304,7 +309,13 @@ const buildDetailSections = record => [
       { label: 'Status', value: record?.late_start_status || record?.lateStartStatus },
       { label: 'Mode', value: record?.late_start_mode || record?.lateStartMode },
       { label: 'Count', value: record?.late_start_count || record?.lateStartCount },
-      { label: 'Penalty Points', value: getLateStartPenaltyDisplay(record) },
+      { label: 'Penalty Points Configured', value: getLateStartPenaltyDisplay(record) },
+      { label: 'Points Before Deduction', value: scoredEntry.reportPointsBeforeLateStartPenalty },
+      {
+        label: 'Points Deducted',
+        value: scoredEntry.lateStartDeductionPoints > 0 ? `-${scoredEntry.lateStartDeductionPoints} pts` : '--',
+      },
+      { label: 'Points After Deduction', value: scoredEntry.reportPoints },
     ],
   },
   {
@@ -810,11 +821,15 @@ const LeaderboardScreen = ({
           vehicleKey,
           ...getVehicleDisplayData(source),
           totalPoints: 0,
+          lateStartDeductionPoints: 0,
+          resultSortPriority: 0,
+          hasResultEntries: false,
           totalTimingMs: Number.POSITIVE_INFINITY,
           trackMap: tracks.reduce((acc, trackLabel) => {
             acc[normalizeValue(trackLabel)] = {
               trackLabel,
               totalPoints: 0,
+              lateStartDeductionPoints: 0,
               entries: [],
             };
             return acc;
@@ -877,11 +892,16 @@ const LeaderboardScreen = ({
           typeof item.reportPoints === 'number' && Number.isFinite(item.reportPoints)
             ? item.reportPoints
             : 0;
+        const lateStartDeductionPoints =
+          typeof item.reportLateStartPenaltyPoints === 'number' && Number.isFinite(item.reportLateStartPenaltyPoints)
+            ? item.reportLateStartPenaltyPoints
+            : 0;
 
         if (!row.trackMap[trackKey]) {
           row.trackMap[trackKey] = {
             trackLabel: item.track_name || item.trackName || 'Track',
             totalPoints: 0,
+            lateStartDeductionPoints: 0,
             entries: [],
           };
         }
@@ -892,8 +912,13 @@ const LeaderboardScreen = ({
 
         if (item.reportPoints !== null && item.reportPoints !== undefined) {
           row.totalPoints += pointsValue;
+          row.lateStartDeductionPoints += lateStartDeductionPoints;
           row.trackMap[trackKey].totalPoints += pointsValue;
+          row.trackMap[trackKey].lateStartDeductionPoints += lateStartDeductionPoints;
         }
+
+        row.resultSortPriority += getResultSortPriority(item);
+        row.hasResultEntries = true;
 
         if (Number.isFinite(timingMs)) {
           row.totalTimingMs += timingMs;
@@ -904,8 +929,11 @@ const LeaderboardScreen = ({
           dayLabel: getDayShortLabel(item),
           dayOrder: getDayOrder(item),
           timingLabel: getTimingLabel(item, nowTimestamp),
-          pointsLabel:
-            item.reportPoints === null || item.reportPoints === undefined ? '--' : `${item.reportPoints} pts`,
+          pointsLabel: formatReportPointsWithLateStartPenalty(item),
+          reportPoints: item.reportPoints,
+          reportPointsBeforeLateStartPenalty: item.reportPointsBeforeLateStartPenalty,
+          lateStartDeductionPoints,
+          resultSortPriority: getResultSortPriority(item),
           rankLabel: item.reportRankLabel || '--',
         });
       });
@@ -914,11 +942,13 @@ const LeaderboardScreen = ({
     return Array.from(rowsByVehicle.values())
       .map(row => ({
         ...row,
+        resultSortPriority: row.hasResultEntries ? row.resultSortPriority : Number.POSITIVE_INFINITY,
         totalTimingMs: Number.isFinite(row.totalTimingMs) ? row.totalTimingMs : Number.POSITIVE_INFINITY,
         trackSummaries: tracks.map(trackLabel => {
           const summary = row.trackMap[normalizeValue(trackLabel)] || {
             trackLabel,
             totalPoints: 0,
+            lateStartDeductionPoints: 0,
             entries: [],
           };
 
@@ -1178,6 +1208,11 @@ const LeaderboardScreen = ({
                               {item.totalPoints}/{categoryMaxPoints || 700}
                             </Text>
                             <Text style={[styles.totalPointsLabel, { color: theme.textSecondary }]}>pts</Text>
+                            {item.lateStartDeductionPoints > 0 ? (
+                              <Text style={[styles.penaltyPointsLabel, { color: theme.textSecondary }]}>
+                                Late Start: -{item.lateStartDeductionPoints} pts
+                              </Text>
+                            ) : null}
                           </View>
                           {item.trackSummaries.map(summary => (
                             <View
@@ -1194,6 +1229,11 @@ const LeaderboardScreen = ({
                                   <Text style={[styles.trackTotalPoints, { color: theme.accent }]}>
                                     {summary.totalPoints} pts
                                   </Text>
+                                  {summary.lateStartDeductionPoints > 0 ? (
+                                    <Text style={[styles.trackPenaltyPoints, { color: theme.textSecondary }]}>
+                                      Late Start: -{summary.lateStartDeductionPoints} pts
+                                    </Text>
+                                  ) : null}
                                   {summary.entries.map(entry => (
                                     <View key={entry.key} style={styles.trackEntryBlock}>
                                       <Text style={[styles.trackEntryLine, { color: theme.textPrimary }]}>
@@ -1289,6 +1329,9 @@ const LeaderboardScreen = ({
                     { label: 'Timing', value: selectedDetail.entry?.timingLabel || '--' },
                     { label: 'Points', value: selectedDetail.entry?.pointsLabel || '--' },
                     { label: 'Rank', value: selectedDetail.entry?.rankLabel || '--' },
+                    ...(selectedDetail.entry?.lateStartDeductionPoints > 0
+                      ? [{ label: 'Late Start Deducted', value: `-${selectedDetail.entry.lateStartDeductionPoints} pts` }]
+                      : []),
                   ].map(item => (
                     <View key={item.label} style={[styles.detailSummaryCard, { backgroundColor: theme.surface }]}>
                       <Text style={[styles.detailSummaryLabel, { color: theme.textSecondary }]}>{item.label}</Text>
@@ -1299,7 +1342,7 @@ const LeaderboardScreen = ({
 
                 <View style={styles.detailSectionGrid}>
                   {[
-                    ...buildDetailSections(selectedDetail.record || {}),
+                    ...buildDetailSections(selectedDetail.record || {}, selectedDetail.entry || {}),
                     ...appendDisputeDetailsSection(selectedDetail.record || {}),
                     ...appendDisputeResolutionSection(selectedDetail.record || {}),
                   ].map(section => (
@@ -1420,6 +1463,14 @@ const LeaderboardScreen = ({
                       { label: 'Total Time', value: selectedDetail.record?.total_time || selectedDetail.record?.totalTimeDisplay },
                       { label: 'Late Start Status', value: selectedDetail.record?.late_start_status || selectedDetail.record?.lateStartStatus },
                       { label: 'Late Start Penalty', value: getLateStartPenaltyDisplay(selectedDetail.record || {}) },
+                      {
+                        label: 'Late Start Points Deducted',
+                        value:
+                          selectedDetail.entry?.lateStartDeductionPoints > 0
+                            ? `-${selectedDetail.entry.lateStartDeductionPoints} pts`
+                            : '--',
+                      },
+                      { label: 'Final Points', value: selectedDetail.entry?.reportPoints },
                       { label: 'DNF Reason', value: getDnfBreakdownLabel(selectedDetail.record || {}) },
                       { label: 'DNF Points', value: selectedDetail.record?.dnf_points ?? selectedDetail.record?.dnfPoints },
                     ].map(item => (
@@ -1750,6 +1801,13 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     fontFamily: BODY_FONT,
   },
+  penaltyPointsLabel: {
+    marginTop: 5,
+    fontSize: 10,
+    fontWeight: '700',
+    textAlign: 'center',
+    fontFamily: BODY_FONT,
+  },
   trackCell: {
     minHeight: 88,
     borderLeftWidth: 1,
@@ -1761,6 +1819,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     fontFamily: HEADING_FONT,
+  },
+  trackPenaltyPoints: {
+    marginTop: 3,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '700',
+    fontFamily: BODY_FONT,
   },
   trackEntryBlock: {
     marginTop: 7,
