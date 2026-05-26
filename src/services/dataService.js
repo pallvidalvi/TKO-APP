@@ -347,6 +347,10 @@ const normalizeTrackLabels = value => {
   const seen = new Set();
 
   return (Array.isArray(value) ? value : []).reduce((tracks, track) => {
+    if (typeof track !== 'string' && typeof track !== 'number') {
+      return tracks;
+    }
+
     const label = String(track || '').trim();
     const key = normalizeValue(label);
 
@@ -1198,7 +1202,12 @@ const WEB_FALLBACK_TEAMS = SEEDED_TEAMS;
 
 const getFirstPresentValue = (...values) => {
   for (const value of values) {
-    if (value !== null && value !== undefined && value !== '') {
+    if (
+      value !== null &&
+      value !== undefined &&
+      value !== '' &&
+      (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
+    ) {
       return value;
     }
   }
@@ -1206,96 +1215,207 @@ const getFirstPresentValue = (...values) => {
   return '';
 };
 
+const getImportedTextValue = (...values) => String(getFirstPresentValue(...values)).trim();
+
+const getImportedNumberValue = (...values) => {
+  const numberValue = Number(getFirstPresentValue(...values));
+  return Number.isFinite(numberValue) ? numberValue : 0;
+};
+
+const getImportedBooleanValue = (...values) => {
+  const value = getFirstPresentValue(...values);
+
+  if (typeof value === 'string') {
+    return ['true', '1', 'yes'].includes(value.trim().toLowerCase());
+  }
+
+  return value === true || value === 1;
+};
+
+const hasUnsafeTransferredDisplayValue = record => {
+  const displayValues = [
+    record?.category,
+    record?.track_name,
+    record?.trackName,
+    record?.sticker_number,
+    record?.stickerNumber,
+    record?.car_number,
+    record?.carNumber,
+    record?.team_name,
+    record?.teamName,
+    record?.team,
+    record?.driver_name,
+    record?.driverName,
+    record?.codriver_name,
+    record?.coDriverName,
+    record?.codriverName,
+    record?.total_time,
+    record?.totalTimeDisplay,
+    record?.performance_time,
+    record?.performanceTimeDisplay,
+    record?.selected_day_id,
+    record?.selectedDayId,
+    record?.selected_day_label,
+    record?.selectedDayLabel,
+    record?.selected_day_date,
+    record?.selectedDayDate,
+    record?.late_start_mode,
+    record?.lateStartMode,
+    record?.late_start_status,
+    record?.lateStartStatus,
+    record?.dnf_selection,
+    record?.dnfSelection,
+  ];
+
+  return displayValues.some(
+    value =>
+      value !== null &&
+      value !== undefined &&
+      value !== '' &&
+      typeof value !== 'string' &&
+      typeof value !== 'number' &&
+      typeof value !== 'boolean'
+  );
+};
+
 const normalizeImportedCompetitionRecord = record => {
   const parsedRecord = parseRegistrationPayload(record);
-  const submissionJson =
-    typeof parsedRecord.submission_json === 'string' && parsedRecord.submission_json.trim()
-      ? parsedRecord.submission_json
-      : JSON.stringify(parsedRecord);
-
-  return normalizeStoredDayPayload({
+  const originalSubmissionJson =
+    typeof record?.submission_json === 'string' && record.submission_json.trim()
+      ? record.submission_json
+      : '';
+  const trackName = getImportedTextValue(parsedRecord.track_name, parsedRecord.trackName);
+  const stickerNumber = getImportedTextValue(
+    parsedRecord.sticker_number,
+    parsedRecord.stickerNumber,
+    parsedRecord.car_number,
+    parsedRecord.carNumber
+  );
+  const teamName = getImportedTextValue(parsedRecord.team_name, parsedRecord.teamName, parsedRecord.team);
+  const driverName = getImportedTextValue(parsedRecord.driver_name, parsedRecord.driverName);
+  const coDriverName = getImportedTextValue(
+    parsedRecord.codriver_name,
+    parsedRecord.coDriverName,
+    parsedRecord.codriverName
+  );
+  const category = getImportedTextValue(parsedRecord.category);
+  const lateStartMode = getImportedTextValue(parsedRecord.late_start_mode, parsedRecord.lateStartMode);
+  const lateStartStatus = getImportedTextValue(parsedRecord.late_start_status, parsedRecord.lateStartStatus);
+  const dnfSelection = getImportedTextValue(parsedRecord.dnf_selection, parsedRecord.dnfSelection);
+  const performanceTime = getImportedTextValue(parsedRecord.performance_time, parsedRecord.performanceTimeDisplay);
+  const totalTime = getImportedTextValue(parsedRecord.total_time, parsedRecord.totalTimeDisplay);
+  const selectedDayId = getImportedTextValue(
+    parsedRecord.selected_day_id,
+    parsedRecord.selectedDayId,
+    parsedRecord.day_id,
+    parsedRecord.dayId
+  );
+  const selectedDayLabel = getImportedTextValue(
+    parsedRecord.selected_day_label,
+    parsedRecord.selectedDayLabel,
+    parsedRecord.day_label,
+    parsedRecord.dayLabel
+  );
+  const selectedDayDate = getImportedTextValue(
+    parsedRecord.selected_day_date,
+    parsedRecord.selectedDayDate,
+    parsedRecord.day_date,
+    parsedRecord.dayDate
+  );
+  const normalizedRecord = {
     ...parsedRecord,
-    track_name: getFirstPresentValue(parsedRecord.track_name, parsedRecord.trackName),
-    sticker_number: getFirstPresentValue(
-      parsedRecord.sticker_number,
-      parsedRecord.stickerNumber,
-      parsedRecord.car_number,
-      parsedRecord.carNumber
-    ),
-    team_name: getFirstPresentValue(parsedRecord.team_name, parsedRecord.teamName, parsedRecord.team),
-    driver_name: getFirstPresentValue(parsedRecord.driver_name, parsedRecord.driverName),
-    codriver_name: getFirstPresentValue(
-      parsedRecord.codriver_name,
-      parsedRecord.coDriverName,
-      parsedRecord.codriverName
-    ),
-    category: getFirstPresentValue(parsedRecord.category),
-    bunting_count: getFirstPresentValue(parsedRecord.bunting_count, parsedRecord.bustingCount, 0),
-    pole_down_count: getFirstPresentValue(parsedRecord.pole_down_count, parsedRecord.poleDownCount, 0),
-    seatbelt_count: getFirstPresentValue(parsedRecord.seatbelt_count, parsedRecord.seatbeltCount, 0),
-    ground_touch_count: getFirstPresentValue(parsedRecord.ground_touch_count, parsedRecord.groundTouchCount, 0),
-    late_start_count: getFirstPresentValue(parsedRecord.late_start_count, parsedRecord.lateStartCount, 0),
-    late_start_penalty_points: getFirstPresentValue(
+    track_name: trackName,
+    trackName,
+    sticker_number: stickerNumber,
+    stickerNumber,
+    team_name: teamName,
+    teamName,
+    driver_name: driverName,
+    driverName,
+    codriver_name: coDriverName,
+    coDriverName,
+    category,
+    bunting_count: getImportedNumberValue(parsedRecord.bunting_count, parsedRecord.bustingCount, 0),
+    pole_down_count: getImportedNumberValue(parsedRecord.pole_down_count, parsedRecord.poleDownCount, 0),
+    seatbelt_count: getImportedNumberValue(parsedRecord.seatbelt_count, parsedRecord.seatbeltCount, 0),
+    ground_touch_count: getImportedNumberValue(parsedRecord.ground_touch_count, parsedRecord.groundTouchCount, 0),
+    late_start_count: getImportedNumberValue(parsedRecord.late_start_count, parsedRecord.lateStartCount, 0),
+    lateStartCount: getImportedNumberValue(parsedRecord.late_start_count, parsedRecord.lateStartCount, 0),
+    late_start_mode: lateStartMode,
+    lateStartMode: lateStartMode,
+    late_start_status: lateStartStatus,
+    lateStartStatus: lateStartStatus,
+    late_start_penalty_points: getImportedNumberValue(
       parsedRecord.late_start_penalty_points,
       parsedRecord.lateStartPenaltyPoints,
       0
     ),
-    lateStartPenaltyPoints: getFirstPresentValue(
+    lateStartPenaltyPoints: getImportedNumberValue(
       parsedRecord.late_start_penalty_points,
       parsedRecord.lateStartPenaltyPoints,
       0
     ),
-    attempt_count: getFirstPresentValue(parsedRecord.attempt_count, parsedRecord.attemptCount, 0),
-    task_skipped_count: getFirstPresentValue(parsedRecord.task_skipped_count, parsedRecord.taskSkippedCount, 0),
-    wrong_course_count: getFirstPresentValue(parsedRecord.wrong_course_count, parsedRecord.wrongCourseCount, 0),
-    fourth_attempt_count: getFirstPresentValue(parsedRecord.fourth_attempt_count, parsedRecord.fourthAttemptCount, 0),
-    vehicle_out_of_track_selected: Boolean(
-      parsedRecord.vehicle_out_of_track_selected || parsedRecord.vehicleOutOfTrackSelected
+    attempt_count: getImportedNumberValue(parsedRecord.attempt_count, parsedRecord.attemptCount, 0),
+    task_skipped_count: getImportedNumberValue(parsedRecord.task_skipped_count, parsedRecord.taskSkippedCount, 0),
+    wrong_course_count: getImportedNumberValue(parsedRecord.wrong_course_count, parsedRecord.wrongCourseCount, 0),
+    fourth_attempt_count: getImportedNumberValue(parsedRecord.fourth_attempt_count, parsedRecord.fourthAttemptCount, 0),
+    vehicle_out_of_track_selected: getImportedBooleanValue(
+      parsedRecord.vehicle_out_of_track_selected,
+      parsedRecord.vehicleOutOfTrackSelected
     ),
-    vehicleOutOfTrackSelected: Boolean(
-      parsedRecord.vehicle_out_of_track_selected || parsedRecord.vehicleOutOfTrackSelected
+    vehicleOutOfTrackSelected: getImportedBooleanValue(
+      parsedRecord.vehicle_out_of_track_selected,
+      parsedRecord.vehicleOutOfTrackSelected
     ),
-    vehicle_breakdown_selected: Boolean(
-      parsedRecord.vehicle_breakdown_selected || parsedRecord.vehicleBreakdownSelected
+    vehicle_breakdown_selected: getImportedBooleanValue(
+      parsedRecord.vehicle_breakdown_selected,
+      parsedRecord.vehicleBreakdownSelected
     ),
-    vehicleBreakdownSelected: Boolean(
-      parsedRecord.vehicle_breakdown_selected || parsedRecord.vehicleBreakdownSelected
+    vehicleBreakdownSelected: getImportedBooleanValue(
+      parsedRecord.vehicle_breakdown_selected,
+      parsedRecord.vehicleBreakdownSelected
     ),
-    is_dnf: Boolean(parsedRecord.is_dnf || parsedRecord.isDNF),
-    isDNF: Boolean(parsedRecord.is_dnf || parsedRecord.isDNF),
-    dnf_selection: getFirstPresentValue(parsedRecord.dnf_selection, parsedRecord.dnfSelection),
-    dnfSelection: getFirstPresentValue(parsedRecord.dnf_selection, parsedRecord.dnfSelection),
-    dnf_points: getFirstPresentValue(parsedRecord.dnf_points, parsedRecord.dnfPoints, 0),
-    dnfPoints: getFirstPresentValue(parsedRecord.dnf_points, parsedRecord.dnfPoints, 0),
-    is_dns: Boolean(parsedRecord.is_dns || parsedRecord.isDNS),
-    total_penalties_time: getFirstPresentValue(
+    is_dnf: getImportedBooleanValue(parsedRecord.is_dnf, parsedRecord.isDNF),
+    isDNF: getImportedBooleanValue(parsedRecord.is_dnf, parsedRecord.isDNF),
+    dnf_selection: dnfSelection,
+    dnfSelection,
+    dnf_points: getImportedNumberValue(parsedRecord.dnf_points, parsedRecord.dnfPoints, 0),
+    dnfPoints: getImportedNumberValue(parsedRecord.dnf_points, parsedRecord.dnfPoints, 0),
+    is_dns: getImportedBooleanValue(parsedRecord.is_dns, parsedRecord.isDNS),
+    isDNS: getImportedBooleanValue(parsedRecord.is_dns, parsedRecord.isDNS),
+    total_penalties_time: getImportedNumberValue(
       parsedRecord.total_penalties_time,
       parsedRecord.totalPenaltiesTime,
       0
     ),
-    performance_time: getFirstPresentValue(
-      parsedRecord.performance_time,
-      parsedRecord.performanceTimeDisplay
+    totalPenaltiesTime: getImportedNumberValue(
+      parsedRecord.total_penalties_time,
+      parsedRecord.totalPenaltiesTime,
+      0
     ),
-    total_time: getFirstPresentValue(parsedRecord.total_time, parsedRecord.totalTimeDisplay),
-    selected_day_id: getFirstPresentValue(
-      parsedRecord.selected_day_id,
-      parsedRecord.selectedDayId,
-      parsedRecord.day_id,
-      parsedRecord.dayId
-    ),
-    selected_day_label: getFirstPresentValue(
-      parsedRecord.selected_day_label,
-      parsedRecord.selectedDayLabel,
-      parsedRecord.day_label,
-      parsedRecord.dayLabel
-    ),
-    selected_day_date: getFirstPresentValue(
-      parsedRecord.selected_day_date,
-      parsedRecord.selectedDayDate,
-      parsedRecord.day_date,
-      parsedRecord.dayDate
-    ),
+    performance_time: performanceTime,
+    performanceTimeDisplay: performanceTime,
+    total_time: totalTime,
+    totalTimeDisplay: totalTime,
+    selected_day_id: selectedDayId,
+    selectedDayId: selectedDayId,
+    selected_day_label: selectedDayLabel,
+    selectedDayLabel: selectedDayLabel,
+    selected_day_date: selectedDayDate,
+    selectedDayDate: selectedDayDate,
+  };
+  const normalizedSubmissionPayload = { ...normalizedRecord };
+  delete normalizedSubmissionPayload.submission_json;
+  delete normalizedSubmissionPayload.id;
+  delete normalizedSubmissionPayload.created_at;
+  delete normalizedSubmissionPayload.updated_at;
+  const submissionJson =
+    originalSubmissionJson && !hasUnsafeTransferredDisplayValue(parsedRecord)
+      ? originalSubmissionJson
+      : JSON.stringify(normalizedSubmissionPayload);
+
+  return normalizeStoredDayPayload({
+    ...normalizedRecord,
     submission_json: submissionJson,
   });
 };

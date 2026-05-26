@@ -27,6 +27,7 @@ import {
   getDnfDisplayLabel,
   getLateStartPenaltyPointsValue,
   getResultIdentityKey,
+  getResultSortPriority,
   getResultTimeValue,
   isDnfResult,
   isDnsResult,
@@ -82,6 +83,10 @@ const normalizeTrackLabels = value => {
   const seen = new Set();
 
   return (Array.isArray(value) ? value : []).reduce((tracks, track) => {
+    if (typeof track !== 'string' && typeof track !== 'number') {
+      return tracks;
+    }
+
     const label = String(track || '').trim();
     const key = normalizeValue(label);
 
@@ -93,6 +98,72 @@ const normalizeTrackLabels = value => {
     tracks.push(label);
     return tracks;
   }, []);
+};
+
+const getFirstDisplayValue = (...values) => {
+  for (const value of values) {
+    if (
+      value !== null &&
+      value !== undefined &&
+      value !== '' &&
+      (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')
+    ) {
+      return String(value);
+    }
+  }
+
+  return '';
+};
+
+const normalizeLeaderboardRecord = record => {
+  const parsedRecord = parseRegistrationPayload(record);
+  const trackName = getFirstDisplayValue(parsedRecord.track_name, parsedRecord.trackName);
+  const stickerNumber = getFirstDisplayValue(
+    parsedRecord.sticker_number,
+    parsedRecord.stickerNumber,
+    parsedRecord.car_number,
+    parsedRecord.carNumber
+  );
+  const teamName = getFirstDisplayValue(parsedRecord.team_name, parsedRecord.teamName, parsedRecord.team);
+  const driverName = getFirstDisplayValue(parsedRecord.driver_name, parsedRecord.driverName);
+  const coDriverName = getFirstDisplayValue(
+    parsedRecord.codriver_name,
+    parsedRecord.coDriverName,
+    parsedRecord.codriverName
+  );
+  const totalTime = getFirstDisplayValue(parsedRecord.total_time, parsedRecord.totalTimeDisplay);
+  const performanceTime = getFirstDisplayValue(parsedRecord.performance_time, parsedRecord.performanceTimeDisplay);
+
+  return {
+    ...parsedRecord,
+    category: getFirstDisplayValue(parsedRecord.category),
+    track_name: trackName,
+    trackName,
+    sticker_number: stickerNumber,
+    stickerNumber,
+    team_name: teamName,
+    teamName,
+    driver_name: driverName,
+    driverName,
+    codriver_name: coDriverName,
+    coDriverName,
+    total_time: totalTime,
+    totalTimeDisplay: totalTime,
+    performance_time: performanceTime,
+    performanceTimeDisplay: performanceTime,
+    selected_day_id: getFirstDisplayValue(parsedRecord.selected_day_id, parsedRecord.selectedDayId),
+    selectedDayId: getFirstDisplayValue(parsedRecord.selected_day_id, parsedRecord.selectedDayId),
+    selected_day_label: getFirstDisplayValue(parsedRecord.selected_day_label, parsedRecord.selectedDayLabel),
+    selectedDayLabel: getFirstDisplayValue(parsedRecord.selected_day_label, parsedRecord.selectedDayLabel),
+    selected_day_date: getFirstDisplayValue(parsedRecord.selected_day_date, parsedRecord.selectedDayDate),
+    selectedDayDate: getFirstDisplayValue(parsedRecord.selected_day_date, parsedRecord.selectedDayDate),
+    late_start_mode: getFirstDisplayValue(parsedRecord.late_start_mode, parsedRecord.lateStartMode),
+    lateStartMode: getFirstDisplayValue(parsedRecord.late_start_mode, parsedRecord.lateStartMode),
+    late_start_status: getFirstDisplayValue(parsedRecord.late_start_status, parsedRecord.lateStartStatus),
+    lateStartStatus: getFirstDisplayValue(parsedRecord.late_start_status, parsedRecord.lateStartStatus),
+    dnf_selection: getFirstDisplayValue(parsedRecord.dnf_selection, parsedRecord.dnfSelection),
+    dnfSelection: getFirstDisplayValue(parsedRecord.dnf_selection, parsedRecord.dnfSelection),
+  };
 };
 
 const getResponsiveLayout = (screenWidth, screenHeight) => {
@@ -145,15 +216,15 @@ const getVehicleIdentityKey = source => {
 };
 
 const getVehicleDisplayData = source => ({
-  stickerNumber:
-    source?.sticker_number ||
-    source?.stickerNumber ||
-    source?.car_number ||
-    source?.carNumber ||
-    '--',
-  teamName: source?.team_name || source?.teamName || source?.team || '--',
-  driverName: source?.driver_name || source?.driverName || '--',
-  coDriverName: source?.codriver_name || source?.coDriverName || '--',
+  stickerNumber: getFirstDisplayValue(
+    source?.sticker_number,
+    source?.stickerNumber,
+    source?.car_number,
+    source?.carNumber
+  ) || '--',
+  teamName: getFirstDisplayValue(source?.team_name, source?.teamName, source?.team) || '--',
+  driverName: getFirstDisplayValue(source?.driver_name, source?.driverName) || '--',
+  coDriverName: getFirstDisplayValue(source?.codriver_name, source?.coDriverName) || '--',
 });
 
 const getDayOrder = item => {
@@ -652,7 +723,7 @@ const buildDetailIndex = (resultRows = [], disputeRows = []) => {
   const index = new Map();
 
   const addRecord = (record, sourceType) => {
-    const parsedRecord = parseRegistrationPayload(record);
+    const parsedRecord = normalizeLeaderboardRecord(record);
     const key = getResultIdentityKey(parsedRecord);
     const existing = index.get(key) || {};
     index.set(key, {
@@ -764,12 +835,12 @@ const LeaderboardScreen = ({
     };
   }, [loadResults, visible]);
 
-  const normalizedResults = useMemo(() => getSafeObjectArray(results).map(parseRegistrationPayload), [results]);
+  const normalizedResults = useMemo(() => getSafeObjectArray(results).map(normalizeLeaderboardRecord), [results]);
 
   const normalizedDisputes = useMemo(
     () =>
       getSafeObjectArray(disputes).map(dispute => ({
-        ...parseRegistrationPayload(dispute),
+        ...normalizeLeaderboardRecord(dispute),
         isDisputed: true,
       })),
     [disputes]

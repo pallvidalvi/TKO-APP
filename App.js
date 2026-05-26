@@ -261,7 +261,7 @@ class FlowErrorBoundary extends React.Component {
         <View style={styles.flowErrorBoundaryCard}>
           <Text style={styles.flowErrorBoundaryTitle}>Unable to open this screen</Text>
           <Text style={styles.flowErrorBoundaryText}>
-            Something went wrong while loading the race stopwatch page.
+            Something went wrong while loading this screen.
           </Text>
           <TouchableOpacity
             style={styles.flowErrorBoundaryButton}
@@ -459,8 +459,9 @@ const DEFAULT_SETTINGS_PASSWORD = 'admin123';
 const LEGACY_SETTINGS_PASSWORDS = ['Pritisangam@MH50'];
 const DEFAULT_SECURITY_PIN = '0000';
 const ONE_TIME_APP_OPEN_PASSWORD = 'P{O}I|';
-const APP_OPEN_UNLOCK_STORAGE_KEY = 'tko_app_open_unlocked_v1';
-const APP_OPEN_UNLOCK_FILE_NAME = 'tko-app-open-unlocked.json';
+const APP_OPEN_PASSWORD_REVISION = 'mandatory-first-open-2026-05-27';
+const APP_OPEN_UNLOCK_STORAGE_KEY = 'tko_app_open_unlocked_v2';
+const APP_OPEN_UNLOCK_FILE_NAME = 'tko-app-open-unlocked-v2.json';
 const APP_SETTINGS_STORAGE_KEY = 'tko_admin_settings_v1';
 const APP_SETTINGS_FILE_NAME = 'tko-admin-settings.json';
 const VEHICLE_CARD_DATA_REVISION = 'participants-2026-05-26';
@@ -1188,11 +1189,11 @@ const isAcceptedSettingsPassword = (input, currentPassword) => {
 const hasStoredAppOpenUnlock = async () => {
   try {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      return window.localStorage.getItem(APP_OPEN_UNLOCK_STORAGE_KEY) === 'unlocked';
+      return window.localStorage.getItem(APP_OPEN_UNLOCK_STORAGE_KEY) === APP_OPEN_PASSWORD_REVISION;
     }
 
-    if (FileSystem?.documentDirectory) {
-      const filePath = `${FileSystem.documentDirectory}${APP_OPEN_UNLOCK_FILE_NAME}`;
+    if (FileSystem?.cacheDirectory) {
+      const filePath = `${FileSystem.cacheDirectory}${APP_OPEN_UNLOCK_FILE_NAME}`;
       const fileInfo = await FileSystem.getInfoAsync(filePath).catch(() => ({ exists: false }));
 
       if (!fileInfo.exists) {
@@ -1201,7 +1202,7 @@ const hasStoredAppOpenUnlock = async () => {
 
       const raw = await FileSystem.readAsStringAsync(filePath);
       const parsed = JSON.parse(raw);
-      return parsed?.unlocked === true;
+      return parsed?.unlocked === true && parsed?.revision === APP_OPEN_PASSWORD_REVISION;
     }
   } catch (error) {
     console.warn('Unable to load app open unlock state:', error);
@@ -1212,13 +1213,16 @@ const hasStoredAppOpenUnlock = async () => {
 
 const saveAppOpenUnlock = async () => {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    window.localStorage.setItem(APP_OPEN_UNLOCK_STORAGE_KEY, 'unlocked');
+    window.localStorage.setItem(APP_OPEN_UNLOCK_STORAGE_KEY, APP_OPEN_PASSWORD_REVISION);
     return;
   }
 
-  if (FileSystem?.documentDirectory) {
-    const filePath = `${FileSystem.documentDirectory}${APP_OPEN_UNLOCK_FILE_NAME}`;
-    await FileSystem.writeAsStringAsync(filePath, JSON.stringify({ unlocked: true }));
+  if (FileSystem?.cacheDirectory) {
+    const filePath = `${FileSystem.cacheDirectory}${APP_OPEN_UNLOCK_FILE_NAME}`;
+    await FileSystem.writeAsStringAsync(
+      filePath,
+      JSON.stringify({ unlocked: true, revision: APP_OPEN_PASSWORD_REVISION })
+    );
   }
 };
 
@@ -7250,7 +7254,7 @@ const buildRegistrationData = formData => ({
             >
               <Text style={[styles.settingsPasswordTitle, { color: theme.textPrimary }]}>App Password</Text>
               <Text style={[styles.settingsPasswordSubtitle, { color: theme.textSecondary }]}>
-                Enter the one-time password to open TKO Ground Zero on this device.
+                Password is required the first time this installed app is opened on this device.
               </Text>
               <TextInput
                 {...STABLE_TEXT_INPUT_PROPS}
@@ -7855,24 +7859,34 @@ const buildRegistrationData = formData => ({
       ) : null}
 
       {reportsVisible ? (
-        <ReportScreen
-          visible={reportsVisible}
-          onClose={() => setReportsVisible(false)}
-          selectedDay={selectedDay}
-          categoryOptions={reportCategoryOptions}
-          theme={theme}
-        />
+        <FlowErrorBoundary
+          resetKey={`reports-${selectedDay?.id || 'none'}-${reportsVisible ? 'open' : 'closed'}`}
+          onRetry={() => setReportsVisible(false)}
+        >
+          <ReportScreen
+            visible={reportsVisible}
+            onClose={() => setReportsVisible(false)}
+            selectedDay={selectedDay}
+            categoryOptions={reportCategoryOptions}
+            theme={theme}
+          />
+        </FlowErrorBoundary>
       ) : null}
 
       {leaderboardVisible ? (
-        <LeaderboardScreen
-          visible={leaderboardVisible}
-          onClose={() => setLeaderboardVisible(false)}
-          categoryOptions={leaderboardCategoryOptions}
-          teams={teams}
-          dataRefreshKey={leaderboardRefreshKey}
-          theme={theme}
-        />
+        <FlowErrorBoundary
+          resetKey={`leaderboard-${leaderboardRefreshKey}-${leaderboardVisible ? 'open' : 'closed'}`}
+          onRetry={() => setLeaderboardVisible(false)}
+        >
+          <LeaderboardScreen
+            visible={leaderboardVisible}
+            onClose={() => setLeaderboardVisible(false)}
+            categoryOptions={leaderboardCategoryOptions}
+            teams={teams}
+            dataRefreshKey={leaderboardRefreshKey}
+            theme={theme}
+          />
+        </FlowErrorBoundary>
       ) : null}
 
       {settingsPasswordModalVisible ? (
