@@ -484,12 +484,14 @@ export const seedDatabase = async () => {
            WHERE TRIM(team_name) = TRIM(?)
              AND TRIM(driver_name) = TRIM(?)
              AND TRIM(codriver_name) = TRIM(?)
-             AND car_number = ?`,
+             AND car_number = ?
+             AND category = ?`,
           [
             team.team_name,
             team.driver_name,
             team.codriver_name,
             team.car_number,
+            team.category,
           ]
         );
 

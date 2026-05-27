@@ -2472,6 +2472,7 @@ const RegistrationForm = React.memo(function RegistrationForm({
     setHasTimerStarted(false);
     setHasTimerStopped(false);
     setBustingCount('0');
+    setPoleDownCount('0');
     setSeatbeltCount('0');
     setGroundTouchCount('0');
     setAttemptCount('0');
