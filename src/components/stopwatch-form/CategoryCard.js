@@ -68,6 +68,11 @@ const CategoryCard = React.memo(function CategoryCard({ category, onPress, teamC
               },
             ]}
           >
+            {category.isLocked ? (
+              <View style={[styles.categoryLockBadge, { backgroundColor: palette.badgeBackground }]}>
+                <Text style={styles.categoryLockBadgeText}>LOCKED</Text>
+              </View>
+            ) : null}
             {category.imageSource ? (
               <Image
                 source={category.imageSource}

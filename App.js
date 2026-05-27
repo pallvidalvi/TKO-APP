@@ -1149,6 +1149,66 @@ const getVehicleCardRecordsForTrack = (records = [], vehicleCardConfig, dayId, c
   return configuredKeys.map(key => recordsByCardKey.get(key)).filter(Boolean);
 };
 
+const getCategoryDayUnlockStatus = ({
+  dayId,
+  categoryName,
+  teams = [],
+  categoryActivationConfig,
+  trackActivationConfig,
+  categoryTrackConfig,
+  vehicleCardConfig,
+  completedTracksByDay = {},
+}) => {
+  const selectedDayIndex = REPORT_DAYS.findIndex(day => day.id === dayId);
+
+  if (selectedDayIndex <= 0) {
+    return { isUnlocked: true, incompleteDays: [] };
+  }
+
+  const categoryRecords = getTeamsForCategory(teams, categoryName);
+  const incompleteDays = REPORT_DAYS.slice(0, selectedDayIndex).reduce((days, previousDay) => {
+    if (!isCategoryActiveForDay(categoryActivationConfig, previousDay.id, categoryName)) {
+      return days;
+    }
+
+    const activeTracks = getActiveTracksForDayCategory(
+      trackActivationConfig,
+      previousDay.id,
+      categoryName,
+      categoryTrackConfig
+    );
+    const completedTracksByRecord = completedTracksByDay[previousDay.id] || {};
+    const incompleteTracks = activeTracks.filter(trackName => {
+      const requiredRecords = getVehicleCardRecordsForTrack(
+        categoryRecords,
+        vehicleCardConfig,
+        previousDay.id,
+        categoryName,
+        trackName
+      ).filter(record => getTeamTracks(record, categoryName, categoryTrackConfig).includes(trackName));
+
+      return requiredRecords.some(record => {
+        const completedTracks = completedTracksByRecord[getRecordKey(record)] || [];
+        return !completedTracks.includes(trackName);
+      });
+    });
+
+    if (incompleteTracks.length) {
+      days.push({
+        dayLabel: previousDay.dayLabel,
+        incompleteTracks,
+      });
+    }
+
+    return days;
+  }, []);
+
+  return {
+    isUnlocked: incompleteDays.length === 0,
+    incompleteDays,
+  };
+};
+
 const normalizeLeaderboardSyncBaseUrl = value => {
   const raw = String(value || '').trim();
 
@@ -4599,6 +4659,7 @@ export default function App() {
   const [selectedLateStartByRecord, setSelectedLateStartByRecord] = useState({});
   const [lateStartActionOrderByRecord, setLateStartActionOrderByRecord] = useState({});
   const [completedTracksByRecord, setCompletedTracksByRecord] = useState({});
+  const [completedTracksByDay, setCompletedTracksByDay] = useState({});
   const [searchText, setSearchText] = useState('');
   const deferredSearchText = useDeferredValue(searchText);
   const [dbReady, setDbReady] = useState(false);
@@ -5042,7 +5103,13 @@ export default function App() {
       ResultsService.getAllResults(),
       DisputesService.getAllDisputes(),
     ]);
-    setCompletedTracksByRecord(buildCompletedTracksMap(teamRecords, results, dayId, disputes));
+    const completionByDay = REPORT_DAYS.reduce((acc, day) => {
+      acc[day.id] = buildCompletedTracksMap(teamRecords, results, day.id, disputes);
+      return acc;
+    }, {});
+
+    setCompletedTracksByDay(completionByDay);
+    setCompletedTracksByRecord(dayId ? completionByDay[dayId] || {} : {});
   };
 
   const refreshTeamsFromStorage = useCallback(async (deletedKeysOverride = deletedVehicleCardKeys) => {
@@ -5247,12 +5314,48 @@ export default function App() {
     setCategoriesWithCounts(attachTeamCountsToCategories(sourceCategories, teams, categoryTrackConfig));
   }, [categoryTrackConfig, teams]);
 
+  const getSelectedDayCategoryUnlockStatus = useCallback(
+    categoryName =>
+      getCategoryDayUnlockStatus({
+        dayId: selectedDay?.id,
+        categoryName,
+        teams,
+        categoryActivationConfig,
+        trackActivationConfig,
+        categoryTrackConfig,
+        vehicleCardConfig,
+        completedTracksByDay,
+      }),
+    [
+      categoryActivationConfig,
+      categoryTrackConfig,
+      completedTracksByDay,
+      selectedDay?.id,
+      teams,
+      trackActivationConfig,
+      vehicleCardConfig,
+    ]
+  );
+
+  const selectedCategoryUnlockStatus = useMemo(
+    () => getSelectedDayCategoryUnlockStatus(selectedCategory?.name),
+    [getSelectedDayCategoryUnlockStatus, selectedCategory?.name]
+  );
+
   const selectedCategoryTracks = useMemo(
     () =>
+      selectedCategoryUnlockStatus.isUnlocked &&
       isCategoryActiveForDay(categoryActivationConfig, selectedDay?.id, selectedCategory?.name)
         ? getActiveTracksForDayCategory(trackActivationConfig, selectedDay?.id, selectedCategory?.name, categoryTrackConfig)
         : [],
-    [categoryActivationConfig, categoryTrackConfig, selectedCategory?.name, selectedDay?.id, trackActivationConfig]
+    [
+      categoryActivationConfig,
+      categoryTrackConfig,
+      selectedCategory?.name,
+      selectedCategoryUnlockStatus.isUnlocked,
+      selectedDay?.id,
+      trackActivationConfig,
+    ]
   );
 
   const dayScopedCategories = useMemo(() => {
@@ -5267,16 +5370,19 @@ export default function App() {
           categoryTrackConfig
         );
         const isCategoryActive = isCategoryActiveForDay(categoryActivationConfig, selectedDay?.id, category.name);
+        const unlockStatus = getSelectedDayCategoryUnlockStatus(category.name);
 
         return {
           ...category,
           isCategoryActive,
+          isLocked: !unlockStatus.isUnlocked,
+          unlockStatus,
           trackCount: activeTracks.length,
           activeTracks,
         };
       })
       .filter(category => category.isCategoryActive && category.trackCount > 0);
-  }, [categories, categoriesWithCounts, categoryActivationConfig, categoryTrackConfig, selectedDay?.id, trackActivationConfig]);
+  }, [categories, categoriesWithCounts, categoryActivationConfig, categoryTrackConfig, getSelectedDayCategoryUnlockStatus, selectedDay?.id, trackActivationConfig]);
 
   const activeSettingsCategoryOptions = useMemo(
     () =>
@@ -5434,6 +5540,18 @@ export default function App() {
   }, [categoryActivationConfig, selectedCategory, selectedDay?.id]);
 
   useEffect(() => {
+    if (!selectedCategory || selectedCategoryUnlockStatus.isUnlocked) {
+      return;
+    }
+
+    setSelectedRecord(null);
+    setSelectedCategoryTrack('');
+    setActiveRecordKey('');
+    setRecordsVisible(false);
+    setFormVisible(false);
+  }, [selectedCategory, selectedCategoryUnlockStatus.isUnlocked]);
+
+  useEffect(() => {
     refreshCompletedTracks().catch(error => {
       console.warn('Unable to refresh completed tracks for selected day:', error);
     });
@@ -5451,12 +5569,44 @@ export default function App() {
   /**
    * Handle card press - Opens registration form
    */
+  const getUnlockMessage = useCallback(
+    (category, unlockStatus = getSelectedDayCategoryUnlockStatus(category?.name)) => {
+      const requirement = unlockStatus.incompleteDays[0];
+      const categoryName = category?.name || 'this category';
+
+      if (!requirement) {
+        return '';
+      }
+
+      return `${requirement.dayLabel} must be completed for ${categoryName} before ${selectedDay?.dayLabel || 'this day'} tracks can be played. Remaining tracks: ${requirement.incompleteTracks.join(', ')}.`;
+    },
+    [getSelectedDayCategoryUnlockStatus, selectedDay?.dayLabel]
+  );
+
+  const canPlaySelectedDayCategory = useCallback(
+    category => {
+      const unlockStatus = getSelectedDayCategoryUnlockStatus(category?.name);
+
+      if (unlockStatus.isUnlocked) {
+        return true;
+      }
+
+      Alert.alert('Tracks Locked', getUnlockMessage(category, unlockStatus));
+      return false;
+    },
+    [getSelectedDayCategoryUnlockStatus, getUnlockMessage]
+  );
+
   const handleCategoryPress = useCallback((category) => {
+    if (!canPlaySelectedDayCategory(category)) {
+      return;
+    }
+
     setSelectedCategory(category);
     setSelectedCategoryTrack('');
     setActiveRecordKey('');
     setRecordsVisible(true);
-  }, []);
+  }, [canPlaySelectedDayCategory]);
 
   const handleDaySelect = day => {
     clearPendingRecordFormOpen();
@@ -6606,6 +6756,10 @@ export default function App() {
 
   const handleRecordStart = record => {
     try {
+      if (!canPlaySelectedDayCategory(selectedCategory)) {
+        return;
+      }
+
       const safeRecord = record || {};
       const recordKey = safeRecord.recordKey || getRecordKey(safeRecord);
       const trackName = String(safeRecord.selectedTrack || selectedCategoryTrack || '').trim();
@@ -6652,6 +6806,10 @@ export default function App() {
   };
 
   const handleTrackCardSelect = track => {
+    if (!canPlaySelectedDayCategory(selectedCategory)) {
+      return;
+    }
+
     setSelectedCategoryTrack(track);
     setActiveRecordKey('');
   };
@@ -6726,6 +6884,10 @@ export default function App() {
 
   const handleDNSRecordSubmit = async record => {
     try {
+      if (!canPlaySelectedDayCategory(selectedCategory)) {
+        return false;
+      }
+
       const safeRecord = record || {};
       const didVerifyPin = await handleVerifyPinForRecord('submit this DNS record');
 

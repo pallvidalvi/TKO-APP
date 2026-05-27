@@ -39,6 +39,21 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     overflow: 'hidden',
   },
+  categoryLockBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    zIndex: 1,
+    borderRadius: 10,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  categoryLockBadgeText: {
+    color: '#ffffff',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
   categoryIcon: {
     fontSize: IS_TABLET ? 34 : 30,
   },

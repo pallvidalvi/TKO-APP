@@ -414,6 +414,19 @@ const removeBundledSeedData = async database => {
   await database.runAsync("DELETE FROM teams WHERE status = 'SEEDED'");
 };
 
+const migrateReclassifiedParticipantCards = async database => {
+  await database.runAsync(
+    `UPDATE teams
+     SET category = ?, car_number = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE TRIM(team_name) = TRIM(?)
+       AND TRIM(driver_name) = TRIM(?)
+       AND TRIM(codriver_name) = TRIM(?)
+       AND category = ?
+       AND car_number = ?`,
+    ['STOCK_NDMS', '10', 'SAHYADRI OFFROADERS', 'RAVI BHALLA', 'NILESH ZENDE', 'DIESEL_MODIFIED', '1']
+  );
+};
+
 const resetVehicleCardsForParticipantRoster = async database => {
   const existingVersion = await database.getFirstAsync(
     'SELECT value FROM app_metadata WHERE key = ?',
@@ -463,6 +476,7 @@ export const seedDatabase = async () => {
       await resetVehicleCardsForParticipantRoster(database);
       await removeLegacySeedData(database);
       await removeBundledSeedData(database);
+      await migrateReclassifiedParticipantCards(database);
 
       for (const team of SEEDED_TEAMS) {
         const existingTeam = await database.getFirstAsync(

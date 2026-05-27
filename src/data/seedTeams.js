@@ -14,6 +14,9 @@ const participant = (category, carNumber, teamName, driverName, driverBloodGroup
 });
 
 export const SEEDED_TEAMS = [
+  participant('EXTREME', '9', 'Team Kolhapur', 'Saish Sankpal', 'B +ve', 'Atharv Date', 'A -ve'),
+  participant('EXTREME', '44', 'SAHYADRI OFFROADERS', 'SARJERAO KAWADE', 'A -ve', 'RUSHI', 'B +ve'),
+
   participant('DIESEL_EXPERT', '1', 'Dyno', 'Manoj', 'B +ve', 'Ganesh', 'AB +ve'),
   participant('DIESEL_EXPERT', '5', 'Ka28 Offroader ', 'Dr Girish patil ', 'B +ve', 'Mohan ', 'B +ve'),
   participant('DIESEL_EXPERT', '7', 'Uzma', 'Asif faras', 'B +ve', 'Saeed shaikh', 'O +ve'),
@@ -28,7 +31,6 @@ export const SEEDED_TEAMS = [
   participant('DIESEL_EXPERT', '99', 'Western ghats off-road club Goa ', 'Santosh Mali', 'B +ve', 'Bhujang kudchikar ', 'B +ve'),
   participant('DIESEL_EXPERT', '101', 'CLUB 4X4 KOLHAPUR', 'TUSSHAR', 'O +ve', 'TUSSHAR', 'O +ve'),
 
-  participant('DIESEL_MODIFIED', '1', 'SAHYADRI OFFROADERS', 'RAVI BHALLA', 'B +ve', 'NILESH ZENDE', 'B +ve'),
   participant('DIESEL_MODIFIED', '9', 'Team Goa', 'Abhishek pawar ', 'A +ve', 'Nijen Cardozo ', 'A +ve'),
   participant('DIESEL_MODIFIED', '21', 'Accelerator Boyz goa', 'Steven Fernandes', 'A +ve', 'Balwant Jagram', 'O +ve'),
   participant('DIESEL_MODIFIED', '23', 'DAKKHAN OFFROADERS', 'SHREYES', 'O +ve', 'DR.RAHOUL', 'B +ve'),
@@ -77,6 +79,7 @@ export const SEEDED_TEAMS = [
   participant('PETROL_MODIFIED', '92', 'DAKKHAN OFFROADERS', 'KARAN GAIKWAD', 'O +ve', 'RAVIRAJ VYAS', 'A +ve'),
 
   participant('STOCK_NDMS', '1', 'PMW', 'Giresh Naidu', 'B +ve', 'Mahesh Biramane', 'A +ve'),
+  participant('STOCK_NDMS', '10', 'SAHYADRI OFFROADERS', 'RAVI BHALLA', 'B +ve', 'NILESH ZENDE', 'B +ve'),
 
   participant('SUV_MODIFIED', '1', 'Mud Monster', 'Aditya Jayantrao Nikam', 'A +ve', 'Pahilwan Shreyasbhau Kikale', 'O +ve'),
   participant('SUV_MODIFIED', '4', 'Team motoRnation ', 'Aniket shete', 'A +ve', 'Anvita shete', 'AB +ve'),
