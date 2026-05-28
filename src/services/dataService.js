@@ -1490,6 +1490,32 @@ const saveWebLeaderboardSnapshot = snapshot => {
   }
 };
 
+const clearWebLeaderboardSnapshot = () => {
+  if (!isWeb) {
+    return;
+  }
+
+  try {
+    window.localStorage.removeItem(WEB_LEADERBOARD_KEY);
+  } catch (error) {
+    console.warn('Unable to clear cached leaderboard snapshot from web storage:', error);
+  }
+};
+
+const clearWebPerformanceStorage = () => {
+  if (!isWeb || typeof window === 'undefined') {
+    return;
+  }
+
+  [WEB_RESULTS_KEY, WEB_DISPUTES_KEY, WEB_LEADERBOARD_KEY].forEach(key => {
+    try {
+      window.localStorage.removeItem(key);
+    } catch (error) {
+      console.warn(`Unable to clear ${key} from web storage:`, error);
+    }
+  });
+};
+
 export const LeaderboardService = {
   exportLeaderboardData: async ({ focusCategory = '', syncBaseUrl = '', categoryOptionsOverride = [] } = {}) => {
     const generatedSnapshot = await buildLeaderboardExportSnapshot({ categoryOptionsOverride });
@@ -1550,6 +1576,29 @@ export const LeaderboardService = {
       synced: true,
       cached: true,
       snapshot,
+    };
+  },
+
+  clearCachedLeaderboardSnapshot: async () => {
+    clearWebLeaderboardSnapshot();
+    return true;
+  },
+};
+
+export const PerformanceDataService = {
+  clearAllPerformanceData: async () => {
+    if (isWeb) {
+      clearWebPerformanceStorage();
+    } else {
+      await Promise.all([
+        clearAllResultsDB(),
+        clearAllDisputesDB(),
+      ]);
+    }
+
+    return {
+      results: await ResultsService.getAllResults(),
+      disputes: await DisputesService.getAllDisputes(),
     };
   },
 };
@@ -2184,5 +2233,6 @@ export default {
   RegistrationsService,
   ResultsService,
   DisputesService,
+  PerformanceDataService,
   promoteExpiredDisputesToResults,
 };

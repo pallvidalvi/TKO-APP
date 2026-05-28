@@ -25,6 +25,7 @@ import {
   ResultsService,
   DisputesService,
   LeaderboardService,
+  PerformanceDataService,
   promoteExpiredDisputesToResults,
 } from './src/services/dataService';
 import { LocalWifiSyncService } from './src/services/localWifiSyncService';
@@ -4695,6 +4696,7 @@ export default function App() {
   const [leaderboardSyncBaseUrlInput, setLeaderboardSyncBaseUrlInput] = useState('');
   const [leaderboardSyncError, setLeaderboardSyncError] = useState('');
   const [leaderboardSyncLoading, setLeaderboardSyncLoading] = useState(false);
+  const [performanceResetLoading, setPerformanceResetLoading] = useState(false);
   const [localWifiReceiverStatus, setLocalWifiReceiverStatus] = useState(() => ({
     running: false,
     port: LocalWifiSyncService.DEFAULT_PORT,
@@ -5764,6 +5766,81 @@ export default function App() {
     setLeaderboardSyncBaseUrlInput(leaderboardSyncBaseUrl);
     setLeaderboardSyncError('');
     setSettingsView('leaderboard-sync');
+  };
+
+  const resetPerformanceData = async () => {
+    try {
+      setPerformanceResetLoading(true);
+      const nextVehicleCardConfig = buildDefaultVehicleCardConfig(categoryTrackConfig);
+
+      await LeaderboardService.clearCachedLeaderboardSnapshot();
+      const { results: remainingResults, disputes: remainingDisputes } =
+        await PerformanceDataService.clearAllPerformanceData();
+      await LocalWifiSyncService.drainSnapshots().catch(error => {
+        console.warn('Unable to clear pending local Wi-Fi leaderboard pushes during reset:', error);
+      });
+      const receiverStatus = await LocalWifiSyncService.stopReceiver().catch(error => {
+        console.warn('Unable to stop local Wi-Fi receiver during reset:', error);
+        return null;
+      });
+
+      if (receiverStatus) {
+        setLocalWifiReceiverStatus(receiverStatus);
+        setLocalWifiReceiverMessage('Receiver stopped during track data reset.');
+      }
+
+      if (remainingResults.length || remainingDisputes.length) {
+        throw new Error(
+          `Track reset did not clear all performance records. Results: ${remainingResults.length}, disputes: ${remainingDisputes.length}`
+        );
+      }
+
+      const refreshedTeams = filterDeletedVehicleCardRecords(await TeamsService.getAllTeams(), []);
+
+      setVehicleCardConfig(nextVehicleCardConfig);
+      setDeletedVehicleCardKeys([]);
+      setTeams(refreshedTeams);
+      setCategoriesWithCounts(prevCategories => {
+        const sourceCategories = prevCategories.length > 0 ? prevCategories : categories;
+        return attachTeamCountsToCategories(sourceCategories, refreshedTeams, categoryTrackConfig);
+      });
+      setDisputeRecords([]);
+      setCompletedTracksByDay(REPORT_DAYS.reduce((acc, day) => ({ ...acc, [day.id]: {} }), {}));
+      setCompletedTracksByRecord({});
+      setSelectedRecord(null);
+      setActiveRecordKey('');
+      setSelectedCategoryTrack('');
+      setSelectedLateStartEnabledByRecord({});
+      setSelectedLateStartByRecord({});
+      setLateStartActionOrderByRecord({});
+      setSettingsTrackNameInput('');
+      setSettingsTrackRenameInputs({});
+      setSettingsVehicleCardForm(getEmptyVehicleCardForm());
+      setFormVisible(false);
+      setRecordsVisible(false);
+      setReportsVisible(false);
+      setLeaderboardVisible(false);
+      setReportMenuVisible(false);
+      setSettingsView('menu');
+      setLeaderboardRefreshKey(prev => prev + 1);
+      Alert.alert(
+        'Track Data Reset',
+        'Results, disputes, and vehicle-card track lists have been reset. Day-wise track selections were kept.'
+      );
+    } catch (error) {
+      console.error('Unable to reset performance data:', error);
+      Alert.alert('Reset Failed', 'Unable to clear performance data right now.');
+    } finally {
+      setPerformanceResetLoading(false);
+    }
+  };
+
+  const handleResetPerformanceData = () => {
+    if (performanceResetLoading) {
+      return;
+    }
+
+    setSettingsView('reset-track-data');
   };
 
   const handleLeaderboardSyncSave = () => {
@@ -7354,10 +7431,12 @@ const buildRegistrationData = formData => ({
                 ? 'Pin Verification'
                 : settingsView === 'change-pin'
                   ? 'Change PIN'
-                  : settingsView === 'disputes'
-                    ? 'Disputes'
-                    : settingsView === 'leaderboard-sync'
-                      ? 'Leaderboard Sync'
+                    : settingsView === 'disputes'
+                      ? 'Disputes'
+                      : settingsView === 'leaderboard-sync'
+                        ? 'Leaderboard Sync'
+                        : settingsView === 'reset-track-data'
+                          ? 'Reset Track Data'
                     : 'Change Password';
 
   const settingsPageSubtitle =
@@ -7383,6 +7462,8 @@ const buildRegistrationData = formData => ({
                     ? 'Review and resolve disputed stopwatch records for the selected day.'
                     : settingsView === 'leaderboard-sync'
                       ? 'Set the website base URL used to push and pull leaderboard data from this installed build.'
+                      : settingsView === 'reset-track-data'
+                        ? 'Clear saved performance records and refresh vehicle-card availability without changing day-wise track selections.'
                     : settingsView === 'password'
                       ? 'Update the password used to open Settings.'
                     : 'Protected tools for race-day configuration.';
@@ -8031,6 +8112,7 @@ const buildRegistrationData = formData => ({
             onClose={() => setReportsVisible(false)}
             selectedDay={selectedDay}
             categoryOptions={reportCategoryOptions}
+            dataRefreshKey={leaderboardRefreshKey}
             theme={theme}
           />
         </FlowErrorBoundary>
@@ -8197,8 +8279,24 @@ const buildRegistrationData = formData => ({
                   style={[
                     styles.settingsMenuCard,
                     styles.settingsMenuCardFeatured,
-                    { backgroundColor: theme.surface, borderColor: theme.border },
+                    { backgroundColor: theme.surface, borderColor: '#7f2830' },
+                    performanceResetLoading ? styles.settingsActionButtonDisabled : null,
                   ]}
+                  onPress={handleResetPerformanceData}
+                  activeOpacity={0.88}
+                  disabled={performanceResetLoading}
+                >
+                  <Text style={[styles.settingsMenuCardEyebrow, { color: '#ff9da4' }]}>Records</Text>
+                  <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Reset Track Data</Text>
+                  <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
+                    {performanceResetLoading
+                      ? 'Resetting performance and vehicle-card availability...'
+                      : 'Clear performance data and make every vehicle card available again.'}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
                   onPress={handleOpenLeaderboardSyncSettings}
                   activeOpacity={0.88}
                 >
@@ -8247,6 +8345,50 @@ const buildRegistrationData = formData => ({
                   </Text>
                 </TouchableOpacity>
 
+              </View>
+            ) : null}
+
+            {settingsView === 'reset-track-data' ? (
+              <View style={[styles.settingsFormCard, { backgroundColor: theme.surface, borderColor: '#7f2830' }]}>
+                <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Reset Track Data</Text>
+                <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                  This clears every saved result and held dispute from this app, and restores vehicle-card track lists
+                  so all vehicle cards are available again for each track. Day-wise track selections stay unchanged.
+                </Text>
+                <Text style={[styles.settingsSectionHint, { color: '#ff9da4' }]}>
+                  This action cannot be undone.
+                </Text>
+                <View style={styles.settingsTrackTimerActionRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.settingsActionButton,
+                      styles.settingsSecondaryButton,
+                      { backgroundColor: theme.surfaceAlt, borderColor: theme.border },
+                      performanceResetLoading ? styles.settingsActionButtonDisabled : null,
+                    ]}
+                    onPress={() => setSettingsView('menu')}
+                    activeOpacity={0.85}
+                    disabled={performanceResetLoading}
+                  >
+                    <Text style={[styles.settingsActionButtonText, styles.settingsSecondaryButtonText, { color: theme.textPrimary }]}>
+                      Cancel
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.settingsActionButton,
+                      styles.settingsDangerActionButton,
+                      performanceResetLoading ? styles.settingsActionButtonDisabled : null,
+                    ]}
+                    onPress={resetPerformanceData}
+                    activeOpacity={0.85}
+                    disabled={performanceResetLoading}
+                  >
+                    <Text style={[styles.settingsActionButtonText, styles.settingsDangerActionText]}>
+                      {performanceResetLoading ? 'Resetting...' : 'Confirm Reset Track Data'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             ) : null}
 
