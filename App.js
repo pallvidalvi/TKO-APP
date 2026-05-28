@@ -976,6 +976,48 @@ const buildDefaultTrackTimerConfig = (categoryTrackConfig = CATEGORY_TRACKS) =>
     return dayAcc;
   }, {});
 
+const normalizeTrackNumber = value => {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return null;
+  }
+
+  const roundedValue = Math.round(numericValue);
+  return roundedValue > 0 && roundedValue <= MAX_TRACKS_PER_CATEGORY ? roundedValue : null;
+};
+
+const buildDefaultTrackNumberConfig = (categoryTrackConfig = CATEGORY_TRACKS) =>
+  REPORT_DAYS.reduce((dayAcc, day) => {
+    dayAcc[day.id] = Object.keys(categoryTrackConfig).reduce((categoryAcc, categoryKey) => {
+      categoryAcc[categoryKey] = (categoryTrackConfig[categoryKey] || []).reduce((trackAcc, trackName) => {
+        trackAcc[trackName] = null;
+        return trackAcc;
+      }, {});
+      return categoryAcc;
+    }, {});
+    return dayAcc;
+  }, {});
+
+const normalizeTrackNumberConfig = (storedConfig, categoryTrackConfig = CATEGORY_TRACKS) => {
+  const fallback = buildDefaultTrackNumberConfig(categoryTrackConfig);
+
+  return REPORT_DAYS.reduce((dayAcc, day) => {
+    dayAcc[day.id] = Object.keys(categoryTrackConfig).reduce((categoryAcc, categoryKey) => {
+      categoryAcc[categoryKey] = (categoryTrackConfig[categoryKey] || []).reduce((trackAcc, trackName) => {
+        trackAcc[trackName] = normalizeTrackNumber(storedConfig?.[day.id]?.[categoryKey]?.[trackName]);
+        return trackAcc;
+      }, {});
+      return categoryAcc;
+    }, {});
+    return dayAcc;
+  }, fallback);
+};
+
 const normalizeVehicleCardKeys = keys => {
   if (!Array.isArray(keys)) {
     return null;
@@ -1112,6 +1154,42 @@ const getActiveTracksForDayCategory = (trackActivationConfig, dayId, categoryNam
   return allTracks.filter(trackName => dayConfig[trackName] !== false);
 };
 
+const getTrackNumber = (trackNumberConfig, dayId, categoryName, trackName) => {
+  const normalizedTrackName = String(trackName || '').trim();
+
+  if (!dayId || !normalizedTrackName) {
+    return null;
+  }
+
+  const categoryKey = normalizeCategoryKey(categoryName || '');
+  return normalizeTrackNumber(trackNumberConfig?.[dayId]?.[categoryKey]?.[normalizedTrackName]);
+};
+
+const getTrackNumberLabel = (trackNumberConfig, dayId, categoryName, trackName) => {
+  const trackNumber = getTrackNumber(trackNumberConfig, dayId, categoryName, trackName);
+  return trackNumber ? `Track ${trackNumber}` : 'Track';
+};
+
+const sortTracksByConfiguredNumber = (tracks = [], trackNumberConfig, dayId, categoryName) =>
+  [...tracks].sort((a, b) => {
+    const aNumber = getTrackNumber(trackNumberConfig, dayId, categoryName, a);
+    const bNumber = getTrackNumber(trackNumberConfig, dayId, categoryName, b);
+
+    if (aNumber !== null && bNumber !== null && aNumber !== bNumber) {
+      return aNumber - bNumber;
+    }
+
+    if (aNumber !== null && bNumber === null) {
+      return -1;
+    }
+
+    if (aNumber === null && bNumber !== null) {
+      return 1;
+    }
+
+    return tracks.indexOf(a) - tracks.indexOf(b);
+  });
+
 const getTrackTimerLimitSeconds = (trackTimerConfig, dayId, categoryName, trackName) => {
   const normalizedTrackName = String(trackName || '').trim();
 
@@ -1138,16 +1216,99 @@ const getConfiguredVehicleCardKeys = (vehicleCardConfig, dayId, categoryName, tr
   return Array.isArray(storedValue) ? storedValue : null;
 };
 
-const getVehicleCardRecordsForTrack = (records = [], vehicleCardConfig, dayId, categoryName, trackName) => {
-  const configuredKeys = getConfiguredVehicleCardKeys(vehicleCardConfig, dayId, categoryName, trackName);
-
-  if (!Array.isArray(configuredKeys)) {
-    return records;
+const rotateVehicleCardKeysForNextTrack = keys => {
+  if (!Array.isArray(keys) || keys.length <= 1) {
+    return Array.isArray(keys) ? [...keys] : [];
   }
 
+  if (keys.length > 7) {
+    return [...keys.slice(2), keys[1], keys[0]];
+  }
+
+  return [...keys.slice(1), keys[0]];
+};
+
+const getDefaultVehicleCardKeysForTrack = ({
+  records = [],
+  dayId = '',
+  categoryName = '',
+  trackName = '',
+  categoryTrackConfig = null,
+  categoryActivationConfig,
+  trackActivationConfig,
+  trackNumberConfig,
+} = {}) => {
+  const baseKeys = [...records].sort(compareRecordsByStickerThenKey).map(record => getVehicleCardKey(record));
+  const categoryKey = normalizeCategoryKey(categoryName || '');
+  const normalizedTrackName = String(trackName || '').trim();
+
+  if (!baseKeys.length || !dayId || !categoryKey || !normalizedTrackName) {
+    return baseKeys;
+  }
+
+  let currentKeys = baseKeys;
+
+  for (const day of REPORT_DAYS) {
+    if (!isCategoryActiveForDay(categoryActivationConfig, day.id, categoryKey)) {
+      if (day.id === dayId) {
+        break;
+      }
+      continue;
+    }
+
+    const dayTracks = sortTracksByConfiguredNumber(
+      getActiveTracksForDayCategory(trackActivationConfig, day.id, categoryKey, categoryTrackConfig),
+      trackNumberConfig,
+      day.id,
+      categoryKey
+    );
+
+    for (const dayTrackName of dayTracks) {
+      if (day.id === dayId && dayTrackName === normalizedTrackName) {
+        return currentKeys;
+      }
+
+      currentKeys = rotateVehicleCardKeysForNextTrack(currentKeys);
+    }
+
+    if (day.id === dayId) {
+      break;
+    }
+  }
+
+  return baseKeys;
+};
+
+const getVehicleCardRecordsForTrack = ({
+  records = [],
+  vehicleCardConfig,
+  dayId = '',
+  categoryName = '',
+  trackName = '',
+  categoryTrackConfig = null,
+  categoryActivationConfig,
+  trackActivationConfig,
+  trackNumberConfig,
+} = {}) => {
+  const configuredKeys = getConfiguredVehicleCardKeys(vehicleCardConfig, dayId, categoryName, trackName);
   const recordsByCardKey = new Map(records.map(record => [getVehicleCardKey(record), record]));
 
-  return configuredKeys.map(key => recordsByCardKey.get(key)).filter(Boolean);
+  if (Array.isArray(configuredKeys)) {
+    return configuredKeys.map(key => recordsByCardKey.get(key)).filter(Boolean);
+  }
+
+  return getDefaultVehicleCardKeysForTrack({
+    records,
+    dayId,
+    categoryName,
+    trackName,
+    categoryTrackConfig,
+    categoryActivationConfig,
+    trackActivationConfig,
+    trackNumberConfig,
+  })
+    .map(key => recordsByCardKey.get(key))
+    .filter(Boolean);
 };
 
 const getCategoryDayUnlockStatus = ({
@@ -1156,6 +1317,7 @@ const getCategoryDayUnlockStatus = ({
   teams = [],
   categoryActivationConfig,
   trackActivationConfig,
+  trackNumberConfig,
   categoryTrackConfig,
   vehicleCardConfig,
   completedTracksByDay = {},
@@ -1172,21 +1334,30 @@ const getCategoryDayUnlockStatus = ({
       return days;
     }
 
-    const activeTracks = getActiveTracksForDayCategory(
-      trackActivationConfig,
+    const activeTracks = sortTracksByConfiguredNumber(
+      getActiveTracksForDayCategory(
+        trackActivationConfig,
+        previousDay.id,
+        categoryName,
+        categoryTrackConfig
+      ),
+      trackNumberConfig,
       previousDay.id,
-      categoryName,
-      categoryTrackConfig
+      categoryName
     );
     const completedTracksByRecord = completedTracksByDay[previousDay.id] || {};
     const incompleteTracks = activeTracks.filter(trackName => {
-      const requiredRecords = getVehicleCardRecordsForTrack(
-        categoryRecords,
+      const requiredRecords = getVehicleCardRecordsForTrack({
+        records: categoryRecords,
         vehicleCardConfig,
-        previousDay.id,
+        dayId: previousDay.id,
         categoryName,
-        trackName
-      ).filter(record => getTeamTracks(record, categoryName, categoryTrackConfig).includes(trackName));
+        trackName,
+        categoryTrackConfig,
+        categoryActivationConfig,
+        trackActivationConfig,
+        trackNumberConfig,
+      }).filter(record => getTeamTracks(record, categoryName, categoryTrackConfig).includes(trackName));
 
       return requiredRecords.some(record => {
         const completedTracks = completedTracksByRecord[getRecordKey(record)] || [];
@@ -1295,6 +1466,7 @@ const loadStoredAppSettings = async () => {
     categoryTrackConfig: fallbackCategoryTrackConfig,
     categoryActivationConfig: buildDefaultCategoryActivationConfig(fallbackCategoryTrackConfig),
     trackActivationConfig: buildDefaultTrackActivationConfig(fallbackCategoryTrackConfig),
+    trackNumberConfig: buildDefaultTrackNumberConfig(fallbackCategoryTrackConfig),
     trackTimerConfig: buildDefaultTrackTimerConfig(fallbackCategoryTrackConfig),
     vehicleCardConfig: buildDefaultVehicleCardConfig(fallbackCategoryTrackConfig),
     deletedVehicleCardKeys: [],
@@ -1321,6 +1493,7 @@ const loadStoredAppSettings = async () => {
         categoryTrackConfig,
         categoryActivationConfig: normalizeCategoryActivationConfig(parsed?.categoryActivationConfig, categoryTrackConfig),
         trackActivationConfig: normalizeTrackActivationConfig(parsed?.trackActivationConfig, categoryTrackConfig),
+        trackNumberConfig: normalizeTrackNumberConfig(parsed?.trackNumberConfig, categoryTrackConfig),
         trackTimerConfig: normalizeTrackTimerConfig(parsed?.trackTimerConfig, categoryTrackConfig),
         vehicleCardConfig: shouldResetVehicleCards
           ? buildDefaultVehicleCardConfig(categoryTrackConfig)
@@ -1353,6 +1526,7 @@ const loadStoredAppSettings = async () => {
         categoryTrackConfig,
         categoryActivationConfig: normalizeCategoryActivationConfig(parsed?.categoryActivationConfig, categoryTrackConfig),
         trackActivationConfig: normalizeTrackActivationConfig(parsed?.trackActivationConfig, categoryTrackConfig),
+        trackNumberConfig: normalizeTrackNumberConfig(parsed?.trackNumberConfig, categoryTrackConfig),
         trackTimerConfig: normalizeTrackTimerConfig(parsed?.trackTimerConfig, categoryTrackConfig),
         vehicleCardConfig: shouldResetVehicleCards
           ? buildDefaultVehicleCardConfig(categoryTrackConfig)
@@ -1381,6 +1555,7 @@ const saveStoredAppSettings = async settings => {
     categoryTrackConfig,
     categoryActivationConfig: normalizeCategoryActivationConfig(settings.categoryActivationConfig, categoryTrackConfig),
     trackActivationConfig: normalizeTrackActivationConfig(settings.trackActivationConfig, categoryTrackConfig),
+    trackNumberConfig: normalizeTrackNumberConfig(settings.trackNumberConfig, categoryTrackConfig),
     trackTimerConfig: normalizeTrackTimerConfig(settings.trackTimerConfig, categoryTrackConfig),
     vehicleCardConfig: normalizeVehicleCardConfig(settings.vehicleCardConfig, categoryTrackConfig),
     deletedVehicleCardKeys: normalizeDeletedVehicleCardKeys(settings.deletedVehicleCardKeys),
@@ -3696,6 +3871,9 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
   category,
   categoryTracks,
   categoryTrackConfig,
+  categoryActivationConfig,
+  trackActivationConfig,
+  trackNumberConfig,
   vehicleCardConfig,
   selectedDay,
   records,
@@ -3723,15 +3901,19 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
   const sequencedRecords = useMemo(
     () =>
       selectedTrackFilter
-        ? getVehicleCardRecordsForTrack(
-            baseOrderedRecords,
+        ? getVehicleCardRecordsForTrack({
+            records: baseOrderedRecords,
             vehicleCardConfig,
-            selectedDay?.id,
-            category?.name,
-            selectedTrackFilter
-          )
+            dayId: selectedDay?.id,
+            categoryName: category?.name,
+            trackName: selectedTrackFilter,
+            categoryTrackConfig,
+            categoryActivationConfig,
+            trackActivationConfig,
+            trackNumberConfig,
+          })
         : baseOrderedRecords,
-    [baseOrderedRecords, category?.name, selectedDay?.id, selectedTrackFilter, vehicleCardConfig]
+    [baseOrderedRecords, category?.name, categoryActivationConfig, categoryTrackConfig, selectedDay?.id, selectedTrackFilter, trackActivationConfig, trackNumberConfig, vehicleCardConfig]
   );
   const serialByRecordKey = useMemo(
     () =>
@@ -3848,7 +4030,9 @@ const CategoryRecordsModal = React.memo(function CategoryRecordsModal({
                   onPress={() => onTrackCardSelect(track)}
                   activeOpacity={0.88}
                 >
-                  <Text style={styles.trackCategoryCardLabel}>Track</Text>
+                  <Text style={styles.trackCategoryCardLabel}>
+                    {getTrackNumberLabel(trackNumberConfig, selectedDay?.id, category?.name, track)}
+                  </Text>
                   <Text style={styles.trackCategoryCardTitle}>{track}</Text>
                 </TouchableOpacity>
               ))}
@@ -4684,6 +4868,7 @@ export default function App() {
   const [categoryTrackConfig, setCategoryTrackConfig] = useState(() => normalizeCategoryTrackConfig());
   const [categoryActivationConfig, setCategoryActivationConfig] = useState(() => buildDefaultCategoryActivationConfig());
   const [trackActivationConfig, setTrackActivationConfig] = useState(() => buildDefaultTrackActivationConfig());
+  const [trackNumberConfig, setTrackNumberConfig] = useState(() => buildDefaultTrackNumberConfig());
   const [trackTimerConfig, setTrackTimerConfig] = useState(() => buildDefaultTrackTimerConfig());
   const [vehicleCardConfig, setVehicleCardConfig] = useState(() => buildDefaultVehicleCardConfig());
   const [deletedVehicleCardKeys, setDeletedVehicleCardKeys] = useState([]);
@@ -4893,6 +5078,7 @@ export default function App() {
       setCategoryTrackConfig(storedSettings.categoryTrackConfig);
       setCategoryActivationConfig(storedSettings.categoryActivationConfig);
       setTrackActivationConfig(storedSettings.trackActivationConfig);
+      setTrackNumberConfig(storedSettings.trackNumberConfig);
       setTrackTimerConfig(storedSettings.trackTimerConfig);
       setVehicleCardConfig(storedSettings.vehicleCardConfig);
       setDeletedVehicleCardKeys(storedSettings.deletedVehicleCardKeys);
@@ -4921,6 +5107,7 @@ export default function App() {
       categoryTrackConfig,
       categoryActivationConfig,
       trackActivationConfig,
+      trackNumberConfig,
       trackTimerConfig,
       vehicleCardConfig,
       deletedVehicleCardKeys,
@@ -4930,7 +5117,7 @@ export default function App() {
     }).catch(error => {
       console.warn('Unable to save admin settings:', error);
     });
-  }, [categoryActivationConfig, categoryTrackConfig, deletedVehicleCardKeys, lateStartPenaltyPoints, leaderboardSyncBaseUrl, securityPin, settingsLoaded, settingsPassword, themeMode, trackActivationConfig, trackTimerConfig, vehicleCardConfig]);
+  }, [categoryActivationConfig, categoryTrackConfig, deletedVehicleCardKeys, lateStartPenaltyPoints, leaderboardSyncBaseUrl, securityPin, settingsLoaded, settingsPassword, themeMode, trackActivationConfig, trackNumberConfig, trackTimerConfig, vehicleCardConfig]);
 
   useEffect(() => {
     if (!deletedVehicleCardKeys.length) {
@@ -5325,6 +5512,7 @@ export default function App() {
         teams,
         categoryActivationConfig,
         trackActivationConfig,
+        trackNumberConfig,
         categoryTrackConfig,
         vehicleCardConfig,
         completedTracksByDay,
@@ -5336,6 +5524,7 @@ export default function App() {
       selectedDay?.id,
       teams,
       trackActivationConfig,
+      trackNumberConfig,
       vehicleCardConfig,
     ]
   );
@@ -5349,7 +5538,12 @@ export default function App() {
     () =>
       selectedCategoryUnlockStatus.isUnlocked &&
       isCategoryActiveForDay(categoryActivationConfig, selectedDay?.id, selectedCategory?.name)
-        ? getActiveTracksForDayCategory(trackActivationConfig, selectedDay?.id, selectedCategory?.name, categoryTrackConfig)
+        ? sortTracksByConfiguredNumber(
+            getActiveTracksForDayCategory(trackActivationConfig, selectedDay?.id, selectedCategory?.name, categoryTrackConfig),
+            trackNumberConfig,
+            selectedDay?.id,
+            selectedCategory?.name
+          )
         : [],
     [
       categoryActivationConfig,
@@ -5358,6 +5552,7 @@ export default function App() {
       selectedCategoryUnlockStatus.isUnlocked,
       selectedDay?.id,
       trackActivationConfig,
+      trackNumberConfig,
     ]
   );
 
@@ -5372,6 +5567,12 @@ export default function App() {
           category.name,
           categoryTrackConfig
         );
+        const sortedActiveTracks = sortTracksByConfiguredNumber(
+          activeTracks,
+          trackNumberConfig,
+          selectedDay?.id,
+          category.name
+        );
         const isCategoryActive = isCategoryActiveForDay(categoryActivationConfig, selectedDay?.id, category.name);
         const unlockStatus = getSelectedDayCategoryUnlockStatus(category.name);
 
@@ -5380,12 +5581,12 @@ export default function App() {
           isCategoryActive,
           isLocked: !unlockStatus.isUnlocked,
           unlockStatus,
-          trackCount: activeTracks.length,
-          activeTracks,
+          trackCount: sortedActiveTracks.length,
+          activeTracks: sortedActiveTracks,
         };
       })
       .filter(category => category.isCategoryActive && category.trackCount > 0);
-  }, [categories, categoriesWithCounts, categoryActivationConfig, categoryTrackConfig, getSelectedDayCategoryUnlockStatus, selectedDay?.id, trackActivationConfig]);
+  }, [categories, categoriesWithCounts, categoryActivationConfig, categoryTrackConfig, getSelectedDayCategoryUnlockStatus, selectedDay?.id, trackActivationConfig, trackNumberConfig]);
 
   const activeSettingsCategoryOptions = useMemo(
     () =>
@@ -5400,9 +5601,14 @@ export default function App() {
       activeSettingsCategoryOptions.map(category => ({
         key: category.key,
         label: category.label,
-        tracks: getActiveTracksForDayCategory(trackActivationConfig, selectedDay?.id, category.key, categoryTrackConfig),
+        tracks: sortTracksByConfiguredNumber(
+          getActiveTracksForDayCategory(trackActivationConfig, selectedDay?.id, category.key, categoryTrackConfig),
+          trackNumberConfig,
+          selectedDay?.id,
+          category.key
+        ),
       })),
-    [activeSettingsCategoryOptions, categoryTrackConfig, selectedDay?.id, trackActivationConfig]
+    [activeSettingsCategoryOptions, categoryTrackConfig, selectedDay?.id, trackActivationConfig, trackNumberConfig]
   );
 
   const leaderboardCategoryOptions = useMemo(
@@ -5448,8 +5654,27 @@ export default function App() {
     () =>
       Array.isArray(configuredVehicleCardKeys)
         ? configuredVehicleCardKeys
-        : settingsVehicleRecords.map(record => getVehicleCardKey(record)),
-    [configuredVehicleCardKeys, settingsVehicleRecords]
+        : getDefaultVehicleCardKeysForTrack({
+            records: settingsVehicleRecords,
+            dayId: settingsConfigDayId,
+            categoryName: settingsConfigCategoryKey,
+            trackName: settingsVehicleCardTrack,
+            categoryTrackConfig,
+            categoryActivationConfig,
+            trackActivationConfig,
+            trackNumberConfig,
+          }),
+    [
+      categoryActivationConfig,
+      categoryTrackConfig,
+      configuredVehicleCardKeys,
+      settingsConfigCategoryKey,
+      settingsConfigDayId,
+      settingsVehicleCardTrack,
+      settingsVehicleRecords,
+      trackActivationConfig,
+      trackNumberConfig,
+    ]
   );
 
   const orderedSettingsVehicleCards = useMemo(() => {
@@ -5671,6 +5896,10 @@ export default function App() {
     setSettingsView('config-track-timer');
   };
 
+  const handleOpenTrackNumberSettings = () => {
+    setSettingsView('config-track-numbers');
+  };
+
   const handleOpenVehicleCardSettings = () => {
     setSettingsView('config-vehicle-cards');
   };
@@ -5707,6 +5936,7 @@ export default function App() {
     if (
       currentView === 'config-visibility' ||
       currentView === 'config-track-manager' ||
+      currentView === 'config-track-numbers' ||
       currentView === 'config-track-timer' ||
       currentView === 'config-vehicle-cards' ||
       currentView === 'config-late-start-penalty'
@@ -6270,6 +6500,19 @@ export default function App() {
       }, { ...prev })
     );
 
+    setTrackNumberConfig(prev =>
+      REPORT_DAYS.reduce((acc, day) => {
+        acc[day.id] = {
+          ...(acc?.[day.id] || {}),
+          [categoryKey]: {
+            ...(acc?.[day.id]?.[categoryKey] || {}),
+            [nextTrackName]: null,
+          },
+        };
+        return acc;
+      }, { ...prev })
+    );
+
     setVehicleCardConfig(prev =>
       REPORT_DAYS.reduce((acc, day) => {
         acc[day.id] = {
@@ -6310,6 +6553,18 @@ export default function App() {
     );
 
     setTrackTimerConfig(prev =>
+      REPORT_DAYS.reduce((acc, day) => {
+        const categoryConfig = { ...(acc?.[day.id]?.[categoryKey] || {}) };
+        delete categoryConfig[normalizedTrackName];
+        acc[day.id] = {
+          ...(acc?.[day.id] || {}),
+          [categoryKey]: categoryConfig,
+        };
+        return acc;
+      }, { ...prev })
+    );
+
+    setTrackNumberConfig(prev =>
       REPORT_DAYS.reduce((acc, day) => {
         const categoryConfig = { ...(acc?.[day.id]?.[categoryKey] || {}) };
         delete categoryConfig[normalizedTrackName];
@@ -6396,6 +6651,21 @@ export default function App() {
     );
 
     setTrackTimerConfig(prev =>
+      REPORT_DAYS.reduce((acc, day) => {
+        const categoryConfig = { ...(acc?.[day.id]?.[categoryKey] || {}) };
+        if (Object.prototype.hasOwnProperty.call(categoryConfig, normalizedOldTrackName)) {
+          categoryConfig[nextTrackName] = categoryConfig[normalizedOldTrackName];
+          delete categoryConfig[normalizedOldTrackName];
+        }
+        acc[day.id] = {
+          ...(acc?.[day.id] || {}),
+          [categoryKey]: categoryConfig,
+        };
+        return acc;
+      }, { ...prev })
+    );
+
+    setTrackNumberConfig(prev =>
       REPORT_DAYS.reduce((acc, day) => {
         const categoryConfig = { ...(acc?.[day.id]?.[categoryKey] || {}) };
         if (Object.prototype.hasOwnProperty.call(categoryConfig, normalizedOldTrackName)) {
@@ -6519,9 +6789,63 @@ export default function App() {
     });
   };
 
+  const handleTrackNumberChange = (dayId, categoryKey, trackName, value) => {
+    const digitsOnly = String(value || '').replace(/\D/g, '').slice(0, 2);
+    const nextValue = normalizeTrackNumber(digitsOnly);
+
+    setTrackNumberConfig(prev => ({
+      ...prev,
+      [dayId]: {
+        ...(prev?.[dayId] || {}),
+        [categoryKey]: {
+          ...Object.entries(prev?.[dayId]?.[categoryKey] || {}).reduce((acc, [storedTrackName, storedNumber]) => {
+            acc[storedTrackName] =
+              nextValue !== null && storedTrackName !== trackName && normalizeTrackNumber(storedNumber) === nextValue
+                ? null
+                : storedNumber;
+            return acc;
+          }, {}),
+          [trackName]: nextValue,
+        },
+      },
+    }));
+  };
+
+  const handleClearTrackNumber = (dayId, categoryKey, trackName) => {
+    setTrackNumberConfig(prev => ({
+      ...prev,
+      [dayId]: {
+        ...(prev?.[dayId] || {}),
+        [categoryKey]: {
+          ...(prev?.[dayId]?.[categoryKey] || {}),
+          [trackName]: null,
+        },
+      },
+    }));
+  };
+
   const getDefaultVehicleCardKeysForSettings = useCallback(
-    () => settingsVehicleRecords.map(record => getVehicleCardKey(record)),
-    [settingsVehicleRecords]
+    () =>
+      getDefaultVehicleCardKeysForTrack({
+        records: settingsVehicleRecords,
+        dayId: settingsConfigDayId,
+        categoryName: settingsConfigCategoryKey,
+        trackName: settingsVehicleCardTrack,
+        categoryTrackConfig,
+        categoryActivationConfig,
+        trackActivationConfig,
+        trackNumberConfig,
+      }),
+    [
+      categoryActivationConfig,
+      categoryTrackConfig,
+      settingsConfigCategoryKey,
+      settingsConfigDayId,
+      settingsVehicleCardTrack,
+      settingsVehicleRecords,
+      trackActivationConfig,
+      trackNumberConfig,
+    ]
   );
 
   const setVehicleCardsForSelectedTrack = useCallback(
@@ -7417,11 +7741,13 @@ const buildRegistrationData = formData => ({
         ? 'Configuration'
         : settingsView === 'config-visibility'
           ? 'Track Visibility'
-          : settingsView === 'config-track-manager'
-            ? 'Track Manager'
+        : settingsView === 'config-track-manager'
+          ? 'Track Manager'
+          : settingsView === 'config-track-numbers'
+            ? 'Track Numbers'
             : settingsView === 'config-track-timer'
-            ? 'Track Timer'
-            : settingsView === 'config-vehicle-cards'
+              ? 'Track Timer'
+              : settingsView === 'config-vehicle-cards'
               ? 'Vehicle Cards'
               : settingsView === 'config-late-start-penalty'
                 ? 'Late Start Penalty Points'
@@ -7446,9 +7772,11 @@ const buildRegistrationData = formData => ({
         ? 'Control which tracks are visible for each day and category.'
         : settingsView === 'config-track-manager'
           ? 'Add, remove, and rename the base track list for each vehicle category.'
-          : settingsView === 'config-track-timer'
-            ? 'Assign a dedicated stopwatch limit to each day, category, and track.'
-            : settingsView === 'config-vehicle-cards'
+          : settingsView === 'config-track-numbers'
+            ? 'Assign Track 1, Track 2, and other play numbers for each day and category.'
+            : settingsView === 'config-track-timer'
+              ? 'Assign a dedicated stopwatch limit to each day, category, and track.'
+              : settingsView === 'config-vehicle-cards'
               ? 'Build the ordered vehicle card list for each day, category, and track.'
               : settingsView === 'config-late-start-penalty'
                 ? 'Choose how many points a late start with penalty subtracts from the race score.'
@@ -8075,6 +8403,9 @@ const buildRegistrationData = formData => ({
             category={selectedCategory}
             categoryTracks={selectedCategoryTracks}
             categoryTrackConfig={categoryTrackConfig}
+            categoryActivationConfig={categoryActivationConfig}
+            trackActivationConfig={trackActivationConfig}
+            trackNumberConfig={trackNumberConfig}
             vehicleCardConfig={vehicleCardConfig}
             selectedDay={selectedDay}
             records={selectedCategoryRecords}
@@ -8444,6 +8775,18 @@ const buildRegistrationData = formData => ({
                   <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Track Manager</Text>
                   <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
                     Add, remove, or rename up to 10 tracks for each vehicle category.
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.settingsMenuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                  onPress={handleOpenTrackNumberSettings}
+                  activeOpacity={0.88}
+                >
+                  <Text style={[styles.settingsMenuCardEyebrow, { color: theme.accent }]}>Configuration</Text>
+                  <Text style={[styles.settingsMenuCardTitle, { color: theme.textPrimary }]}>Track Numbers</Text>
+                  <Text style={[styles.settingsMenuCardText, { color: theme.textSecondary }]}>
+                    Set Track 1, Track 2, and play order numbers for each day and category.
                   </Text>
                 </TouchableOpacity>
 
@@ -8934,6 +9277,154 @@ const buildRegistrationData = formData => ({
                               />
                             </View>
                           </TouchableOpacity>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+              </>
+            ) : null}
+
+            {settingsView === 'config-track-numbers' ? (
+              <>
+                <View style={styles.settingsInfoCard}>
+                  <Text style={[styles.settingsInfoTitle, { color: theme.accent }]}>Track Numbers</Text>
+                  <Text style={[styles.settingsInfoText, { color: theme.textSecondary }]}>
+                    Assign the play number shown on track cards for each day and category. Numbered tracks appear first in number order.
+                  </Text>
+                </View>
+
+                <View style={styles.settingsSection}>
+                  <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Select Day</Text>
+                  <View style={styles.settingsChipWrap}>
+                    {REPORT_DAYS.map(day => {
+                      const selected = settingsConfigDayId === day.id;
+
+                      return (
+                        <TouchableOpacity
+                          key={`track-number-day-${day.id}`}
+                          style={[
+                            styles.settingsChip,
+                            { backgroundColor: theme.surface, borderColor: theme.border },
+                            selected && [styles.settingsChipSelected, { backgroundColor: theme.accent, borderColor: theme.accent }],
+                          ]}
+                          onPress={() => setSettingsConfigDayId(day.id)}
+                          activeOpacity={0.85}
+                        >
+                          <Text
+                            style={[
+                              styles.settingsChipText,
+                              { color: theme.textPrimary },
+                              selected && [styles.settingsChipTextSelected, { color: theme.accentText }],
+                            ]}
+                          >
+                            {day.dayLabel}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                <View style={styles.settingsSection}>
+                  <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Select Category</Text>
+                  <View style={styles.settingsChipWrap}>
+                    {settingsCategoryOptions.map(option => {
+                      const selected = settingsConfigCategoryKey === option.key;
+
+                      return (
+                        <TouchableOpacity
+                          key={`track-number-category-${option.key}`}
+                          style={[
+                            styles.settingsChip,
+                            { backgroundColor: theme.surface, borderColor: theme.border },
+                            selected && [styles.settingsChipSelected, { backgroundColor: theme.accent, borderColor: theme.accent }],
+                          ]}
+                          onPress={() => setSettingsConfigCategoryKey(option.key)}
+                          activeOpacity={0.85}
+                        >
+                          <Text
+                            style={[
+                              styles.settingsChipText,
+                              { color: theme.textPrimary },
+                              selected && [styles.settingsChipTextSelected, { color: theme.accentText }],
+                            ]}
+                          >
+                            {option.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                <View style={styles.settingsSection}>
+                  <Text style={[styles.settingsSectionTitle, { color: theme.textPrimary }]}>Tracks</Text>
+                  <Text style={[styles.settingsSectionHint, { color: theme.textSecondary }]}>
+                    {REPORT_DAYS.find(day => day.id === settingsConfigDayId)?.dayLabel || 'Selected Day'} ·{' '}
+                    {settingsCategoryOptions.find(option => option.key === settingsConfigCategoryKey)?.label || 'Category'}
+                  </Text>
+
+                  <View style={styles.settingsTrackList}>
+                    {configurationTracks.map(trackName => {
+                      const isActive =
+                        trackActivationConfig?.[settingsConfigDayId]?.[settingsConfigCategoryKey]?.[trackName] !== false;
+                      const configuredNumber = getTrackNumber(
+                        trackNumberConfig,
+                        settingsConfigDayId,
+                        settingsConfigCategoryKey,
+                        trackName
+                      );
+
+                      return (
+                        <View
+                          key={`track-number-${settingsConfigDayId}-${settingsConfigCategoryKey}-${trackName}`}
+                          style={[styles.settingsTrackRow, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                        >
+                          <View style={styles.settingsTrackInfo}>
+                            <View style={styles.settingsTrackNameRow}>
+                              <View
+                                style={[
+                                  styles.settingsTrackMarker,
+                                  isActive ? styles.settingsTrackMarkerActive : styles.settingsTrackMarkerInactive,
+                                ]}
+                              />
+                              <Text style={[styles.settingsTrackName, { color: theme.textPrimary }]}>{trackName}</Text>
+                            </View>
+                            <Text style={[styles.settingsTrackStatus, { color: theme.textSecondary }]}>
+                              {configuredNumber ? `Plays as Track ${configuredNumber}` : 'No play number set'}
+                            </Text>
+                          </View>
+                          <View style={styles.settingsAvailableVehicleActions}>
+                            <TextInput
+                              {...STABLE_TEXT_INPUT_PROPS}
+                              value={configuredNumber ? String(configuredNumber) : ''}
+                              onChangeText={value =>
+                                handleTrackNumberChange(settingsConfigDayId, settingsConfigCategoryKey, trackName, value)
+                              }
+                              keyboardType="number-pad"
+                              maxLength={2}
+                              style={[
+                                styles.settingsInput,
+                                {
+                                  width: 76,
+                                  textAlign: 'center',
+                                  backgroundColor: theme.inputBackground,
+                                  borderColor: theme.border,
+                                  color: theme.textPrimary,
+                                },
+                              ]}
+                              placeholder="No."
+                              placeholderTextColor={theme.textTertiary}
+                            />
+                            <TouchableOpacity
+                              style={[styles.settingsAvailableVehicleButton, styles.settingsSecondaryButton, { backgroundColor: theme.surfaceAlt, borderColor: theme.border }]}
+                              onPress={() => handleClearTrackNumber(settingsConfigDayId, settingsConfigCategoryKey, trackName)}
+                              activeOpacity={0.85}
+                            >
+                              <Text style={[styles.settingsActionButtonText, styles.settingsSecondaryButtonText, { color: theme.textPrimary }]}>Clear</Text>
+                            </TouchableOpacity>
+                          </View>
                         </View>
                       );
                     })}
