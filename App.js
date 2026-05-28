@@ -1216,16 +1216,27 @@ const getConfiguredVehicleCardKeys = (vehicleCardConfig, dayId, categoryName, tr
   return Array.isArray(storedValue) ? storedValue : null;
 };
 
-const rotateVehicleCardKeysForNextTrack = keys => {
+const rotateVehicleCardKeysForNextTrack = (keys, usedFirstKeys = new Set()) => {
   if (!Array.isArray(keys) || keys.length <= 1) {
     return Array.isArray(keys) ? [...keys] : [];
   }
 
-  if (keys.length > 7) {
-    return [...keys.slice(2), keys[1], keys[0]];
+  const rotatedKeys =
+    keys.length > 7
+      ? [...keys.slice(2), keys[1], keys[0]]
+      : [...keys.slice(1), keys[0]];
+
+  if (usedFirstKeys.size >= keys.length || !usedFirstKeys.has(rotatedKeys[0])) {
+    return rotatedKeys;
   }
 
-  return [...keys.slice(1), keys[0]];
+  const nextUnusedIndex = rotatedKeys.findIndex(key => !usedFirstKeys.has(key));
+
+  if (nextUnusedIndex <= 0) {
+    return rotatedKeys;
+  }
+
+  return [...rotatedKeys.slice(nextUnusedIndex), ...rotatedKeys.slice(0, nextUnusedIndex)];
 };
 
 const getDefaultVehicleCardKeysForTrack = ({
@@ -1247,6 +1258,7 @@ const getDefaultVehicleCardKeysForTrack = ({
   }
 
   let currentKeys = baseKeys;
+  const usedFirstKeys = new Set();
 
   for (const day of REPORT_DAYS) {
     if (!isCategoryActiveForDay(categoryActivationConfig, day.id, categoryKey)) {
@@ -1268,7 +1280,11 @@ const getDefaultVehicleCardKeysForTrack = ({
         return currentKeys;
       }
 
-      currentKeys = rotateVehicleCardKeysForNextTrack(currentKeys);
+      if (currentKeys[0]) {
+        usedFirstKeys.add(currentKeys[0]);
+      }
+
+      currentKeys = rotateVehicleCardKeysForNextTrack(currentKeys, usedFirstKeys);
     }
 
     if (day.id === dayId) {
